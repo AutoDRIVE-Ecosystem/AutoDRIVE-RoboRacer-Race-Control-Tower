@@ -491,6 +491,7 @@
             </div>
           </div>
           <div class="modal-footer">
+            <button id="clearAccidentLogsButton" type="button" class="btn btn-outline-danger">Clear</button>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
           </div>
         </div>
@@ -631,6 +632,7 @@
       const includeCameraCheckbox = document.getElementById("includeCamera");
       const accidentLogsButton = document.getElementById("accidentLogsButton");
       const accidentLogsButtonText = document.getElementById("accidentLogsButtonText");
+      const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
       const accidentLogsList = document.getElementById("accidentLogsList");
       const roboracers = {
         1: {
@@ -758,6 +760,7 @@
       function updateAccidentLogsButton() {
         const count = accidentLogs.length;
         accidentLogsButton.disabled = false;
+        clearAccidentLogsButton.disabled = count === 0;
         accidentLogsButtonText.textContent = count > 0
           ? `Open Accident logs (${count})`
           : "Open Accident logs";
@@ -797,6 +800,20 @@
         });
         if (!response.ok) {
           throw new Error(`Failed to load accident logs: ${response.status} ${response.statusText}`);
+        }
+        const payload = await response.json();
+        accidentLogs = Array.isArray(payload.accident_logs) ? payload.accident_logs : [];
+        renderAccidentLogs();
+        updateAccidentLogsButton();
+      }
+
+      async function clearAccidentLogs() {
+        const response = await fetch(monitorRestUrl(`/accident-logs?ts=${Date.now()}`), {
+          method: "DELETE",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to clear accident logs: ${response.status} ${response.statusText}`);
         }
         const payload = await response.json();
         accidentLogs = Array.isArray(payload.accident_logs) ? payload.accident_logs : [];
@@ -2099,6 +2116,11 @@
       accidentLogsDialog.addEventListener("show.bs.modal", () => {
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
+        });
+      });
+      clearAccidentLogsButton.addEventListener("click", () => {
+        void clearAccidentLogs().catch((error) => {
+          console.warn("Failed to clear accident logs:", error);
         });
       });
 

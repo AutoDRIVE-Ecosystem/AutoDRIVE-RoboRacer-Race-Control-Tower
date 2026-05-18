@@ -680,6 +680,10 @@ class RaceControlTower:
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_get,
         )
+        app.router.add_delete(
+            "/monitor/REST/{version}/accident-logs",
+            self.handle_monitor_accident_logs_delete,
+        )
         app.router.add_post(
             "/monitor/REST/{version}/devkits/{vehicle_id}/endpoint",
             self.handle_monitor_devkit_endpoint_command,
@@ -930,6 +934,29 @@ class RaceControlTower:
             {
                 "protocol": "autodrive-rct-monitor",
                 "version": MONITOR_PROTOCOL_VERSION,
+                "accident_logs": self.state.accident_logs(),
+            }
+        )
+
+    async def handle_monitor_accident_logs_delete(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        deleted = 0
+        output_dir = self.accident_recorder.output_dir
+        if output_dir.exists():
+            for path in output_dir.glob("autodrive *.mcap"):
+                if not path.is_file():
+                    continue
+                path.unlink()
+                deleted += 1
+        self.refresh_accident_logs_from_disk()
+        await self.publish_status()
+        return web.json_response(
+            {
+                "ok": True,
+                "deleted": deleted,
                 "accident_logs": self.state.accident_logs(),
             }
         )
