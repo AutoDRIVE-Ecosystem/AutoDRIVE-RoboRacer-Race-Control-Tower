@@ -244,6 +244,27 @@
         background-color: #adb5bd;
       }
 
+      .rct-record-button {
+        align-items: center;
+        border-radius: 6px;
+        display: inline-flex;
+        gap: 0.4rem;
+        min-width: 5.25rem;
+      }
+
+      .rct-record-icon {
+        background-color: #dc3545;
+        border-radius: 50%;
+        display: inline-block;
+        height: 0.65rem;
+        width: 0.65rem;
+      }
+
+      .rct-record-button.is-recording .rct-record-icon {
+        background-color: #ffffff;
+        border-radius: 2px;
+      }
+
       .rct-stat-list {
         font-size: 0.875rem;
       }
@@ -516,12 +537,16 @@
       </div>
     </main>
     <footer class="text-body-secondary py-2 border-top rct-footer">
-      <div class="container-fluid d-flex justify-content-between align-items-center">
+      <div class="container-fluid d-flex justify-content-between align-items-center position-relative">
         <div class="status-indicator">
           <span id="simulatorStatusDot" class="status-dot status-dot-offline" aria-hidden="true"></span>
           <span>Simulator</span>
           <strong id="simulatorStatusText">Disconnected</strong>
         </div>
+        <button id="recordButton" class="btn btn-sm btn-light rct-record-button position-absolute start-50 translate-middle-x" type="button" aria-pressed="false" aria-label="Start recording">
+          <span class="rct-record-icon" aria-hidden="true"></span>
+          <span id="recordButtonText">Record</span>
+        </button>
         <div class="status-indicator">
           <span>RCT Server</span>
           <strong id="rctStatusText">Connecting</strong>
@@ -541,6 +566,8 @@
       const allRestrictedTopicsCheckbox = document.getElementById("allRestrictedTopics");
       const topicsTableBody = document.getElementById("topicsTableBody");
       const settingsTabButtons = Array.from(document.querySelectorAll("#settingsTabs [data-bs-toggle='tab']"));
+      const recordButton = document.getElementById("recordButton");
+      const recordButtonText = document.getElementById("recordButtonText");
       const roboracers = {
         1: {
           hostInput: document.getElementById("roboracer1Ip"),
@@ -632,6 +659,7 @@
       let appliedTopicSelections = {};
       let topicSettingsSaveChain = Promise.resolve();
       let simulatorConnected = false;
+      let recording = false;
 
       function frontendWebSocketUrl() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -658,6 +686,22 @@
         };
         rctStatusText.textContent = labels[status];
         rctStatusDot.className = `status-dot status-dot-${status}`;
+      }
+
+      function setRecording(enabled) {
+        recording = enabled;
+        recordButton.classList.toggle("is-recording", enabled);
+        recordButton.className = enabled
+          ? "btn btn-sm btn-danger rct-record-button is-recording"
+          : "btn btn-sm btn-light rct-record-button";
+        recordButton.setAttribute("aria-pressed", enabled ? "true" : "false");
+        recordButton.setAttribute("aria-label", enabled ? "Stop recording" : "Start recording");
+        recordButtonText.textContent = enabled ? "Stop" : "Record";
+        console.log(enabled ? "Recording started" : "Recording stopped");
+      }
+
+      function toggleRecording() {
+        setRecording(!recording);
       }
 
       function topicAccessLabel(access) {
@@ -1322,6 +1366,7 @@
 
       roboracers[1].statusButton.addEventListener("click", () => toggleRoboracer(1));
       roboracers[2].statusButton.addEventListener("click", () => toggleRoboracer(2));
+      recordButton.addEventListener("click", toggleRecording);
       roboracers[1].hostInput.addEventListener("input", () => markRoboracerEndpointDirty(1));
       roboracers[1].portInput.addEventListener("input", () => markRoboracerEndpointDirty(1));
       roboracers[2].hostInput.addEventListener("input", () => markRoboracerEndpointDirty(2));
