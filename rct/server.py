@@ -19,6 +19,7 @@ import socketio
 from socketio import packet as socketio_packet
 from aiohttp import WSMsgType, web
 
+from .accident_recorder import AccidentRecorder, list_accident_logs
 from .bridge import (
     BridgeHistory,
     BridgeRateTracker,
@@ -44,7 +45,7 @@ from .protocol import (
     rewrite_devkit_payload_to_simulator,
     rewrite_simulator_payload_to_devkit,
 )
-from .state import DevKitMonitorState, RaceControlState
+from .state import AccidentLogMonitorState, DevKitMonitorState, RaceControlState
 from .static_files import build_static_file_response
 
 LOGGER = logging.getLogger("rct")
@@ -549,6 +550,7 @@ class RaceControlTower:
         self.simulator_sids: set[str] = set()
         self.monitor_hub = MonitorEventHub()
         self.bridge_history = BridgeHistory(settings.bridge_history_seconds)
+        self.accident_recorder = AccidentRecorder()
         self.control_cache = ControlCache()
         self.bridge_rates = BridgeRateTracker()
         self.latest_front_camera_fields: dict[str, Any] = {}
@@ -596,6 +598,7 @@ class RaceControlTower:
             for devkit in self.devkits
         )
         self.state.set_topic_selections(default_topic_selections())
+        self.refresh_accident_logs_from_disk()
         self._register_socketio_handlers()
         self._register_engineio_compat_handlers()
 
@@ -672,6 +675,10 @@ class RaceControlTower:
         app.router.add_post(
             "/monitor/REST/{version}/accident-recorder",
             self.handle_monitor_accident_recorder_post,
+        )
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-logs",
+            self.handle_monitor_accident_logs_get,
         )
         app.router.add_post(
             "/monitor/REST/{version}/devkits/{vehicle_id}/endpoint",
@@ -910,6 +917,20 @@ class RaceControlTower:
             {
                 "ok": True,
                 "accident_recorder": self.state.accident_recorder_settings(),
+            }
+        )
+
+    async def handle_monitor_accident_logs_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        self.refresh_accident_logs_from_disk()
+        return web.json_response(
+            {
+                "protocol": "autodrive-rct-monitor",
+                "version": MONITOR_PROTOCOL_VERSION,
+                "accident_logs": self.state.accident_logs(),
             }
         )
 
@@ -1163,7 +1184,16 @@ class RaceControlTower:
                 bridge_field_size(payload, "V1 LIDAR Intensity Array"),
                 bridge_field_size(payload, "V2 LIDAR Intensity Array"),
             )
-        self.log_collision_count_changes(payload)
+        settings = self.state.accident_recorder_settings()
+        pre_accident_seconds = float(settings["pre_accident_seconds"])
+        include_camera = bool(settings["include_camera"])
+        self.accident_recorder.record_bridge_payload(
+            raw_payload,
+            pre_accident_seconds=pre_accident_seconds,
+            include_camera=include_camera,
+            event="simulator/Bridge",
+        )
+        collision_triggers = self.record_collision_count_changes(payload)
         bridge_history_payload_value = bridge_history_payload(
             payload,
             empty_front_camera=self.settings.empty_front_camera_in_bridge_history,
@@ -1183,6 +1213,9 @@ class RaceControlTower:
                 continue
             devkit.awaiting_initial_bridge = not await self.send_cached_incoming_bridge(devkit)
         await self.publish_simulator_telemetry(payload, "Bridge")
+        if collision_triggers:
+            vehicle_id, count = collision_triggers[0]
+            self.start_accident_record_save(vehicle_id, count, pre_accident_seconds)
         await self.emit_control_cache_to_simulator()
 
     async def send_cached_incoming_bridge(self, devkit: DevKitConnection) -> bool:
@@ -1372,15 +1405,59 @@ class RaceControlTower:
             bridge_per_minute=int(rates["bridge_per_minute"]),
         )
 
-    def log_collision_count_changes(self, payload: Any) -> None:
-        if not self.settings.debug_bridge_flow:
-            return
-
+    def record_collision_count_changes(self, payload: Any) -> list[tuple[int, int]]:
+        triggers: list[tuple[int, int]] = []
         for vehicle_id, count in sorted(extract_collision_counts(payload).items()):
             previous_count = self.collision_counts.get(vehicle_id)
             self.collision_counts[vehicle_id] = count
             if previous_count is not None and count > previous_count:
-                LOGGER.info("%s", color_arrow(f"COLLISION DETECTED [V{vehicle_id}]", ANSI_RED))
+                triggers.append((vehicle_id, count))
+                if self.settings.debug_bridge_flow:
+                    LOGGER.info("%s", color_arrow(f"COLLISION DETECTED [V{vehicle_id}]", ANSI_RED))
+        return triggers
+
+    def start_accident_record_save(
+        self,
+        trigger_vehicle_id: int,
+        collision_count: int,
+        pre_accident_seconds: float,
+    ) -> None:
+        records = self.accident_recorder.snapshot(pre_accident_seconds=pre_accident_seconds)
+        task = asyncio.create_task(
+            self.save_accident_record(trigger_vehicle_id, collision_count, records),
+        )
+        task.add_done_callback(self._log_accident_record_save_failure)
+
+    async def save_accident_record(
+        self,
+        trigger_vehicle_id: int,
+        collision_count: int,
+        records: list[Any],
+    ) -> None:
+        try:
+            accident_log = await asyncio.to_thread(
+                self.accident_recorder.write_mcap,
+                records,
+                trigger_vehicle_id=trigger_vehicle_id,
+                collision_count=collision_count,
+            )
+        except ModuleNotFoundError:
+            LOGGER.exception("mcap package is not installed; cannot save accident record")
+            return
+        monitor_log = AccidentLogMonitorState(
+            filename=accident_log.filename,
+            path=accident_log.path,
+            time=accident_log.time,
+            size_bytes=accident_log.size_bytes,
+        )
+        self.state.add_accident_log(monitor_log)
+        await self.publish_status()
+
+    def _log_accident_record_save_failure(self, task: asyncio.Task[None]) -> None:
+        try:
+            task.result()
+        except Exception:
+            LOGGER.exception("accident record save failed")
 
     def log_bridge_flow(
         self,
@@ -1650,6 +1727,17 @@ class RaceControlTower:
             "trace_lidar_vehicle_ids": sorted(self.trace_lidar_vehicle_ids),
             **snapshot,
         }
+
+    def refresh_accident_logs_from_disk(self) -> None:
+        self.state.set_accident_logs(
+            AccidentLogMonitorState(
+                filename=accident_log.filename,
+                path=accident_log.path,
+                time=accident_log.time,
+                size_bytes=accident_log.size_bytes,
+            )
+            for accident_log in list_accident_logs(self.accident_recorder.output_dir)
+        )
 
     def topic_options_payload(self) -> list[dict[str, Any]]:
         selections = self.resolved_topic_selections()

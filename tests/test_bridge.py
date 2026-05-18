@@ -4,7 +4,10 @@ import asyncio
 import unittest
 import base64
 import gzip
+from datetime import datetime
+from tempfile import TemporaryDirectory
 
+from rct.accident_recorder import AccidentRecorder, accident_log_filename, list_accident_logs
 from rct.bridge import (
     BridgeHistory,
     BridgeRateTracker,
@@ -149,6 +152,54 @@ class CollisionCountTests(unittest.TestCase):
         counts = extract_collision_counts({"V1 Collision Count": "n/a"})
 
         self.assertEqual(counts, {})
+
+
+class AccidentRecorderTests(unittest.TestCase):
+    def test_ring_buffer_keeps_pre_accident_window(self):
+        recorder = AccidentRecorder()
+
+        recorder.record_bridge_payload({"old": 1}, pre_accident_seconds=5.0, include_camera=False, now=10.0, wall_time=10)
+        recorder.record_bridge_payload({"new": 2}, pre_accident_seconds=5.0, include_camera=False, now=16.0, wall_time=16)
+
+        snapshot = recorder.snapshot(now=16.0, pre_accident_seconds=5.0)
+
+        self.assertEqual([record.payload for record in snapshot], [{"new": 2}])
+
+    def test_ring_buffer_omits_front_camera_when_disabled(self):
+        recorder = AccidentRecorder()
+
+        recorder.record_bridge_payload(
+            {"V1 Front Camera Image": "large", "V1 Position": "1 2 3"},
+            pre_accident_seconds=5.0,
+            include_camera=False,
+            now=10.0,
+            wall_time=10,
+        )
+
+        snapshot = recorder.snapshot(now=10.0, pre_accident_seconds=5.0)
+
+        self.assertEqual(snapshot[0].payload, {"V1 Position": "1 2 3"})
+
+    def test_accident_log_filename_uses_requested_format(self):
+        filename = accident_log_filename(datetime(2026, 5, 19, 1, 2, 3, 456789))
+
+        self.assertEqual(filename, "autodrive 2026-05-19 01:02:03:456.mcap")
+
+    def test_lists_accident_logs_newest_first(self):
+        with TemporaryDirectory() as temporary_directory:
+            old_path = f"{temporary_directory}/autodrive 2026-05-19 01:02:03:456.mcap"
+            new_path = f"{temporary_directory}/autodrive 2026-05-19 01:02:04:000.mcap"
+            with open(old_path, "wb") as output:
+                output.write(b"old")
+            with open(new_path, "wb") as output:
+                output.write(b"new")
+
+            logs = list_accident_logs(temporary_directory)
+
+        self.assertEqual([log.filename for log in logs], [
+            "autodrive 2026-05-19 01:02:04:000.mcap",
+            "autodrive 2026-05-19 01:02:03:456.mcap",
+        ])
 
 
 class MonitorTelemetryTests(unittest.TestCase):

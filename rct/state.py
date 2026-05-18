@@ -22,6 +22,14 @@ class DevKitMonitorState:
     bridge_per_minute: int = 0
 
 
+@dataclass
+class AccidentLogMonitorState:
+    filename: str
+    path: str
+    time: str
+    size_bytes: int
+
+
 class RaceControlState:
     def __init__(self) -> None:
         self._lock = RLock()
@@ -34,6 +42,7 @@ class RaceControlState:
             "pre_accident_seconds": 5.0,
             "include_camera": False,
         }
+        self._accident_logs: list[AccidentLogMonitorState] = []
 
     def configure_devkits(self, devkits: Iterable[DevKitMonitorState]) -> None:
         with self._lock:
@@ -161,6 +170,26 @@ class RaceControlState:
         with self._lock:
             return dict(self._accident_recorder_settings)
 
+    def set_accident_logs(self, accident_logs: Iterable[AccidentLogMonitorState]) -> None:
+        next_logs = list(accident_logs)
+        with self._lock:
+            if self._accident_logs == next_logs:
+                return
+            self._accident_logs = next_logs
+            self._revision += 1
+
+    def add_accident_log(self, accident_log: AccidentLogMonitorState) -> None:
+        with self._lock:
+            self._accident_logs = [
+                accident_log,
+                *[log for log in self._accident_logs if log.filename != accident_log.filename],
+            ]
+            self._revision += 1
+
+    def accident_logs(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [asdict(accident_log) for accident_log in self._accident_logs]
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -170,4 +199,5 @@ class RaceControlState:
                 "devkits": [asdict(devkit) for devkit in self._devkits.values()],
                 "topic_selections": dict(self._topic_selections),
                 "accident_recorder": dict(self._accident_recorder_settings),
+                "accident_logs": [asdict(accident_log) for accident_log in self._accident_logs],
             }

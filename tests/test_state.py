@@ -2,7 +2,7 @@
 
 import unittest
 
-from rct.state import DevKitMonitorState, RaceControlState
+from rct.state import AccidentLogMonitorState, DevKitMonitorState, RaceControlState
 
 
 class RaceControlStateTests(unittest.TestCase):
@@ -96,6 +96,29 @@ class RaceControlStateTests(unittest.TestCase):
 
         self.assertEqual(state.snapshot()["accident_recorder"]["pre_accident_seconds"], 3.5)
         self.assertTrue(state.snapshot()["accident_recorder"]["include_camera"])
+
+    def test_snapshot_tracks_accident_logs(self):
+        state = RaceControlState()
+        state.add_accident_log(
+            AccidentLogMonitorState(
+                filename="autodrive 2026-05-19 12:00:00:001.mcap",
+                path="accident_logs/autodrive 2026-05-19 12:00:00:001.mcap",
+                time="2026-05-19 12:00:00:001",
+                size_bytes=123,
+            )
+        )
+
+        self.assertEqual(
+            state.snapshot()["accident_logs"],
+            [
+                {
+                    "filename": "autodrive 2026-05-19 12:00:00:001.mcap",
+                    "path": "accident_logs/autodrive 2026-05-19 12:00:00:001.mcap",
+                    "time": "2026-05-19 12:00:00:001",
+                    "size_bytes": 123,
+                }
+            ],
+        )
 
     def test_revision_changes_only_when_values_change(self):
         state = RaceControlState()

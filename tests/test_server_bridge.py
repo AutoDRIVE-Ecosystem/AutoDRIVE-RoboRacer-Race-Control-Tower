@@ -6,6 +6,7 @@ import json
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import monotonic
 
 from rct.config import Settings
@@ -359,6 +360,35 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(payload["accident_recorder"]["include_camera"])
         self.assertEqual(follow_up_payload["accident_recorder"]["pre_accident_seconds"], 3.5)
         self.assertTrue(follow_up_payload["accident_recorder"]["include_camera"])
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    @unittest.skipIf(not AIOHTTP_AVAILABLE, "aiohttp is not installed")
+    async def test_monitor_accident_logs_get_returns_files_from_recorder_directory(self):
+        tower = RaceControlTower(test_settings())
+        with TemporaryDirectory() as temporary_directory:
+            tower.accident_recorder.output_dir = Path(temporary_directory)
+            accident_log = tower.accident_recorder.output_dir / "autodrive 2026-05-19 01:02:03:456.mcap"
+            accident_log.write_bytes(b"mcap")
+            tower_app = tower.create_app()
+            tower_runner = web.AppRunner(tower_app)
+            await tower_runner.setup()
+            tower_site = web.TCPSite(tower_runner, "127.0.0.1", 0)
+            await tower_site.start()
+            tower_port = tower_runner.addresses[0][1]
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    response = await session.get(
+                        f"http://127.0.0.1:{tower_port}/monitor/REST/latest/accident-logs?ts=123",
+                    )
+                    self.assertEqual(response.status, 200)
+                    payload = await response.json()
+            finally:
+                await tower_runner.cleanup()
+
+        self.assertEqual(len(payload["accident_logs"]), 1)
+        self.assertEqual(payload["accident_logs"][0]["filename"], "autodrive 2026-05-19 01:02:03:456.mcap")
+        self.assertEqual(payload["accident_logs"][0]["time"], "2026-05-19 01:02:03:456")
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_presplit_bridge_payload_filters_disabled_topics_and_keeps_enabled_inputs(self):

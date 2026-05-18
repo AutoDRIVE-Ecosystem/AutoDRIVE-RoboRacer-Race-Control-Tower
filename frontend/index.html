@@ -266,12 +266,15 @@
       }
 
       .rct-accident-logs-dialog .modal-body {
+        max-height: calc(100vh - 12rem);
         min-height: 22rem;
+        overflow: hidden;
       }
 
       .rct-accident-logs-list {
         border: 1px solid #dee2e6;
         border-radius: 0.5rem;
+        max-height: calc(100vh - 16rem);
         min-height: 20rem;
         overflow: auto;
       }
@@ -279,7 +282,9 @@
       .rct-accident-logs-detail {
         border: 1px solid #dee2e6;
         border-radius: 0.5rem;
+        max-height: calc(100vh - 16rem);
         min-height: 20rem;
+        overflow: auto;
       }
 
       .rct-stat-list {
@@ -617,6 +622,7 @@
       const simulatorStatusDot = document.getElementById("simulatorStatusDot");
       const simulatorStatusText = document.getElementById("simulatorStatusText");
       const settingsDialog = document.getElementById("settingsDialog");
+      const accidentLogsDialog = document.getElementById("accidentLogsDialog");
       const settingsApplyButton = document.getElementById("settingsApplyButton");
       const allRestrictedTopicsCheckbox = document.getElementById("allRestrictedTopics");
       const topicsTableBody = document.getElementById("topicsTableBody");
@@ -759,6 +765,13 @@
 
       function renderAccidentLogs() {
         accidentLogsList.innerHTML = "";
+        if (accidentLogs.length === 0) {
+          const emptyItem = document.createElement("div");
+          emptyItem.className = "list-group-item text-body-secondary";
+          emptyItem.textContent = "No accident logs";
+          accidentLogsList.appendChild(emptyItem);
+          return;
+        }
         for (const [index, accidentLog] of accidentLogs.entries()) {
           const item = document.createElement("button");
           item.className = `list-group-item list-group-item-action${index === 0 ? " active" : ""}`;
@@ -776,6 +789,19 @@
           });
           accidentLogsList.appendChild(item);
         }
+      }
+
+      async function loadAccidentLogs() {
+        const response = await fetch(monitorRestUrl(`/accident-logs?ts=${Date.now()}`), {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to load accident logs: ${response.status} ${response.statusText}`);
+        }
+        const payload = await response.json();
+        accidentLogs = Array.isArray(payload.accident_logs) ? payload.accident_logs : [];
+        renderAccidentLogs();
+        updateAccidentLogsButton();
       }
 
       function topicAccessLabel(access) {
@@ -1488,6 +1514,11 @@
           setSimulatorStatus(Number(message.simulator_clients || 0) > 0);
           updateRoboracerStatusFromState(message.devkits);
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
+          if (Array.isArray(message.accident_logs)) {
+            accidentLogs = message.accident_logs;
+            renderAccidentLogs();
+            updateAccidentLogsButton();
+          }
         } else if (message.event === "telemetry") {
           updateTelemetry(message.vehicles);
         }
@@ -2065,11 +2096,19 @@
           console.warn("Failed to refresh accident recorder settings:", error);
         });
       });
+      accidentLogsDialog.addEventListener("show.bs.modal", () => {
+        void loadAccidentLogs().catch((error) => {
+          console.warn("Failed to refresh accident logs:", error);
+        });
+      });
 
       async function initializeFrontend() {
         renderTopicOptions(fallbackTopicOptions, {});
         renderAccidentLogs();
         updateAccidentLogsButton();
+        void loadAccidentLogs().catch((error) => {
+          console.warn("Failed to load accident logs:", error);
+        });
         updateSettingsApplyState();
         setRotation(90);
         updateRecenterButton();
