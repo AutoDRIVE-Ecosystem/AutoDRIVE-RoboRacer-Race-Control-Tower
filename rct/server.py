@@ -665,6 +665,14 @@ class RaceControlTower:
         app.router.add_get("/monitor/REST/{version}", self.handle_monitor_rest)
         app.router.add_get("/monitor/REST/{version}/topics", self.handle_monitor_topics_get)
         app.router.add_post("/monitor/REST/{version}/topics", self.handle_monitor_topics_post)
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-recorder",
+            self.handle_monitor_accident_recorder_get,
+        )
+        app.router.add_post(
+            "/monitor/REST/{version}/accident-recorder",
+            self.handle_monitor_accident_recorder_post,
+        )
         app.router.add_post(
             "/monitor/REST/{version}/devkits/{vehicle_id}/endpoint",
             self.handle_monitor_devkit_endpoint_command,
@@ -865,6 +873,43 @@ class RaceControlTower:
                 "ok": True,
                 "topics": self.topic_options_payload(),
                 "topic_selections": self.state.topic_selections(),
+            }
+        )
+
+    async def handle_monitor_accident_recorder_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        return web.json_response(
+            {
+                "protocol": "autodrive-rct-monitor",
+                "version": MONITOR_PROTOCOL_VERSION,
+                "accident_recorder": self.state.accident_recorder_settings(),
+            }
+        )
+
+    async def handle_monitor_accident_recorder_post(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            body = {}
+
+        try:
+            settings = self.validate_accident_recorder_settings(body)
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        self.state.set_accident_recorder_settings(**settings)
+        await self.publish_status()
+        return web.json_response(
+            {
+                "ok": True,
+                "accident_recorder": self.state.accident_recorder_settings(),
             }
         )
 
@@ -1630,6 +1675,17 @@ class RaceControlTower:
                 raise ValueError(f"topic {topic!r} enabled flag must be a boolean")
             validated_topic_selections[topic] = enabled
         return validated_topic_selections
+
+    def validate_accident_recorder_settings(self, settings: dict[str, Any]) -> dict[str, float]:
+        value = settings.get("pre_accident_seconds")
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError("pre_accident_seconds must be a number")
+        pre_accident_seconds = float(value)
+        if pre_accident_seconds < 0:
+            raise ValueError("pre_accident_seconds must be greater than or equal to 0")
+        if pre_accident_seconds > 60:
+            raise ValueError("pre_accident_seconds must be less than or equal to 60")
+        return {"pre_accident_seconds": pre_accident_seconds}
 
     def resolved_topic_selections(self) -> dict[str, bool]:
         selections = default_topic_selections()

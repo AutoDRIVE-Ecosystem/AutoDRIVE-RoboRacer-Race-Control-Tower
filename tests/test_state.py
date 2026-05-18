@@ -86,6 +86,15 @@ class RaceControlStateTests(unittest.TestCase):
             },
         )
 
+    def test_snapshot_tracks_accident_recorder_settings(self):
+        state = RaceControlState()
+
+        self.assertEqual(state.snapshot()["accident_recorder"]["pre_accident_seconds"], 5.0)
+
+        state.set_accident_recorder_settings(pre_accident_seconds=3.5)
+
+        self.assertEqual(state.snapshot()["accident_recorder"]["pre_accident_seconds"], 3.5)
+
     def test_revision_changes_only_when_values_change(self):
         state = RaceControlState()
         state.configure_devkits([DevKitMonitorState("devkit:1", 1, "ws://127.0.0.1:4568")])

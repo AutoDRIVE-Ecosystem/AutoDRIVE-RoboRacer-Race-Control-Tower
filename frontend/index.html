@@ -157,6 +157,12 @@
         margin-top: 0;
       }
 
+      .rct-settings-description {
+        color: #6c757d;
+        font-size: 0.95rem;
+        margin-bottom: 0.75rem;
+      }
+
       .rct-topics-description {
         color: #6c757d;
         font-size: 0.95rem;
@@ -385,6 +391,9 @@
                 <button class="nav-link active" id="topics-tab" data-bs-toggle="tab" data-bs-target="#topics-tab-pane" type="button" role="tab" aria-controls="topics-tab-pane" aria-selected="true">Topics</button>
               </li>
               <li class="nav-item" role="presentation">
+                <button class="nav-link" id="accident-recorder-tab" data-bs-toggle="tab" data-bs-target="#accident-recorder-tab-pane" type="button" role="tab" aria-controls="accident-recorder-tab-pane" aria-selected="false">Accident Recorder</button>
+              </li>
+              <li class="nav-item" role="presentation">
                 <button class="nav-link" id="about-tab" data-bs-toggle="tab" data-bs-target="#about-tab-pane" type="button" role="tab" aria-controls="about-tab-pane" aria-selected="false">About</button>
               </li>
             </ul>
@@ -411,6 +420,19 @@
                     </thead>
                     <tbody id="topicsTableBody"></tbody>
                   </table>
+                </div>
+              </div>
+              <div class="tab-pane fade" id="accident-recorder-tab-pane" role="tabpanel" aria-labelledby="accident-recorder-tab" tabindex="0">
+                <p class="rct-settings-description">
+                  Configure how much telemetry RCT keeps before a detected collision. When either car's collision count increases, RCT will use this pre-accident window to create an accident bag for review.
+                </p>
+                <div class="row g-3 align-items-center">
+                  <div class="col-sm-5">
+                    <label for="preAccidentSeconds" class="col-form-label">Pre accident seconds</label>
+                  </div>
+                  <div class="col-sm-4">
+                    <input id="preAccidentSeconds" class="form-control form-control-sm" type="number" min="0" max="60" step="0.1" value="5">
+                  </div>
                 </div>
               </div>
               <div class="tab-pane fade" id="about-tab-pane" role="tabpanel" aria-labelledby="about-tab" tabindex="0">
@@ -446,7 +468,7 @@
       <div class="modal-dialog modal-dialog-centered modal-lg rct-accident-logs-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title" id="accidentLogsDialogLabel">Accident Records</h5>
+            <h5 class="modal-title" id="accidentLogsDialogLabel">Accident Logs</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
@@ -574,7 +596,7 @@
           <strong id="simulatorStatusText">Disconnected</strong>
         </div>
         <button id="accidentLogsButton" class="btn btn-sm btn-light rct-accident-logs-button position-absolute start-50 translate-middle-x" type="button" data-bs-toggle="modal" data-bs-target="#accidentLogsDialog">
-          <span id="accidentLogsButtonText">Accident Records</span>
+          <span id="accidentLogsButtonText">Open Accident logs</span>
         </button>
         <div class="status-indicator">
           <span>RCT Server</span>
@@ -595,6 +617,7 @@
       const allRestrictedTopicsCheckbox = document.getElementById("allRestrictedTopics");
       const topicsTableBody = document.getElementById("topicsTableBody");
       const settingsTabButtons = Array.from(document.querySelectorAll("#settingsTabs [data-bs-toggle='tab']"));
+      const preAccidentSecondsInput = document.getElementById("preAccidentSeconds");
       const accidentLogsButton = document.getElementById("accidentLogsButton");
       const accidentLogsButtonText = document.getElementById("accidentLogsButtonText");
       const accidentLogsList = document.getElementById("accidentLogsList");
@@ -688,6 +711,8 @@
       let topicSelections = {};
       let appliedTopicSelections = {};
       let topicSettingsSaveChain = Promise.resolve();
+      let accidentRecorderSettingsSaveChain = Promise.resolve();
+      let appliedPreAccidentSeconds = 5;
       let simulatorConnected = false;
       let accidentLogs = [];
 
@@ -722,8 +747,8 @@
         const count = accidentLogs.length;
         accidentLogsButton.disabled = false;
         accidentLogsButtonText.textContent = count > 0
-          ? `Accident Records (${count})`
-          : "Accident Records";
+          ? `Open Accident logs (${count})`
+          : "Open Accident logs";
       }
 
       function renderAccidentLogs() {
@@ -781,6 +806,15 @@
 
       function topicSelectionsChanged() {
         return JSON.stringify(topicSelections) !== JSON.stringify(appliedTopicSelections);
+      }
+
+      function preAccidentSecondsValue() {
+        return Number(preAccidentSecondsInput.value);
+      }
+
+      function accidentRecorderSettingsChanged() {
+        const preAccidentSeconds = preAccidentSecondsValue();
+        return Number.isFinite(preAccidentSeconds) && preAccidentSeconds !== appliedPreAccidentSeconds;
       }
 
       function syncTopicSelectionsFromState(nextTopicSelections) {
@@ -853,6 +887,21 @@
         renderTopicOptions(payload.topics, payload.topic_selections);
       }
 
+      async function loadAccidentRecorderSettings() {
+        const response = await fetch(monitorRestUrl("/accident-recorder"));
+        if (!response.ok) {
+          throw new Error(`Failed to load accident recorder settings: ${response.status} ${response.statusText}`);
+        }
+        const payload = await response.json();
+        const settings = payload.accident_recorder || {};
+        const preAccidentSeconds = Number(settings.pre_accident_seconds);
+        if (Number.isFinite(preAccidentSeconds)) {
+          appliedPreAccidentSeconds = preAccidentSeconds;
+          preAccidentSecondsInput.value = String(preAccidentSeconds);
+        }
+        updateSettingsApplyState();
+      }
+
       async function postTopicSelections() {
         topicSelections = collectTopicSelections();
         const response = await fetch(monitorRestUrl("/topics"), {
@@ -899,11 +948,63 @@
         return topicSettingsSaveChain;
       }
 
+      async function postAccidentRecorderSettings() {
+        const response = await fetch(monitorRestUrl("/accident-recorder"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            pre_accident_seconds: preAccidentSecondsValue(),
+          }),
+        });
+        if (!response.ok) {
+          let errorText = `${response.status} ${response.statusText}`;
+          try {
+            const errorBody = await response.json();
+            if (errorBody && typeof errorBody.error === "string") {
+              errorText = errorBody.error;
+            }
+          } catch (error) {
+            // ignore JSON parse failures and keep the HTTP status text
+          }
+          throw new Error(errorText);
+        }
+        return response.json();
+      }
+
+      function saveAccidentRecorderSettings() {
+        accidentRecorderSettingsSaveChain = accidentRecorderSettingsSaveChain
+          .catch(() => {})
+          .then(async () => {
+            if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
+              throw new Error("RCT monitor websocket is disconnected");
+            }
+            const payload = await postAccidentRecorderSettings();
+            const settings = payload.accident_recorder || {};
+            appliedPreAccidentSeconds = Number(settings.pre_accident_seconds);
+            preAccidentSecondsInput.value = String(appliedPreAccidentSeconds);
+            updateSettingsApplyState();
+            return payload;
+          })
+          .catch((error) => {
+            console.warn("Accident recorder settings save failed:", error);
+          });
+        return accidentRecorderSettingsSaveChain;
+      }
+
       function updateSettingsApplyState() {
         const topicsTabButton = document.getElementById("topics-tab");
+        const accidentRecorderTabButton = document.getElementById("accident-recorder-tab");
         const topicsChanged = topicSelectionsChanged();
+        const accidentRecorderChanged = accidentRecorderSettingsChanged();
+        const accidentRecorderValid = Number.isFinite(preAccidentSecondsValue());
         const wsConnected = Boolean(rctSocket && rctSocket.readyState === WebSocket.OPEN);
-        settingsApplyButton.disabled = !topicsTabButton.classList.contains("active") || !topicsChanged || !wsConnected;
+        const activeTabChanged = (
+          (topicsTabButton.classList.contains("active") && topicsChanged)
+          || (accidentRecorderTabButton.classList.contains("active") && accidentRecorderChanged && accidentRecorderValid)
+        );
+        settingsApplyButton.disabled = !activeTabChanged || !wsConnected;
       }
 
       function setCanvasInteractionEnabled(enabled) {
@@ -1929,8 +2030,14 @@
         updateAllRestrictedCheckboxState();
         updateSettingsApplyState();
       });
+      preAccidentSecondsInput.addEventListener("input", updateSettingsApplyState);
       settingsApplyButton.addEventListener("click", () => {
-        void saveTopicSelections();
+        const activeTabButton = document.querySelector("#settingsTabs .nav-link.active");
+        if (activeTabButton && activeTabButton.id === "accident-recorder-tab") {
+          void saveAccidentRecorderSettings();
+        } else {
+          void saveTopicSelections();
+        }
       });
       settingsTabButtons.forEach((button) => {
         button.addEventListener("shown.bs.tab", updateSettingsApplyState);
@@ -1938,6 +2045,9 @@
       settingsDialog.addEventListener("show.bs.modal", () => {
         void loadTopicSettings().catch((error) => {
           console.warn("Failed to refresh topic settings:", error);
+        });
+        void loadAccidentRecorderSettings().catch((error) => {
+          console.warn("Failed to refresh accident recorder settings:", error);
         });
       });
 

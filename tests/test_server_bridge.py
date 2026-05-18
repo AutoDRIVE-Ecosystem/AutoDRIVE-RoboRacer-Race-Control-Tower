@@ -327,6 +327,38 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(follow_up_payload["topic_selections"]["/autodrive/roboracer_1/ips"])
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    @unittest.skipIf(not AIOHTTP_AVAILABLE, "aiohttp is not installed")
+    async def test_monitor_accident_recorder_post_updates_session_state(self):
+        tower = RaceControlTower(test_settings())
+        tower_app = tower.create_app()
+        tower_runner = web.AppRunner(tower_app)
+        await tower_runner.setup()
+        tower_site = web.TCPSite(tower_runner, "127.0.0.1", 0)
+        await tower_site.start()
+        tower_port = tower_runner.addresses[0][1]
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                response = await session.post(
+                    f"http://127.0.0.1:{tower_port}/monitor/REST/latest/accident-recorder",
+                    json={"pre_accident_seconds": 3.5},
+                )
+                self.assertEqual(response.status, 200)
+                payload = await response.json()
+
+                follow_up = await session.get(
+                    f"http://127.0.0.1:{tower_port}/monitor/REST/latest/accident-recorder",
+                )
+                self.assertEqual(follow_up.status, 200)
+                follow_up_payload = await follow_up.json()
+        finally:
+            await tower_runner.cleanup()
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["accident_recorder"]["pre_accident_seconds"], 3.5)
+        self.assertEqual(follow_up_payload["accident_recorder"]["pre_accident_seconds"], 3.5)
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_presplit_bridge_payload_filters_disabled_topics_and_keeps_enabled_inputs(self):
         tower = RaceControlTower(test_settings())
         payload = self.load_bridge_sample()
