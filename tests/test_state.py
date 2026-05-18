@@ -90,10 +90,12 @@ class RaceControlStateTests(unittest.TestCase):
         state = RaceControlState()
 
         self.assertEqual(state.snapshot()["accident_recorder"]["pre_accident_seconds"], 5.0)
+        self.assertFalse(state.snapshot()["accident_recorder"]["include_camera"])
 
-        state.set_accident_recorder_settings(pre_accident_seconds=3.5)
+        state.set_accident_recorder_settings(pre_accident_seconds=3.5, include_camera=True)
 
         self.assertEqual(state.snapshot()["accident_recorder"]["pre_accident_seconds"], 3.5)
+        self.assertTrue(state.snapshot()["accident_recorder"]["include_camera"])
 
     def test_revision_changes_only_when_values_change(self):
         state = RaceControlState()

@@ -1676,7 +1676,7 @@ class RaceControlTower:
             validated_topic_selections[topic] = enabled
         return validated_topic_selections
 
-    def validate_accident_recorder_settings(self, settings: dict[str, Any]) -> dict[str, float]:
+    def validate_accident_recorder_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
         value = settings.get("pre_accident_seconds")
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise ValueError("pre_accident_seconds must be a number")
@@ -1685,7 +1685,13 @@ class RaceControlTower:
             raise ValueError("pre_accident_seconds must be greater than or equal to 0")
         if pre_accident_seconds > 60:
             raise ValueError("pre_accident_seconds must be less than or equal to 60")
-        return {"pre_accident_seconds": pre_accident_seconds}
+        include_camera = settings.get("include_camera", False)
+        if not isinstance(include_camera, bool):
+            raise ValueError("include_camera must be a boolean")
+        return {
+            "pre_accident_seconds": pre_accident_seconds,
+            "include_camera": include_camera,
+        }
 
     def resolved_topic_selections(self) -> dict[str, bool]:
         selections = default_topic_selections()

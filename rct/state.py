@@ -30,8 +30,9 @@ class RaceControlState:
         self._monitor_clients = 0
         self._devkits: dict[str, DevKitMonitorState] = {}
         self._topic_selections: dict[str, bool] = {}
-        self._accident_recorder_settings: dict[str, float] = {
+        self._accident_recorder_settings: dict[str, float | bool] = {
             "pre_accident_seconds": 5.0,
+            "include_camera": False,
         }
 
     def configure_devkits(self, devkits: Iterable[DevKitMonitorState]) -> None:
@@ -140,15 +141,23 @@ class RaceControlState:
         with self._lock:
             return dict(self._topic_selections)
 
-    def set_accident_recorder_settings(self, *, pre_accident_seconds: float) -> None:
-        next_settings = {"pre_accident_seconds": float(pre_accident_seconds)}
+    def set_accident_recorder_settings(
+        self,
+        *,
+        pre_accident_seconds: float,
+        include_camera: bool,
+    ) -> None:
+        next_settings = {
+            "pre_accident_seconds": float(pre_accident_seconds),
+            "include_camera": bool(include_camera),
+        }
         with self._lock:
             if self._accident_recorder_settings == next_settings:
                 return
             self._accident_recorder_settings = next_settings
             self._revision += 1
 
-    def accident_recorder_settings(self) -> dict[str, float]:
+    def accident_recorder_settings(self) -> dict[str, float | bool]:
         with self._lock:
             return dict(self._accident_recorder_settings)
 

@@ -341,7 +341,7 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
             async with aiohttp.ClientSession() as session:
                 response = await session.post(
                     f"http://127.0.0.1:{tower_port}/monitor/REST/latest/accident-recorder",
-                    json={"pre_accident_seconds": 3.5},
+                    json={"pre_accident_seconds": 3.5, "include_camera": True},
                 )
                 self.assertEqual(response.status, 200)
                 payload = await response.json()
@@ -356,7 +356,9 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["accident_recorder"]["pre_accident_seconds"], 3.5)
+        self.assertTrue(payload["accident_recorder"]["include_camera"])
         self.assertEqual(follow_up_payload["accident_recorder"]["pre_accident_seconds"], 3.5)
+        self.assertTrue(follow_up_payload["accident_recorder"]["include_camera"])
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_presplit_bridge_payload_filters_disabled_topics_and_keeps_enabled_inputs(self):
