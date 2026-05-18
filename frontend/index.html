@@ -287,6 +287,26 @@
         overflow: auto;
       }
 
+      .rct-accident-logs-detail dl {
+        margin-bottom: 0;
+      }
+
+      .rct-accident-logs-detail dt {
+        color: #6c757d;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        margin-top: 0.75rem;
+      }
+
+      .rct-accident-logs-detail dt:first-child {
+        margin-top: 0;
+      }
+
+      .rct-accident-logs-detail dd {
+        margin-bottom: 0;
+        overflow-wrap: anywhere;
+      }
+
       .rct-stat-list {
         font-size: 0.875rem;
       }
@@ -634,6 +654,7 @@
       const accidentLogsButtonText = document.getElementById("accidentLogsButtonText");
       const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
       const accidentLogsList = document.getElementById("accidentLogsList");
+      const accidentLogDetail = document.getElementById("accidentLogDetail");
       const roboracers = {
         1: {
           hostInput: document.getElementById("roboracer1Ip"),
@@ -729,6 +750,7 @@
       let appliedIncludeCamera = false;
       let simulatorConnected = false;
       let accidentLogs = [];
+      let selectedAccidentLogFilename = null;
 
       function frontendWebSocketUrl() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -766,32 +788,106 @@
           : "Open Accident logs";
       }
 
+      function accidentLogsEqual(leftLogs, rightLogs) {
+        if (leftLogs.length !== rightLogs.length) {
+          return false;
+        }
+        return leftLogs.every((leftLog, index) => {
+          const rightLog = rightLogs[index];
+          return Boolean(rightLog)
+            && leftLog.filename === rightLog.filename
+            && leftLog.time === rightLog.time
+            && leftLog.size_bytes === rightLog.size_bytes
+            && leftLog.path === rightLog.path;
+        });
+      }
+
+      function setAccidentLogs(nextAccidentLogs) {
+        if (accidentLogsEqual(accidentLogs, nextAccidentLogs)) {
+          return false;
+        }
+        accidentLogs = nextAccidentLogs;
+        renderAccidentLogs();
+        return true;
+      }
+
       function renderAccidentLogs() {
         accidentLogsList.innerHTML = "";
         if (accidentLogs.length === 0) {
+          selectedAccidentLogFilename = null;
           const emptyItem = document.createElement("div");
           emptyItem.className = "list-group-item text-body-secondary";
           emptyItem.textContent = "No accident logs";
           accidentLogsList.appendChild(emptyItem);
+          renderAccidentLogDetail(null);
           return;
         }
-        for (const [index, accidentLog] of accidentLogs.entries()) {
+        const selectedAccidentLog = accidentLogs.find((accidentLog) => accidentLog.filename === selectedAccidentLogFilename) || accidentLogs[0];
+        selectedAccidentLogFilename = selectedAccidentLog.filename;
+        for (const accidentLog of accidentLogs) {
           const item = document.createElement("button");
-          item.className = `list-group-item list-group-item-action${index === 0 ? " active" : ""}`;
+          const selected = accidentLog.filename === selectedAccidentLogFilename;
+          item.className = `list-group-item list-group-item-action${selected ? " active" : ""}`;
           item.type = "button";
           item.role = "option";
-          item.setAttribute("aria-selected", index === 0 ? "true" : "false");
+          item.setAttribute("aria-selected", selected ? "true" : "false");
+          if (selected) {
+            item.setAttribute("aria-current", "true");
+          }
           item.textContent = accidentLog.time;
+          item.addEventListener("pointerdown", () => {
+            selectAccidentLog(accidentLog.filename);
+          });
           item.addEventListener("click", () => {
-            for (const sibling of accidentLogsList.querySelectorAll(".list-group-item")) {
-              sibling.classList.remove("active");
-              sibling.setAttribute("aria-selected", "false");
-            }
-            item.classList.add("active");
-            item.setAttribute("aria-selected", "true");
+            selectAccidentLog(accidentLog.filename);
           });
           accidentLogsList.appendChild(item);
         }
+        renderAccidentLogDetail(selectedAccidentLog);
+      }
+
+      function selectAccidentLog(filename) {
+        selectedAccidentLogFilename = filename;
+        renderAccidentLogs();
+      }
+
+      function formatBytes(bytes) {
+        const value = Number(bytes);
+        if (!Number.isFinite(value) || value < 0) {
+          return "-";
+        }
+        if (value < 1024) {
+          return `${value} B`;
+        }
+        if (value < 1024 * 1024) {
+          return `${(value / 1024).toFixed(1)} KB`;
+        }
+        return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+      }
+
+      function renderAccidentLogDetail(accidentLog) {
+        if (!accidentLog) {
+          accidentLogDetail.classList.add("text-body-secondary");
+          accidentLogDetail.textContent = "Select an accident log";
+          return;
+        }
+        accidentLogDetail.classList.remove("text-body-secondary");
+        accidentLogDetail.innerHTML = "";
+        const detailList = document.createElement("dl");
+        const fields = [
+          ["Time", accidentLog.time || "-"],
+          ["File", accidentLog.filename || "-"],
+          ["Size", formatBytes(accidentLog.size_bytes)],
+          ["Path", accidentLog.path || "-"],
+        ];
+        for (const [label, value] of fields) {
+          const term = document.createElement("dt");
+          term.textContent = label;
+          const description = document.createElement("dd");
+          description.textContent = value;
+          detailList.append(term, description);
+        }
+        accidentLogDetail.appendChild(detailList);
       }
 
       async function loadAccidentLogs() {
@@ -802,8 +898,7 @@
           throw new Error(`Failed to load accident logs: ${response.status} ${response.statusText}`);
         }
         const payload = await response.json();
-        accidentLogs = Array.isArray(payload.accident_logs) ? payload.accident_logs : [];
-        renderAccidentLogs();
+        setAccidentLogs(Array.isArray(payload.accident_logs) ? payload.accident_logs : []);
         updateAccidentLogsButton();
       }
 
@@ -816,8 +911,7 @@
           throw new Error(`Failed to clear accident logs: ${response.status} ${response.statusText}`);
         }
         const payload = await response.json();
-        accidentLogs = Array.isArray(payload.accident_logs) ? payload.accident_logs : [];
-        renderAccidentLogs();
+        setAccidentLogs(Array.isArray(payload.accident_logs) ? payload.accident_logs : []);
         updateAccidentLogsButton();
       }
 
@@ -1532,8 +1626,7 @@
           updateRoboracerStatusFromState(message.devkits);
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
           if (Array.isArray(message.accident_logs)) {
-            accidentLogs = message.accident_logs;
-            renderAccidentLogs();
+            setAccidentLogs(message.accident_logs);
             updateAccidentLogsButton();
           }
         } else if (message.event === "telemetry") {
