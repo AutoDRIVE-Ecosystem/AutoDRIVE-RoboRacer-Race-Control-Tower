@@ -5,13 +5,17 @@ import asyncio
 import json
 import unittest
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import monotonic
+from urllib.parse import quote
 
+from rct.accident_recorder import AccidentBridgeRecord
 from rct.config import Settings
 
 AIOHTTP_AVAILABLE = importlib.util.find_spec("aiohttp") is not None
+MCAP_AVAILABLE = importlib.util.find_spec("mcap") is not None
 SOCKETIO_AVAILABLE = importlib.util.find_spec("socketio") is not None and AIOHTTP_AVAILABLE
 RaceControlTower = None
 
@@ -389,6 +393,57 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(payload["accident_logs"]), 1)
         self.assertEqual(payload["accident_logs"][0]["filename"], "autodrive 2026-05-19 01:02:03:456.mcap")
         self.assertEqual(payload["accident_logs"][0]["time"], "2026-05-19 01:02:03:456")
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    @unittest.skipIf(not AIOHTTP_AVAILABLE, "aiohttp is not installed")
+    @unittest.skipIf(not MCAP_AVAILABLE, "mcap is not installed")
+    async def test_monitor_accident_log_summary_returns_replay_frames(self):
+        tower = RaceControlTower(test_settings())
+        with TemporaryDirectory() as temporary_directory:
+            tower.accident_recorder.output_dir = Path(temporary_directory)
+            accident_log = tower.accident_recorder.write_mcap(
+                [
+                    AccidentBridgeRecord(
+                        monotonic_timestamp=10.0,
+                        wall_time_ns=1_000_000_000,
+                        event="simulator/Bridge",
+                        payload={"V1 Position": "1 2 0", "V2 Position": "3 4 0"},
+                    ),
+                    AccidentBridgeRecord(
+                        monotonic_timestamp=11.0,
+                        wall_time_ns=2_000_000_000,
+                        event="simulator/Bridge",
+                        payload={"V1 Position": "2 3 0", "V2 Position": "4 5 0"},
+                    ),
+                ],
+                trigger_vehicle_id=1,
+                collision_count=1,
+                created_at=datetime(2026, 5, 19, 1, 2, 3, 456000),
+            )
+            tower_app = tower.create_app()
+            tower_runner = web.AppRunner(tower_app)
+            await tower_runner.setup()
+            tower_site = web.TCPSite(tower_runner, "127.0.0.1", 0)
+            await tower_site.start()
+            tower_port = tower_runner.addresses[0][1]
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    quoted_filename = quote(accident_log.filename)
+                    response = await session.get(
+                        f"http://127.0.0.1:{tower_port}/monitor/REST/latest/accident-logs/{quoted_filename}/summary?ts=123",
+                    )
+                    self.assertEqual(response.status, 200)
+                    payload = await response.json()
+            finally:
+                await tower_runner.cleanup()
+
+        self.assertEqual(payload["filename"], accident_log.filename)
+        self.assertEqual(payload["duration_seconds"], 1.0)
+        self.assertEqual(len(payload["frames"]), 2)
+        self.assertEqual(payload["frames"][0]["vehicles"]["1"]["ips"]["x"], 1.0)
+        self.assertEqual(payload["frames"][1]["vehicles"]["2"]["ips"]["y"], 5.0)
+        self.assertEqual(payload["frames"][1]["time_to_accident_seconds"], 0.0)
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     @unittest.skipIf(not AIOHTTP_AVAILABLE, "aiohttp is not installed")

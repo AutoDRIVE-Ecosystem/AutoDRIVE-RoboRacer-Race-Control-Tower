@@ -680,6 +680,10 @@ class RaceControlTower:
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_get,
         )
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-logs/{filename}/summary",
+            self.handle_monitor_accident_log_summary_get,
+        )
         app.router.add_delete(
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_delete,
@@ -935,6 +939,33 @@ class RaceControlTower:
                 "protocol": "autodrive-rct-monitor",
                 "version": MONITOR_PROTOCOL_VERSION,
                 "accident_logs": self.state.accident_logs(),
+            }
+        )
+
+    async def handle_monitor_accident_log_summary_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        filename = request.match_info["filename"]
+        if Path(filename).name != filename:
+            return web.json_response({"error": "invalid accident log filename"}, status=400)
+
+        path = self.accident_recorder.output_dir / filename
+        if not path.is_file():
+            return web.json_response({"error": "accident log not found"}, status=404)
+
+        try:
+            summary = await asyncio.to_thread(self.accident_log_summary_from_mcap, path)
+        except Exception:
+            LOGGER.exception("failed to read accident log summary from %s", path)
+            return web.json_response({"error": "failed to read accident log summary"}, status=500)
+
+        return web.json_response(
+            {
+                "protocol": "autodrive-rct-monitor",
+                "version": MONITOR_PROTOCOL_VERSION,
+                **summary,
             }
         )
 
@@ -1765,6 +1796,61 @@ class RaceControlTower:
             )
             for accident_log in list_accident_logs(self.accident_recorder.output_dir)
         )
+
+    def accident_log_summary_from_mcap(self, path: Path) -> dict[str, Any]:
+        from mcap.reader import make_reader
+
+        frames: list[dict[str, Any]] = []
+        metadata: dict[str, Any] = {}
+        with path.open("rb") as mcap_file:
+            reader = make_reader(mcap_file)
+            for _schema, channel, message in reader.iter_messages(
+                topics=("/rct/accident/metadata", "/rct/accident/bridge")
+            ):
+                try:
+                    payload = json.loads(message.data.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+
+                if channel.topic == "/rct/accident/metadata":
+                    metadata = payload
+                    continue
+
+                bridge_payload = payload.get("payload") if isinstance(payload, dict) else None
+                vehicles = extract_monitor_telemetry(bridge_payload)
+                if not vehicles:
+                    continue
+
+                frames.append(
+                    {
+                        "index": payload.get("index", len(frames)) if isinstance(payload, dict) else len(frames),
+                        "log_time_ns": message.log_time,
+                        "wall_time_ns": payload.get("wall_time_ns", message.log_time) if isinstance(payload, dict) else message.log_time,
+                        "vehicles": {str(vehicle_id): telemetry for vehicle_id, telemetry in sorted(vehicles.items())},
+                    }
+                )
+
+        frames.sort(key=lambda frame: frame["log_time_ns"])
+        if frames:
+            start_time_ns = int(frames[0]["log_time_ns"])
+            end_time_ns = int(frames[-1]["log_time_ns"])
+        else:
+            start_time_ns = 0
+            end_time_ns = 0
+
+        duration_seconds = max(0.0, (end_time_ns - start_time_ns) / 1_000_000_000)
+        for frame in frames:
+            frame["time_offset_seconds"] = max(0.0, (int(frame["log_time_ns"]) - start_time_ns) / 1_000_000_000)
+            frame["time_to_accident_seconds"] = frame["time_offset_seconds"] - duration_seconds
+
+        return {
+            "filename": path.name,
+            "time": path.stem.removeprefix("autodrive "),
+            "size_bytes": path.stat().st_size,
+            "duration_seconds": duration_seconds,
+            "metadata": metadata,
+            "frames": frames,
+        }
 
     def topic_options_payload(self) -> list[dict[str, Any]]:
         selections = self.resolved_topic_selections()

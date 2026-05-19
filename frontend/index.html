@@ -287,6 +287,70 @@
         overflow: auto;
       }
 
+      .rct-accident-replay {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        min-height: 100%;
+      }
+
+      .rct-accident-replay-title {
+        font-size: 1rem;
+        font-weight: 600;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+
+      .rct-accident-replay-canvas-frame {
+        background-color: #000000;
+        border-radius: 0.5rem;
+        min-height: 15rem;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .rct-accident-replay-canvas {
+        cursor: grab;
+        display: block;
+        height: 15rem;
+        touch-action: none;
+        width: 100%;
+      }
+
+      .rct-accident-replay-canvas.is-panning {
+        cursor: grabbing;
+      }
+
+      .rct-accident-replay-recenter {
+        bottom: 0.75rem;
+        position: absolute;
+        right: 0.75rem;
+      }
+
+      .rct-accident-replay-slider {
+        width: 100%;
+      }
+
+      .rct-accident-replay-controls {
+        align-items: center;
+        display: flex;
+        gap: 0.5rem;
+        justify-content: space-between;
+      }
+
+      .rct-accident-replay-actions {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.375rem;
+      }
+
+      .rct-accident-replay-time {
+        color: #6c757d;
+        font-size: 0.8125rem;
+        text-align: right;
+      }
+
       .rct-accident-logs-detail dl {
         margin-bottom: 0;
       }
@@ -751,6 +815,22 @@
       let simulatorConnected = false;
       let accidentLogs = [];
       let selectedAccidentLogFilename = null;
+      const accidentLogSummaryCache = new Map();
+      let accidentReplayCanvas = null;
+      let accidentReplayFrames = [];
+      let accidentReplayFrameIndex = 0;
+      let accidentReplayTimer = null;
+      let accidentReplayPlaying = false;
+      let accidentReplayRepeat = true;
+      const accidentReplayView = {
+        zoom: 1,
+        rotation: 90,
+        panX: 0,
+        panY: 0,
+        isPanning: false,
+        lastPointerX: 0,
+        lastPointerY: 0,
+      };
 
       function frontendWebSocketUrl() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -807,6 +887,12 @@
           return false;
         }
         accidentLogs = nextAccidentLogs;
+        const filenames = new Set(accidentLogs.map((accidentLog) => accidentLog.filename));
+        for (const filename of accidentLogSummaryCache.keys()) {
+          if (!filenames.has(filename)) {
+            accidentLogSummaryCache.delete(filename);
+          }
+        }
         renderAccidentLogs();
         return true;
       }
@@ -866,28 +952,297 @@
       }
 
       function renderAccidentLogDetail(accidentLog) {
+        stopAccidentReplayTimer();
         if (!accidentLog) {
           accidentLogDetail.classList.add("text-body-secondary");
           accidentLogDetail.textContent = "Select an accident log";
+          accidentReplayCanvas = null;
+          accidentReplayFrames = [];
+          accidentReplayPlaying = false;
           return;
         }
         accidentLogDetail.classList.remove("text-body-secondary");
         accidentLogDetail.innerHTML = "";
-        const detailList = document.createElement("dl");
-        const fields = [
-          ["Time", accidentLog.time || "-"],
-          ["File", accidentLog.filename || "-"],
-          ["Size", formatBytes(accidentLog.size_bytes)],
-          ["Path", accidentLog.path || "-"],
-        ];
-        for (const [label, value] of fields) {
-          const term = document.createElement("dt");
-          term.textContent = label;
-          const description = document.createElement("dd");
-          description.textContent = value;
-          detailList.append(term, description);
+        const shell = document.createElement("div");
+        shell.className = "rct-accident-replay";
+        const title = document.createElement("div");
+        title.className = "rct-accident-replay-title";
+        title.textContent = `${accidentLog.filename || "-"} (${formatBytes(accidentLog.size_bytes)})`;
+        const canvasFrame = document.createElement("div");
+        canvasFrame.className = "rct-accident-replay-canvas-frame";
+        const canvas = document.createElement("canvas");
+        canvas.className = "rct-accident-replay-canvas";
+        canvas.setAttribute("aria-label", "Accident log replay trajectory");
+        const recenterButton = document.createElement("button");
+        recenterButton.className = "btn btn-sm btn-outline-light rct-accident-replay-recenter";
+        recenterButton.type = "button";
+        recenterButton.textContent = "Re-Center";
+        recenterButton.hidden = true;
+        canvasFrame.appendChild(canvas);
+        canvasFrame.appendChild(recenterButton);
+
+        const slider = document.createElement("input");
+        slider.className = "form-range rct-accident-replay-slider";
+        slider.type = "range";
+        slider.min = "0";
+        slider.max = "0";
+        slider.value = "0";
+        slider.disabled = true;
+
+        const controls = document.createElement("div");
+        controls.className = "rct-accident-replay-controls";
+        const actions = document.createElement("div");
+        actions.className = "rct-accident-replay-actions";
+        const playPauseButton = document.createElement("button");
+        playPauseButton.className = "btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center";
+        playPauseButton.type = "button";
+        playPauseButton.innerHTML = '<i class="bi bi-play-fill" aria-hidden="true"></i>';
+        playPauseButton.title = "Play";
+        playPauseButton.setAttribute("aria-label", "Play");
+        playPauseButton.disabled = true;
+        const stopButton = document.createElement("button");
+        stopButton.className = "btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center";
+        stopButton.type = "button";
+        stopButton.innerHTML = '<i class="bi bi-stop-fill" aria-hidden="true"></i>';
+        stopButton.title = "Stop";
+        stopButton.setAttribute("aria-label", "Stop");
+        stopButton.disabled = true;
+        const repeatWrapper = document.createElement("div");
+        repeatWrapper.className = "form-check ms-1";
+        const repeatCheckbox = document.createElement("input");
+        repeatCheckbox.className = "form-check-input";
+        repeatCheckbox.type = "checkbox";
+        repeatCheckbox.id = `accidentReplayRepeat-${accidentLog.filename.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+        repeatCheckbox.checked = accidentReplayRepeat;
+        repeatCheckbox.title = "Repeat";
+        repeatCheckbox.setAttribute("aria-label", "Repeat");
+        const repeatLabel = document.createElement("label");
+        repeatLabel.className = "form-check-label";
+        repeatLabel.htmlFor = repeatCheckbox.id;
+        repeatLabel.textContent = "Repeat";
+        repeatWrapper.append(repeatCheckbox, repeatLabel);
+        actions.append(playPauseButton, stopButton, repeatWrapper);
+        const replayTime = document.createElement("div");
+        replayTime.className = "rct-accident-replay-time";
+        replayTime.textContent = "Loading replay...";
+        controls.append(actions, replayTime);
+
+        shell.append(title, canvasFrame, slider, controls);
+        accidentLogDetail.appendChild(shell);
+
+        accidentReplayCanvas = new RaceTrajectoryCanvas({
+          canvas,
+          view: accidentReplayView,
+          historyLimit: Number.MAX_SAFE_INTEGER,
+          showLidar: false,
+        });
+        const replayControls = { replayTime, slider, recenterButton, playPauseButton };
+        accidentReplayCanvas.enableWheelZoom(() => {
+          renderAccidentReplayFrame(accidentReplayFrameIndex, replayControls);
+        });
+        accidentReplayCanvas.enablePan(() => {
+          renderAccidentReplayFrame(accidentReplayFrameIndex, replayControls);
+        });
+        if ("ResizeObserver" in window) {
+          new ResizeObserver(() => {
+            if (accidentReplayCanvas && accidentReplayCanvas.canvas === canvas) {
+              accidentReplayCanvas.draw();
+              updateAccidentReplayRecenterButton(recenterButton);
+            }
+          }).observe(canvas);
         }
-        accidentLogDetail.appendChild(detailList);
+        accidentReplayCanvas.draw();
+        updateAccidentReplayRecenterButton(recenterButton);
+        loadAccidentLogSummary(accidentLog.filename)
+          .then((summary) => {
+            if (selectedAccidentLogFilename !== accidentLog.filename) {
+              return;
+            }
+            accidentReplayFrames = Array.isArray(summary.frames) ? summary.frames : [];
+            const lastIndex = Math.max(0, accidentReplayFrames.length - 1);
+            slider.max = String(lastIndex);
+            slider.disabled = accidentReplayFrames.length === 0;
+            playPauseButton.disabled = accidentReplayFrames.length === 0;
+            stopButton.disabled = accidentReplayFrames.length === 0;
+            if (accidentReplayRepeat && accidentReplayFrames.length > 0) {
+              startAccidentReplay(replayControls, { restart: true });
+              updateAccidentReplayPlayPauseButton(playPauseButton);
+            } else {
+              renderAccidentReplayFrame(lastIndex, replayControls);
+              updateAccidentReplayPlayPauseButton(playPauseButton);
+            }
+          })
+          .catch((error) => {
+            console.warn("Failed to load accident log summary:", error);
+            replayTime.textContent = "Replay unavailable";
+            playPauseButton.disabled = true;
+            stopButton.disabled = true;
+          });
+
+        slider.addEventListener("input", () => {
+          pauseAccidentReplay();
+          updateAccidentReplayPlayPauseButton(playPauseButton);
+          renderAccidentReplayFrame(Number(slider.value), replayControls);
+        });
+        playPauseButton.addEventListener("click", () => {
+          if (accidentReplayPlaying) {
+            pauseAccidentReplay();
+          } else {
+            startAccidentReplay(replayControls);
+          }
+          updateAccidentReplayPlayPauseButton(playPauseButton);
+        });
+        stopButton.addEventListener("click", () => {
+          stopAccidentReplay(replayControls);
+          updateAccidentReplayPlayPauseButton(playPauseButton);
+        });
+        recenterButton.addEventListener("click", () => {
+          if (!accidentReplayCanvas) {
+            return;
+          }
+          accidentReplayCanvas.resetView();
+          renderAccidentReplayFrame(accidentReplayFrameIndex, replayControls);
+        });
+        repeatCheckbox.addEventListener("change", () => {
+          accidentReplayRepeat = repeatCheckbox.checked;
+          if (accidentReplayRepeat && accidentReplayFrames.length > 0) {
+            startAccidentReplay(replayControls, { restart: true });
+          } else {
+            pauseAccidentReplay();
+          }
+          updateAccidentReplayPlayPauseButton(playPauseButton);
+        });
+      }
+
+      function renderAccidentReplayFrame(frameIndex, { replayTime, slider, recenterButton, playPauseButton } = {}) {
+        if (!accidentReplayCanvas || accidentReplayFrames.length === 0) {
+          if (replayTime) {
+            replayTime.textContent = "No replay frames";
+          }
+          return;
+        }
+        const index = Math.max(0, Math.min(frameIndex, accidentReplayFrames.length - 1));
+        accidentReplayFrameIndex = index;
+        accidentReplayCanvas.setFrames(accidentReplayFrames, index);
+        if (slider) {
+          slider.value = String(index);
+        }
+        const frame = accidentReplayFrames[index];
+        if (replayTime) {
+          replayTime.textContent = Number.isFinite(Number(frame.time_to_accident_seconds))
+            ? `${formatNumber(frame.time_to_accident_seconds, 2)}s`
+            : `${index + 1} / ${accidentReplayFrames.length}`;
+        }
+        updateAccidentReplayRecenterButton(recenterButton);
+        updateAccidentReplayPlayPauseButton(playPauseButton);
+      }
+
+      function updateAccidentReplayRecenterButton(recenterButton) {
+        if (!recenterButton || !accidentReplayCanvas) {
+          return;
+        }
+        const canRecenter = !accidentReplayCanvas.isViewCentered();
+        recenterButton.hidden = !canRecenter;
+        recenterButton.disabled = !canRecenter;
+      }
+
+      function updateAccidentReplayPlayPauseButton(button) {
+        if (!button) {
+          return;
+        }
+        const nextState = accidentReplayPlaying ? "pause" : "play";
+        if (button.dataset.replayState === nextState) {
+          return;
+        }
+        button.dataset.replayState = nextState;
+        if (accidentReplayPlaying) {
+          button.innerHTML = '<i class="bi bi-pause-fill" aria-hidden="true"></i>';
+          button.title = "Pause";
+          button.setAttribute("aria-label", "Pause");
+        } else {
+          button.innerHTML = '<i class="bi bi-play-fill" aria-hidden="true"></i>';
+          button.title = "Play";
+          button.setAttribute("aria-label", "Play");
+        }
+      }
+
+      function stopAccidentReplayTimer() {
+        if (accidentReplayTimer !== null) {
+          window.clearTimeout(accidentReplayTimer);
+          accidentReplayTimer = null;
+        }
+        accidentReplayPlaying = false;
+      }
+
+      function accidentReplayFrameDelay(currentIndex) {
+        const currentFrame = accidentReplayFrames[currentIndex];
+        const nextFrame = accidentReplayFrames[currentIndex + 1];
+        const currentTime = Number(currentFrame && currentFrame.time_offset_seconds);
+        const nextTime = Number(nextFrame && nextFrame.time_offset_seconds);
+        if (Number.isFinite(currentTime) && Number.isFinite(nextTime) && nextTime > currentTime) {
+          return Math.min(500, Math.max(16, (nextTime - currentTime) * 1000));
+        }
+        return 100;
+      }
+
+      function scheduleNextAccidentReplayFrame(controls) {
+        if (accidentReplayTimer !== null) {
+          window.clearTimeout(accidentReplayTimer);
+          accidentReplayTimer = null;
+        }
+        if (accidentReplayFrameIndex >= accidentReplayFrames.length - 1) {
+          if (accidentReplayRepeat && accidentReplayFrames.length > 0) {
+            accidentReplayTimer = window.setTimeout(() => {
+              renderAccidentReplayFrame(0, controls);
+              scheduleNextAccidentReplayFrame(controls);
+            }, accidentReplayFrameDelay(0));
+          } else {
+            accidentReplayPlaying = false;
+            updateAccidentReplayPlayPauseButton(controls && controls.playPauseButton);
+          }
+          return;
+        }
+        accidentReplayTimer = window.setTimeout(() => {
+          renderAccidentReplayFrame(accidentReplayFrameIndex + 1, controls);
+          scheduleNextAccidentReplayFrame(controls);
+        }, accidentReplayFrameDelay(accidentReplayFrameIndex));
+      }
+
+      function startAccidentReplay(controls, { restart = false } = {}) {
+        if (accidentReplayFrames.length === 0) {
+          return;
+        }
+        const nextIndex = restart || accidentReplayFrameIndex >= accidentReplayFrames.length - 1
+          ? 0
+          : accidentReplayFrameIndex;
+        accidentReplayPlaying = true;
+        renderAccidentReplayFrame(nextIndex, controls);
+        scheduleNextAccidentReplayFrame(controls);
+      }
+
+      function pauseAccidentReplay() {
+        stopAccidentReplayTimer();
+      }
+
+      function stopAccidentReplay(controls) {
+        stopAccidentReplayTimer();
+        renderAccidentReplayFrame(0, controls);
+      }
+
+      async function loadAccidentLogSummary(filename) {
+        if (accidentLogSummaryCache.has(filename)) {
+          return accidentLogSummaryCache.get(filename);
+        }
+        const response = await fetch(
+          monitorRestUrl(`/accident-logs/${encodeURIComponent(filename)}/summary?ts=${Date.now()}`),
+          { cache: "no-store" },
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load accident log summary: ${response.status} ${response.statusText}`);
+        }
+        const summary = await response.json();
+        accidentLogSummaryCache.set(filename, summary);
+        return summary;
       }
 
       async function loadAccidentLogs() {
@@ -1381,14 +1736,6 @@
         }
       }
 
-      function resetVehicleTraces() {
-        for (const telemetry of Object.values(vehicleTelemetry)) {
-          telemetry.ipsHistory = [];
-          telemetry.lidarDots = [];
-        }
-        drawMainCanvas();
-      }
-
       function formatNumber(value, fractionDigits = 2) {
         const number = Number(value);
         if (!Number.isFinite(number)) {
@@ -1407,170 +1754,559 @@
         return `${formatNumber(ips.x)}, ${formatNumber(ips.y)}`;
       }
 
-      function rememberIps(vehicleId, ips) {
-        if (!ips || !Number.isFinite(Number(ips.x)) || !Number.isFinite(Number(ips.y))) {
-          return;
+      class RaceTrajectoryCanvas {
+        constructor({
+          canvas,
+          context = null,
+          telemetry = null,
+          view = null,
+          historyLimit = 100,
+          showLidar = false,
+          initRenderer = null,
+        }) {
+          this.canvas = canvas;
+          this.context = context || canvas.getContext("2d");
+          this.telemetry = telemetry || {
+            1: { ipsHistory: [], lidarDots: [], headingYaw: null },
+            2: { ipsHistory: [], lidarDots: [], headingYaw: null },
+          };
+          this.view = view || {
+            zoom: 1,
+            rotation: 90,
+            panX: 0,
+            panY: 0,
+            isPanning: false,
+            lastPointerX: 0,
+            lastPointerY: 0,
+          };
+          this.historyLimit = historyLimit;
+          this.showLidar = showLidar;
+          this.initRenderer = initRenderer;
         }
 
-        const history = vehicleTelemetry[vehicleId].ipsHistory;
-        const point = {
-          x: Number(ips.x),
-          y: Number(ips.y),
-        };
-        const previous = history[history.length - 1];
-        if (!previous || previous.x !== point.x || previous.y !== point.y) {
-          history.push(point);
-          while (history.length > ipsHistoryLimit) {
-            history.shift();
+        reset() {
+          for (const telemetry of Object.values(this.telemetry)) {
+            telemetry.ips = null;
+            telemetry.ipsHistory = [];
+            telemetry.lidarDots = [];
+            telemetry.headingYaw = null;
           }
-          updateHeadingFromIps(vehicleId);
-        }
-        vehicleTelemetry[vehicleId].ips = point;
-      }
-
-      function updateHeadingFromIps(vehicleId) {
-        const history = vehicleTelemetry[vehicleId].ipsHistory;
-        if (history.length < 4) {
-          return;
+          this.draw();
         }
 
-        const current = history[history.length - 1];
-        for (let index = history.length - 2; index >= 0; index -= 1) {
-          const previous = history[index];
-          const dx = current.x - previous.x;
-          const dy = current.y - previous.y;
-          if (Math.hypot(dx, dy) <= 0.35) {
-            continue;
+        resetView() {
+          this.view.zoom = 1;
+          this.view.panX = 0;
+          this.view.panY = 0;
+        }
+
+        isViewCentered() {
+          return Math.abs(this.view.panX) < 0.5
+            && Math.abs(this.view.panY) < 0.5
+            && Math.abs(this.view.zoom - 1) < 0.001;
+        }
+
+        setRotation(degrees) {
+          this.view.rotation = degrees;
+          this.draw();
+        }
+
+        appendTelemetry(vehicleId, telemetry) {
+          if (!this.telemetry[vehicleId] || !telemetry || typeof telemetry !== "object") {
+            return;
           }
-          vehicleTelemetry[vehicleId].headingYaw = Math.atan2(dy, dx);
-          return;
-        }
-      }
-
-      function rememberLidarScan(vehicleId, points) {
-        if (!Number.isFinite(vehicleTelemetry[vehicleId].headingYaw)) {
-          return;
-        }
-
-        const lidarDots = vehicleTelemetry[vehicleId].lidarDots;
-        for (const point of lidarLocalPointsFromScan(vehicleId, points)) {
-          const worldPoint = transformLidarPointToWorld(vehicleId, point);
-          if (worldPoint) {
-            lidarDots.push(worldPoint);
+          this.rememberIps(vehicleId, telemetry.ips);
+          this.rememberHeading(vehicleId, telemetry);
+          if (this.showLidar && Object.prototype.hasOwnProperty.call(telemetry, "lidar_scan")) {
+            this.rememberLidarScan(vehicleId, telemetry.lidar_scan);
           }
         }
-      }
 
-      function rememberHeading(vehicleId, telemetry) {
-        if (Number.isFinite(vehicleTelemetry[vehicleId].headingYaw)) {
-          return;
-        }
-        const history = vehicleTelemetry[vehicleId].ipsHistory;
-        if (history.length > 0 && history.length < 4) {
-          return;
-        }
-
-        const headingYaw = Number(telemetry.heading_yaw);
-        if (Number.isFinite(headingYaw)) {
-          vehicleTelemetry[vehicleId].headingYaw = headingYaw;
-          return;
-        }
-
-        const linearVelocity = telemetry.linear_velocity;
-        if (!linearVelocity || typeof linearVelocity !== "object") {
-          return;
-        }
-
-        const vx = Number(linearVelocity.x);
-        const vy = Number(linearVelocity.y);
-        if (!Number.isFinite(vx) || !Number.isFinite(vy) || Math.hypot(vx, vy) <= 0.01) {
-          return;
-        }
-        vehicleTelemetry[vehicleId].headingYaw = Math.atan2(vy, vx);
-      }
-
-      function numericValuesFromText(text) {
-        const matches = String(text).match(/[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?/g);
-        return matches ? matches.map(Number).filter(Number.isFinite) : [];
-      }
-
-      function pointFromValue(value) {
-        if (Array.isArray(value) && value.length >= 2) {
-          const x = Number(value[0]);
-          const y = Number(value[1]);
-          return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
-        }
-        if (value && typeof value === "object") {
-          const x = Number(value.x ?? value.X);
-          const y = Number(value.y ?? value.Y);
-          return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
-        }
-        if (typeof value === "string") {
-          const numbers = numericValuesFromText(value);
-          return numbers.length >= 2 ? { x: numbers[0], y: numbers[1] } : null;
-        }
-        return null;
-      }
-
-      function lidarLocalPointsFromScan(vehicleId, scan) {
-        if (typeof scan === "string") {
-          scan = numericValuesFromText(scan);
-        }
-        if (!Array.isArray(scan)) {
-          return [];
+        setFrames(frames, frameIndex) {
+          for (const telemetry of Object.values(this.telemetry)) {
+            telemetry.ips = null;
+            telemetry.ipsHistory = [];
+            telemetry.lidarDots = [];
+            telemetry.headingYaw = null;
+          }
+          const lastIndex = Math.max(0, Math.min(Number(frameIndex) || 0, frames.length - 1));
+          for (let index = 0; index <= lastIndex; index += 1) {
+            const frame = frames[index];
+            if (!frame || !frame.vehicles || typeof frame.vehicles !== "object") {
+              continue;
+            }
+            for (const [vehicleIdText, telemetry] of Object.entries(frame.vehicles)) {
+              this.appendTelemetry(Number(vehicleIdText), telemetry);
+            }
+          }
+          this.draw();
         }
 
-        const structuredPoints = scan.map(pointFromValue).filter(Boolean);
-        if (structuredPoints.length > 0) {
-          return structuredPoints;
+        rememberIps(vehicleId, ips) {
+          if (!ips || !Number.isFinite(Number(ips.x)) || !Number.isFinite(Number(ips.y))) {
+            return;
+          }
+
+          const telemetry = this.telemetry[vehicleId];
+          const history = telemetry.ipsHistory;
+          const point = {
+            x: Number(ips.x),
+            y: Number(ips.y),
+          };
+          const previous = history[history.length - 1];
+          if (!previous || previous.x !== point.x || previous.y !== point.y) {
+            history.push(point);
+            while (history.length > this.historyLimit) {
+              history.shift();
+            }
+            this.updateHeadingFromIps(vehicleId);
+          }
+          telemetry.ips = point;
         }
 
-        const numbers = scan.map(Number).filter(Number.isFinite);
-        if (numbers.length >= 2 && numbers.length % 2 === 0) {
+        updateHeadingFromIps(vehicleId) {
+          const telemetry = this.telemetry[vehicleId];
+          const history = telemetry.ipsHistory;
+          if (history.length < 4) {
+            return;
+          }
+
+          const current = history[history.length - 1];
+          for (let index = history.length - 2; index >= 0; index -= 1) {
+            const previous = history[index];
+            const dx = current.x - previous.x;
+            const dy = current.y - previous.y;
+            if (Math.hypot(dx, dy) <= 0.35) {
+              continue;
+            }
+            telemetry.headingYaw = Math.atan2(dy, dx);
+            return;
+          }
+        }
+
+        rememberHeading(vehicleId, telemetry) {
+          const vehicle = this.telemetry[vehicleId];
+          if (Number.isFinite(vehicle.headingYaw)) {
+            return;
+          }
+          if (vehicle.ipsHistory.length > 0 && vehicle.ipsHistory.length < 4) {
+            return;
+          }
+
+          const headingYaw = Number(telemetry.heading_yaw);
+          if (Number.isFinite(headingYaw)) {
+            vehicle.headingYaw = headingYaw;
+            return;
+          }
+
+          const linearVelocity = telemetry.linear_velocity;
+          if (!linearVelocity || typeof linearVelocity !== "object") {
+            return;
+          }
+
+          const vx = Number(linearVelocity.x);
+          const vy = Number(linearVelocity.y);
+          if (!Number.isFinite(vx) || !Number.isFinite(vy) || Math.hypot(vx, vy) <= 0.01) {
+            return;
+          }
+          vehicle.headingYaw = Math.atan2(vy, vx);
+        }
+
+        rememberLidarScan(vehicleId, points) {
+          if (!Number.isFinite(this.telemetry[vehicleId].headingYaw)) {
+            return;
+          }
+
+          const lidarDots = this.telemetry[vehicleId].lidarDots;
+          for (const point of this.lidarLocalPointsFromScan(points)) {
+            const worldPoint = this.transformLidarPointToWorld(vehicleId, point);
+            if (worldPoint) {
+              lidarDots.push(worldPoint);
+            }
+          }
+        }
+
+        numericValuesFromText(text) {
+          const matches = String(text).match(/[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?/g);
+          return matches ? matches.map(Number).filter(Number.isFinite) : [];
+        }
+
+        pointFromValue(value) {
+          if (Array.isArray(value) && value.length >= 2) {
+            const x = Number(value[0]);
+            const y = Number(value[1]);
+            return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+          }
+          if (value && typeof value === "object") {
+            const x = Number(value.x ?? value.X);
+            const y = Number(value.y ?? value.Y);
+            return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+          }
+          if (typeof value === "string") {
+            const numbers = this.numericValuesFromText(value);
+            return numbers.length >= 2 ? { x: numbers[0], y: numbers[1] } : null;
+          }
+          return null;
+        }
+
+        lidarLocalPointsFromScan(scan) {
+          if (typeof scan === "string") {
+            scan = this.numericValuesFromText(scan);
+          }
+          if (!Array.isArray(scan)) {
+            return [];
+          }
+
+          const structuredPoints = scan.map((point) => this.pointFromValue(point)).filter(Boolean);
+          if (structuredPoints.length > 0) {
+            return structuredPoints;
+          }
+
+          const numbers = scan.map(Number).filter(Number.isFinite);
+          if (numbers.length >= 2 && numbers.length % 2 === 0) {
+            const points = [];
+            for (let index = 0; index < numbers.length; index += 2) {
+              points.push({ x: numbers[index], y: numbers[index + 1] });
+            }
+            return points;
+          }
+
           const points = [];
-          for (let index = 0; index < numbers.length; index += 2) {
-            points.push({ x: numbers[index], y: numbers[index + 1] });
+          for (let index = 0; index < numbers.length; index += 1) {
+            const radians = lidarAngleMin + lidarAngleIncrement * index;
+            points.push({
+              x: lidarOffset.x + numbers[index] * Math.cos(radians),
+              y: lidarOffset.y + numbers[index] * Math.sin(radians),
+            });
           }
           return points;
         }
 
-        if (numbers.length === 0) {
-          return [];
-        }
-
-        const points = [];
-        for (let index = 0; index < numbers.length; index += 1) {
-          const radians = lidarAngleMin + lidarAngleIncrement * index;
-          points.push({
-            x: lidarOffset.x + numbers[index] * Math.cos(radians),
-            y: lidarOffset.y + numbers[index] * Math.sin(radians),
-          });
-        }
-        return points;
-      }
-
-      function transformLidarPointToWorld(vehicleId, point) {
-        const origin = vehicleTelemetry[vehicleId].ips;
-        if (!origin || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-          return null;
-        }
-        const headingYaw = vehicleTelemetry[vehicleId].headingYaw;
-        if (Number.isFinite(headingYaw)) {
-          const cos = Math.cos(headingYaw);
-          const sin = Math.sin(headingYaw);
+        transformLidarPointToWorld(vehicleId, point) {
+          const vehicle = this.telemetry[vehicleId];
+          const origin = vehicle.ips;
+          if (!origin || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+            return null;
+          }
+          if (Number.isFinite(vehicle.headingYaw)) {
+            const cos = Math.cos(vehicle.headingYaw);
+            const sin = Math.sin(vehicle.headingYaw);
+            return {
+              x: origin.x + point.x * cos - point.y * sin,
+              y: origin.y + point.x * sin + point.y * cos,
+            };
+          }
           return {
-            x: origin.x + point.x * cos - point.y * sin,
-            y: origin.y + point.x * sin + point.y * cos,
+            x: origin.x + point.x,
+            y: origin.y + point.y,
           };
         }
 
-        return {
-          x: origin.x + point.x,
-          y: origin.y + point.y,
-        };
+        resize() {
+          const pixelRatio = window.devicePixelRatio || 1;
+          const rect = this.canvas.getBoundingClientRect();
+          const width = Math.max(1, Math.round(rect.width * pixelRatio));
+          const height = Math.max(1, Math.round(rect.height * pixelRatio));
+
+          if (this.canvas.width !== width || this.canvas.height !== height) {
+            this.canvas.width = width;
+            this.canvas.height = height;
+          }
+
+          this.context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+          return {
+            height: rect.height,
+            width: rect.width,
+          };
+        }
+
+        allPoints() {
+          const points = [];
+          for (const telemetry of Object.values(this.telemetry)) {
+            points.push(...telemetry.ipsHistory);
+            if (this.showLidar) {
+              points.push(...telemetry.lidarDots);
+            }
+          }
+          return points;
+        }
+
+        gridScale(width, height) {
+          const maxAbs = this.allPoints().reduce((maximum, point) => {
+            return Math.max(maximum, Math.abs(point.x), Math.abs(point.y));
+          }, 10);
+          const canvasExtent = Math.max(1, Math.min(width, height));
+          const baseScale = Math.max(1, Math.min(24, (canvasExtent * 0.45) / Math.max(1, maxAbs)));
+          return baseScale * this.view.zoom;
+        }
+
+        worldToCanvas(point, width, height, scale) {
+          const radians = (this.view.rotation * Math.PI) / 180;
+          const cos = Math.cos(radians);
+          const sin = Math.sin(radians);
+          const rotatedX = point.x * cos - point.y * sin;
+          const rotatedY = point.x * sin + point.y * cos;
+
+          return {
+            x: width / 2 + this.view.panX + rotatedX * scale,
+            y: height / 2 + this.view.panY - rotatedY * scale,
+          };
+        }
+
+        canvasToWorld(point, width, height, scale) {
+          const screenX = (point.x - width / 2 - this.view.panX) / scale;
+          const screenY = -(point.y - height / 2 - this.view.panY) / scale;
+          const radians = (this.view.rotation * Math.PI) / 180;
+          const cos = Math.cos(radians);
+          const sin = Math.sin(radians);
+
+          return {
+            x: screenX * cos + screenY * sin,
+            y: -screenX * sin + screenY * cos,
+          };
+        }
+
+        canvasPointFromEvent(event) {
+          const rect = this.canvas.getBoundingClientRect();
+          return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          };
+        }
+
+        zoomAtEvent(event) {
+          event.preventDefault();
+          const { height, width } = this.resize();
+          const cursor = this.canvasPointFromEvent(event);
+          const oldScale = this.gridScale(width, height);
+          const worldPoint = this.canvasToWorld(cursor, width, height, oldScale);
+          const zoomFactor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+
+          this.view.zoom = Math.min(12, Math.max(0.2, this.view.zoom * zoomFactor));
+          const newScale = this.gridScale(width, height);
+          const shiftedCursor = this.worldToCanvas(worldPoint, width, height, newScale);
+          this.view.panX += cursor.x - shiftedCursor.x;
+          this.view.panY += cursor.y - shiftedCursor.y;
+        }
+
+        enableWheelZoom(afterZoom = null) {
+          this.canvas.addEventListener("wheel", (event) => {
+            this.zoomAtEvent(event);
+            if (afterZoom) {
+              afterZoom();
+            } else {
+              this.draw();
+            }
+          }, { passive: false });
+        }
+
+        enablePan(afterPan = null) {
+          this.canvas.addEventListener("pointerdown", (event) => {
+            if (event.button !== 0) {
+              return;
+            }
+            event.preventDefault();
+            this.view.isPanning = true;
+            this.view.lastPointerX = event.clientX;
+            this.view.lastPointerY = event.clientY;
+            this.canvas.classList.add("is-panning");
+            this.canvas.setPointerCapture(event.pointerId);
+          });
+          this.canvas.addEventListener("pointermove", (event) => {
+            if (!this.view.isPanning) {
+              return;
+            }
+            event.preventDefault();
+            this.view.panX += event.clientX - this.view.lastPointerX;
+            this.view.panY += event.clientY - this.view.lastPointerY;
+            this.view.lastPointerX = event.clientX;
+            this.view.lastPointerY = event.clientY;
+            if (afterPan) {
+              afterPan();
+            } else {
+              this.draw();
+            }
+          });
+          const stopPan = () => {
+            this.view.isPanning = false;
+            this.canvas.classList.remove("is-panning");
+          };
+          this.canvas.addEventListener("pointerup", stopPan);
+          this.canvas.addEventListener("pointercancel", stopPan);
+          this.canvas.addEventListener("lostpointercapture", stopPan);
+        }
+
+        gridWorldStep(scale) {
+          if (scale < 4) {
+            return 10;
+          }
+          if (scale < 8) {
+            return 5;
+          }
+          if (scale < 16) {
+            return 2;
+          }
+          return 1;
+        }
+
+        visibleWorldBounds(width, height, scale) {
+          const corners = [
+            this.canvasToWorld({ x: 0, y: 0 }, width, height, scale),
+            this.canvasToWorld({ x: width, y: 0 }, width, height, scale),
+            this.canvasToWorld({ x: width, y: height }, width, height, scale),
+            this.canvasToWorld({ x: 0, y: height }, width, height, scale),
+          ];
+          const bounds = corners.reduce(
+            (current, point) => ({
+              minX: Math.min(current.minX, point.x),
+              maxX: Math.max(current.maxX, point.x),
+              minY: Math.min(current.minY, point.y),
+              maxY: Math.max(current.maxY, point.y),
+            }),
+            {
+              minX: Infinity,
+              maxX: -Infinity,
+              minY: Infinity,
+              maxY: -Infinity,
+            },
+          );
+
+          return {
+            minX: bounds.minX - 1,
+            maxX: bounds.maxX + 1,
+            minY: bounds.minY - 1,
+            maxY: bounds.maxY + 1,
+          };
+        }
+
+        drawGrid(width, height, scale) {
+          const worldStep = this.gridWorldStep(scale);
+          const bounds = this.visibleWorldBounds(width, height, scale);
+          const startX = Math.floor(bounds.minX / worldStep) * worldStep;
+          const endX = Math.ceil(bounds.maxX / worldStep) * worldStep;
+          const startY = Math.floor(bounds.minY / worldStep) * worldStep;
+          const endY = Math.ceil(bounds.maxY / worldStep) * worldStep;
+
+          this.context.strokeStyle = "#4b5563";
+          this.context.lineWidth = 1;
+          this.context.beginPath();
+
+          for (let x = startX; x <= endX; x += worldStep) {
+            const top = this.worldToCanvas({ x, y: bounds.minY }, width, height, scale);
+            const bottom = this.worldToCanvas({ x, y: bounds.maxY }, width, height, scale);
+            this.context.moveTo(top.x, top.y);
+            this.context.lineTo(bottom.x, bottom.y);
+          }
+          for (let y = startY; y <= endY; y += worldStep) {
+            const left = this.worldToCanvas({ x: bounds.minX, y }, width, height, scale);
+            const right = this.worldToCanvas({ x: bounds.maxX, y }, width, height, scale);
+            this.context.moveTo(left.x, left.y);
+            this.context.lineTo(right.x, right.y);
+          }
+          this.context.stroke();
+
+          this.context.strokeStyle = "#9ca3af";
+          this.context.lineWidth = 2;
+          this.context.beginPath();
+          const yAxisStart = this.worldToCanvas({ x: 0, y: bounds.minY }, width, height, scale);
+          const yAxisEnd = this.worldToCanvas({ x: 0, y: bounds.maxY }, width, height, scale);
+          const xAxisStart = this.worldToCanvas({ x: bounds.minX, y: 0 }, width, height, scale);
+          const xAxisEnd = this.worldToCanvas({ x: bounds.maxX, y: 0 }, width, height, scale);
+          this.context.moveTo(yAxisStart.x, yAxisStart.y);
+          this.context.lineTo(yAxisEnd.x, yAxisEnd.y);
+          this.context.moveTo(xAxisStart.x, xAxisStart.y);
+          this.context.lineTo(xAxisEnd.x, xAxisEnd.y);
+          this.context.stroke();
+        }
+
+        drawVehicleHistory(width, height, scale) {
+          for (const [vehicleId, telemetry] of Object.entries(this.telemetry)) {
+            this.context.fillStyle = vehicleHistoryColors[vehicleId] || "#22c55e";
+            const history = telemetry.ipsHistory.slice(0, -1);
+            for (const point of history) {
+              const canvasPoint = this.worldToCanvas(point, width, height, scale);
+              this.context.beginPath();
+              this.context.arc(canvasPoint.x, canvasPoint.y, 1.5, 0, Math.PI * 2);
+              this.context.fill();
+            }
+          }
+        }
+
+        drawLidarDots(width, height, scale) {
+          if (!this.showLidar) {
+            return;
+          }
+          this.context.fillStyle = "#dc2626";
+          for (const telemetry of Object.values(this.telemetry)) {
+            for (const point of telemetry.lidarDots) {
+              const canvasPoint = this.worldToCanvas(point, width, height, scale);
+              this.context.beginPath();
+              this.context.arc(canvasPoint.x, canvasPoint.y, 0.5, 0, Math.PI * 2);
+              this.context.fill();
+            }
+          }
+        }
+
+        drawVehicles(width, height, scale) {
+          for (const [vehicleId, telemetry] of Object.entries(this.telemetry)) {
+            if (!telemetry.ips) {
+              continue;
+            }
+
+            const canvasPoint = this.worldToCanvas(telemetry.ips, width, height, scale);
+            this.context.fillStyle = "#9ca3af";
+            this.context.beginPath();
+            this.context.arc(canvasPoint.x, canvasPoint.y, 12, 0, Math.PI * 2);
+            this.context.fill();
+
+            this.context.fillStyle = "#111827";
+            this.context.font = "700 13px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+            this.context.textAlign = "center";
+            this.context.textBaseline = "middle";
+            this.context.fillText(displayRoboracerLabel(vehicleId), canvasPoint.x, canvasPoint.y);
+          }
+          this.context.textAlign = "start";
+        }
+
+        draw({ showInit = false } = {}) {
+          const { height, width } = this.resize();
+          this.context.clearRect(0, 0, width, height);
+          this.context.fillStyle = "#000000";
+          this.context.fillRect(0, 0, width, height);
+
+          if (showInit && this.initRenderer) {
+            this.initRenderer(this.context, width, height);
+            return;
+          }
+
+          const scale = this.gridScale(width, height);
+          this.drawGrid(width, height, scale);
+          this.drawLidarDots(width, height, scale);
+          this.drawVehicleHistory(width, height, scale);
+          this.drawVehicles(width, height, scale);
+        }
       }
 
-      function applyVehicleTelemetry(vehicleId, telemetry) {
+      const vehicleHistoryColors = {
+        1: "#22c55e",
+        2: "#f97316",
+      };
+
+      const mainTrajectoryCanvas = new RaceTrajectoryCanvas({
+        canvas: mainCanvas,
+        context: mainContext,
+        telemetry: vehicleTelemetry,
+        view: canvasView,
+        historyLimit: ipsHistoryLimit,
+        showLidar: false,
+        initRenderer: drawInitModeContent,
+      });
+
+      function resetVehicleTraces() {
+        mainTrajectoryCanvas.reset();
+      }
+
+      function applyVehicleTelemetryToSidebar(vehicleId, telemetry) {
         const roboracer = roboracers[vehicleId];
         if (!roboracer || !telemetry || typeof telemetry !== "object") {
           return;
@@ -1580,10 +2316,8 @@
           roboracer.lapCount.textContent = formatNumber(telemetry.lap_count, 0);
         }
         if (Object.prototype.hasOwnProperty.call(telemetry, "ips")) {
-          rememberIps(vehicleId, telemetry.ips);
           roboracer.ips.textContent = formatIps(telemetry.ips);
         }
-        rememberHeading(vehicleId, telemetry);
         if (Object.prototype.hasOwnProperty.call(telemetry, "collision_count")) {
           roboracer.collisions.textContent = formatNumber(telemetry.collision_count, 0);
         }
@@ -1596,9 +2330,6 @@
         if (Object.prototype.hasOwnProperty.call(telemetry, "best_lap_time")) {
           roboracer.bestLap.textContent = formatNumber(telemetry.best_lap_time);
         }
-        if (Object.prototype.hasOwnProperty.call(telemetry, "lidar_scan")) {
-          rememberLidarScan(vehicleId, telemetry.lidar_scan);
-        }
       }
 
       function updateTelemetry(vehicles) {
@@ -1607,9 +2338,11 @@
         }
 
         for (const [vehicleIdText, telemetry] of Object.entries(vehicles)) {
-          applyVehicleTelemetry(Number(vehicleIdText), telemetry);
+          const vehicleId = Number(vehicleIdText);
+          applyVehicleTelemetryToSidebar(vehicleId, telemetry);
+          mainTrajectoryCanvas.appendTelemetry(vehicleId, telemetry);
         }
-        drawMainCanvas();
+        mainTrajectoryCanvas.draw();
       }
 
       function handleMonitorMessage(data) {
@@ -1921,7 +2654,7 @@
         };
       }
 
-      function drawInitModeContent(width, height) {
+      function drawInitModeContent(context, width, height) {
         if (mainImage.complete && mainImage.naturalWidth > 0) {
           const imageScale = Math.min(
             (width * 0.96) / mainImage.naturalWidth,
@@ -1931,7 +2664,7 @@
           const imageHeight = mainImage.naturalHeight * imageScale;
           const imageX = (width - imageWidth) / 2;
           const imageY = height - imageHeight - 20;
-          mainContext.drawImage(mainImage, imageX, imageY, imageWidth, imageHeight);
+          context.drawImage(mainImage, imageX, imageY, imageWidth, imageHeight);
         }
 
         const host = window.location.host || "localhost:4567";
@@ -1946,28 +2679,28 @@
         const titleGap = 12;
         const lineHeight = 24;
         const itemGap = 8;
-        mainContext.font = "16px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+        context.font = "16px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
-        const wrappedItems = instructions.map((text) => wrapCanvasText(mainContext, text, boxWidth - padding * 2));
+        const wrappedItems = instructions.map((text) => wrapCanvasText(context, text, boxWidth - padding * 2));
         const lineCount = wrappedItems.reduce((total, lines) => total + lines.length, 0);
         const boxHeight = padding * 2 + titleHeight + titleGap + lineCount * lineHeight + (wrappedItems.length - 1) * itemGap;
         const boxX = (width - boxWidth) / 2;
         const boxY = Math.max(24, height * 0.32 - boxHeight / 2);
 
-        mainContext.fillStyle = "rgba(255, 255, 255, 0.5)";
-        roundedRect(mainContext, boxX, boxY, boxWidth, boxHeight, 8);
-        mainContext.fill();
+        context.fillStyle = "rgba(255, 255, 255, 0.5)";
+        roundedRect(context, boxX, boxY, boxWidth, boxHeight, 8);
+        context.fill();
 
-        mainContext.fillStyle = "#111827";
-        mainContext.textBaseline = "top";
-        mainContext.font = "700 20px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-        mainContext.fillText("How to use RCT for H2H Racing?", boxX + padding, boxY + padding);
+        context.fillStyle = "#111827";
+        context.textBaseline = "top";
+        context.font = "700 20px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+        context.fillText("How to use RCT for H2H Racing?", boxX + padding, boxY + padding);
 
-        mainContext.font = "16px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+        context.font = "16px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
         let textY = boxY + padding + titleHeight + titleGap;
         for (const lines of wrappedItems) {
           for (const line of lines) {
-            mainContext.fillText(line, boxX + padding, textY);
+            context.fillText(line, boxX + padding, textY);
             textY += lineHeight;
           }
           textY += itemGap;
@@ -2102,11 +2835,6 @@
         mainContext.stroke();
       }
 
-      const vehicleHistoryColors = {
-        1: "#22c55e",
-        2: "#f97316",
-      };
-
       function drawVehicleHistory(width, height, scale) {
         for (const [vehicleId, telemetry] of Object.entries(vehicleTelemetry)) {
           mainContext.fillStyle = vehicleHistoryColors[vehicleId] || "#22c55e";
@@ -2154,21 +2882,7 @@
       }
 
       function drawMainCanvas() {
-        const { height, width } = resizeMainCanvas();
-        mainContext.clearRect(0, 0, width, height);
-        mainContext.fillStyle = "#000000";
-        mainContext.fillRect(0, 0, width, height);
-
-        if (!simulatorConnected) {
-          drawInitModeContent(width, height);
-          return;
-        }
-
-        const scale = gridScale(width, height);
-        drawGrid(width, height, scale);
-        drawLidarDots(width, height, scale);
-        drawVehicleHistory(width, height, scale);
-        drawVehicles(width, height, scale);
+        mainTrajectoryCanvas.draw({ showInit: !simulatorConnected });
       }
 
       mainImage.addEventListener("load", drawMainCanvas);
