@@ -672,6 +672,30 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decision["collision_vehicle_ids"], [1, 2])
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_manual_penalty_decision_with_zero_restart_delay_releases_immediately(self):
+        tower = RaceControlTower(test_settings())
+        monitor_events = []
+
+        async def broadcast_monitor(message):
+            monitor_events.append(message)
+
+        tower.broadcast_monitor = broadcast_monitor
+        tower.state.set_penalty_rule_settings(restart_delay_seconds=0.0)
+        await tower.start_manual_penalty_decision([(1, 1), (2, 1)])
+
+        await tower.apply_manual_penalty_decision(2)
+
+        self.assertEqual(tower.filtered_control_vehicle_ids, set())
+        self.assertEqual(tower.state.vehicle_penalties(), {"2": 1})
+        self.assertEqual(tower._penalty_release_tasks, {})
+        decision = tower.state.penalty_decision()
+        self.assertFalse(decision["active"])
+        self.assertEqual(decision["filtered_vehicle_ids"], [])
+        penalty_decision_event = json.loads(monitor_events[-1])
+        self.assertFalse(penalty_decision_event["active"])
+        self.assertEqual(penalty_decision_event["filtered_vehicle_ids"], [])
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_devkit_bridge_outgoing_origin_is_opt_in(self):
         tower = RaceControlTower(replace(test_settings(), enable_origin=True))
         delivered_to_devkit = []

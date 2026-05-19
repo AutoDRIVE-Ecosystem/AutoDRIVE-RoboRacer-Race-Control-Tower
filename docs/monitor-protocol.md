@@ -89,6 +89,8 @@ POST /monitor/REST/0.1/devkits/{vehicle_id}/disconnect
 POST /monitor/REST/0.1/devkits/{vehicle_id}/endpoint
 GET  /monitor/REST/0.1/accident-recorder
 POST /monitor/REST/0.1/accident-recorder
+GET  /monitor/REST/0.1/penalty-rule
+POST /monitor/REST/0.1/penalty-rule
 GET  /monitor/REST/0.1/accident-logs
 GET  /monitor/REST/0.1/accident-logs/{filename}/summary
 DELETE /monitor/REST/0.1/accident-logs
@@ -143,6 +145,38 @@ Request:
 ```
 
 `pre_accident_seconds` must be a number from `0` to `60`. `include_camera` must be a boolean. The response returns `ok: true` and the applied `accident_recorder` settings. RCT publishes an updated `status` event after the settings change.
+
+Penalty rule settings:
+
+```http
+GET /monitor/REST/0.1/penalty-rule
+```
+
+Response:
+
+```json
+{
+  "protocol": "autodrive-rct-monitor",
+  "version": "0.1",
+  "penalty_rule": {
+    "restart_delay_seconds": 2.0
+  }
+}
+```
+
+```http
+POST /monitor/REST/0.1/penalty-rule
+```
+
+Request:
+
+```json
+{
+  "restart_delay_seconds": 2.0
+}
+```
+
+`restart_delay_seconds` must be a number from `0` to `60`. When greater than `0`, a vehicle that receives a manual penalty stays command-filtered for that duration after the decision while the other vehicle is released immediately. When set to `0`, both vehicles are released immediately after the decision. The response returns `ok: true` and the applied `penalty_rule` settings. RCT publishes an updated `status` event after the settings change.
 
 Accident logs:
 
@@ -262,6 +296,9 @@ Initial event:
   "accident_recorder": {
     "pre_accident_seconds": 5.0,
     "include_camera": false
+  },
+  "penalty_rule": {
+    "restart_delay_seconds": 2.0
   },
   "accident_logs": [],
   "vehicle_penalties": {

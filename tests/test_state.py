@@ -97,6 +97,15 @@ class RaceControlStateTests(unittest.TestCase):
         self.assertEqual(state.snapshot()["accident_recorder"]["pre_accident_seconds"], 3.5)
         self.assertTrue(state.snapshot()["accident_recorder"]["include_camera"])
 
+    def test_snapshot_tracks_penalty_rule_settings(self):
+        state = RaceControlState()
+
+        self.assertEqual(state.snapshot()["penalty_rule"]["restart_delay_seconds"], 2.0)
+
+        state.set_penalty_rule_settings(restart_delay_seconds=1.5)
+
+        self.assertEqual(state.snapshot()["penalty_rule"]["restart_delay_seconds"], 1.5)
+
     def test_snapshot_tracks_accident_logs(self):
         state = RaceControlState()
         state.add_accident_log(

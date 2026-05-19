@@ -514,6 +514,9 @@
                 <button class="nav-link" id="accident-recorder-tab" data-bs-toggle="tab" data-bs-target="#accident-recorder-tab-pane" type="button" role="tab" aria-controls="accident-recorder-tab-pane" aria-selected="false">Accident Recorder</button>
               </li>
               <li class="nav-item" role="presentation">
+                <button class="nav-link" id="penalty-rule-tab" data-bs-toggle="tab" data-bs-target="#penalty-rule-tab-pane" type="button" role="tab" aria-controls="penalty-rule-tab-pane" aria-selected="false">Penalty Rule</button>
+              </li>
+              <li class="nav-item" role="presentation">
                 <button class="nav-link" id="about-tab" data-bs-toggle="tab" data-bs-target="#about-tab-pane" type="button" role="tab" aria-controls="about-tab-pane" aria-selected="false">About</button>
               </li>
             </ul>
@@ -553,6 +556,15 @@
                 <div class="d-flex justify-content-start align-items-center gap-2 mt-2">
                   <label for="includeCamera" class="col-form-label">Include front camera:</label>
                   <input id="includeCamera" class="form-check-input mt-0" type="checkbox">
+                </div>
+              </div>
+              <div class="tab-pane fade" id="penalty-rule-tab-pane" role="tabpanel" aria-labelledby="penalty-rule-tab" tabindex="0">
+                <p class="rct-settings-description">
+                  Configure how RCT releases vehicles after a collision decision. When a vehicle receives a penalty, RCT can keep that vehicle's throttle and steering commands filtered to zero for a short restart delay while the other vehicle is released immediately.
+                </p>
+                <div class="d-flex justify-content-start align-items-center gap-2">
+                  <label for="penaltyRestartDelaySeconds" class="col-form-label">Penalty restart delay seconds:</label>
+                  <input id="penaltyRestartDelaySeconds" class="form-control form-control-sm rct-pre-accident-input" type="number" min="0" max="60" step="0.1" value="2">
                 </div>
               </div>
               <div class="tab-pane fade" id="about-tab-pane" role="tabpanel" aria-labelledby="about-tab" tabindex="0">
@@ -749,6 +761,7 @@
       const settingsTabButtons = Array.from(document.querySelectorAll("#settingsTabs [data-bs-toggle='tab']"));
       const preAccidentSecondsInput = document.getElementById("preAccidentSeconds");
       const includeCameraCheckbox = document.getElementById("includeCamera");
+      const penaltyRestartDelaySecondsInput = document.getElementById("penaltyRestartDelaySeconds");
       const accidentLogsButton = document.getElementById("accidentLogsButton");
       const accidentLogsButtonText = document.getElementById("accidentLogsButtonText");
       const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
@@ -848,8 +861,10 @@
       let appliedTopicSelections = {};
       let topicSettingsSaveChain = Promise.resolve();
       let accidentRecorderSettingsSaveChain = Promise.resolve();
+      let penaltyRuleSettingsSaveChain = Promise.resolve();
       let appliedPreAccidentSeconds = 5;
       let appliedIncludeCamera = false;
+      let appliedPenaltyRestartDelaySeconds = 2;
       let simulatorConnected = false;
       let accidentLogs = [];
       let selectedAccidentLogFilename = null;
@@ -1478,6 +1493,15 @@
         );
       }
 
+      function penaltyRuleSettingsChanged() {
+        return penaltyRestartDelaySecondsValue() !== appliedPenaltyRestartDelaySeconds;
+      }
+
+      function penaltyRestartDelaySecondsValue() {
+        const parsed = Number.parseFloat(penaltyRestartDelaySecondsInput.value);
+        return Number.isFinite(parsed) ? parsed : NaN;
+      }
+
       function syncTopicSelectionsFromState(nextTopicSelections) {
         if (!nextTopicSelections || typeof nextTopicSelections !== "object") {
           return;
@@ -1562,6 +1586,21 @@
         }
         appliedIncludeCamera = Boolean(settings.include_camera);
         includeCameraCheckbox.checked = appliedIncludeCamera;
+        updateSettingsApplyState();
+      }
+
+      async function loadPenaltyRuleSettings() {
+        const response = await fetch(monitorRestUrl("/penalty-rule"));
+        if (!response.ok) {
+          throw new Error(`Failed to load penalty rule settings: ${response.status} ${response.statusText}`);
+        }
+        const payload = await response.json();
+        const settings = payload.penalty_rule || {};
+        const restartDelaySeconds = Number(settings.restart_delay_seconds);
+        if (Number.isFinite(restartDelaySeconds)) {
+          appliedPenaltyRestartDelaySeconds = restartDelaySeconds;
+          penaltyRestartDelaySecondsInput.value = String(restartDelaySeconds);
+        }
         updateSettingsApplyState();
       }
 
@@ -1659,16 +1698,65 @@
         return accidentRecorderSettingsSaveChain;
       }
 
+      async function postPenaltyRuleSettings() {
+        const response = await fetch(monitorRestUrl("/penalty-rule"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            restart_delay_seconds: penaltyRestartDelaySecondsValue(),
+          }),
+        });
+        if (!response.ok) {
+          let errorText = `${response.status} ${response.statusText}`;
+          try {
+            const errorBody = await response.json();
+            if (errorBody && typeof errorBody.error === "string") {
+              errorText = errorBody.error;
+            }
+          } catch (error) {
+            // ignore JSON parse failures and keep the HTTP status text
+          }
+          throw new Error(errorText);
+        }
+        return response.json();
+      }
+
+      function savePenaltyRuleSettings() {
+        penaltyRuleSettingsSaveChain = penaltyRuleSettingsSaveChain
+          .catch(() => {})
+          .then(async () => {
+            if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
+              throw new Error("RCT monitor websocket is disconnected");
+            }
+            const payload = await postPenaltyRuleSettings();
+            const settings = payload.penalty_rule || {};
+            appliedPenaltyRestartDelaySeconds = Number(settings.restart_delay_seconds);
+            penaltyRestartDelaySecondsInput.value = String(appliedPenaltyRestartDelaySeconds);
+            updateSettingsApplyState();
+            return payload;
+          })
+          .catch((error) => {
+            console.warn("Penalty rule settings save failed:", error);
+          });
+        return penaltyRuleSettingsSaveChain;
+      }
+
       function updateSettingsApplyState() {
         const topicsTabButton = document.getElementById("topics-tab");
         const accidentRecorderTabButton = document.getElementById("accident-recorder-tab");
+        const penaltyRuleTabButton = document.getElementById("penalty-rule-tab");
         const topicsChanged = topicSelectionsChanged();
         const accidentRecorderChanged = accidentRecorderSettingsChanged();
         const accidentRecorderValid = Number.isFinite(preAccidentSecondsValue());
+        const penaltyRuleChanged = penaltyRuleSettingsChanged();
+        const penaltyRuleValid = Number.isFinite(penaltyRestartDelaySecondsValue());
         const wsConnected = Boolean(rctSocket && rctSocket.readyState === WebSocket.OPEN);
         const activeTabChanged = (
           (topicsTabButton.classList.contains("active") && topicsChanged)
           || (accidentRecorderTabButton.classList.contains("active") && accidentRecorderChanged && accidentRecorderValid)
+          || (penaltyRuleTabButton.classList.contains("active") && penaltyRuleChanged && penaltyRuleValid)
         );
         settingsApplyButton.disabled = !activeTabChanged || !wsConnected;
       }
@@ -3084,10 +3172,13 @@
       });
       preAccidentSecondsInput.addEventListener("input", updateSettingsApplyState);
       includeCameraCheckbox.addEventListener("change", updateSettingsApplyState);
+      penaltyRestartDelaySecondsInput.addEventListener("input", updateSettingsApplyState);
       settingsApplyButton.addEventListener("click", () => {
         const activeTabButton = document.querySelector("#settingsTabs .nav-link.active");
         if (activeTabButton && activeTabButton.id === "accident-recorder-tab") {
           void saveAccidentRecorderSettings();
+        } else if (activeTabButton && activeTabButton.id === "penalty-rule-tab") {
+          void savePenaltyRuleSettings();
         } else {
           void saveTopicSelections();
         }
@@ -3101,6 +3192,9 @@
         });
         void loadAccidentRecorderSettings().catch((error) => {
           console.warn("Failed to refresh accident recorder settings:", error);
+        });
+        void loadPenaltyRuleSettings().catch((error) => {
+          console.warn("Failed to refresh penalty rule settings:", error);
         });
       });
       accidentLogsDialog.addEventListener("show.bs.modal", () => {

@@ -681,6 +681,14 @@ class RaceControlTower:
             self.handle_monitor_accident_recorder_post,
         )
         app.router.add_get(
+            "/monitor/REST/{version}/penalty-rule",
+            self.handle_monitor_penalty_rule_get,
+        )
+        app.router.add_post(
+            "/monitor/REST/{version}/penalty-rule",
+            self.handle_monitor_penalty_rule_post,
+        )
+        app.router.add_get(
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_get,
         )
@@ -929,6 +937,43 @@ class RaceControlTower:
             {
                 "ok": True,
                 "accident_recorder": self.state.accident_recorder_settings(),
+            }
+        )
+
+    async def handle_monitor_penalty_rule_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        return web.json_response(
+            {
+                "protocol": "autodrive-rct-monitor",
+                "version": MONITOR_PROTOCOL_VERSION,
+                "penalty_rule": self.state.penalty_rule_settings(),
+            }
+        )
+
+    async def handle_monitor_penalty_rule_post(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            body = {}
+
+        try:
+            settings = self.validate_penalty_rule_settings(body)
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        self.state.set_penalty_rule_settings(**settings)
+        await self.publish_status()
+        return web.json_response(
+            {
+                "ok": True,
+                "penalty_rule": self.state.penalty_rule_settings(),
             }
         )
 
@@ -1524,14 +1569,17 @@ class RaceControlTower:
         self._penalty_release_tasks.clear()
 
         self.state.increment_vehicle_penalty(penalty_vehicle_id)
-        self.filtered_control_vehicle_ids = {penalty_vehicle_id}
+        penalty_rule = self.state.penalty_rule_settings()
+        release_delay_seconds = float(penalty_rule["restart_delay_seconds"])
+        restart_delay_active = release_delay_seconds > 0
+        self.filtered_control_vehicle_ids = {penalty_vehicle_id} if restart_delay_active else set()
         self.state.set_penalty_decision(
-            active=True,
+            active=restart_delay_active,
             collision_vehicle_ids=collision_vehicle_ids,
             filtered_vehicle_ids=self.filtered_control_vehicle_ids,
             penalty_vehicle_id=penalty_vehicle_id,
             victim_vehicle_id=victim_vehicle_id,
-            release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
+            release_delay_seconds=release_delay_seconds,
         )
         await self.publish_status()
         await self.emit_control_cache_to_simulator()
@@ -1539,25 +1587,26 @@ class RaceControlTower:
             envelope(
                 "penalty-decision",
                 source="monitor",
-                active=True,
+                active=restart_delay_active,
                 collision_vehicle_ids=collision_vehicle_ids,
                 filtered_vehicle_ids=sorted(self.filtered_control_vehicle_ids),
                 penalty_vehicle_id=penalty_vehicle_id,
                 victim_vehicle_id=victim_vehicle_id,
-                release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
+                release_delay_seconds=release_delay_seconds,
             )
         )
 
-        task = asyncio.create_task(
-            self.release_penalty_vehicle_after_delay(
-                penalty_vehicle_id,
-                collision_vehicle_ids,
-                PENALTY_RELEASE_DELAY_SECONDS,
-                victim_vehicle_id,
+        if restart_delay_active:
+            task = asyncio.create_task(
+                self.release_penalty_vehicle_after_delay(
+                    penalty_vehicle_id,
+                    collision_vehicle_ids,
+                    release_delay_seconds,
+                    victim_vehicle_id,
+                )
             )
-        )
-        self._penalty_release_tasks[penalty_vehicle_id] = task
-        task.add_done_callback(self._log_penalty_release_failure)
+            self._penalty_release_tasks[penalty_vehicle_id] = task
+            task.add_done_callback(self._log_penalty_release_failure)
 
     async def apply_manual_no_decision(self) -> None:
         decision = self.state.penalty_decision()
@@ -2082,6 +2131,17 @@ class RaceControlTower:
         return {
             "pre_accident_seconds": pre_accident_seconds,
             "include_camera": include_camera,
+        }
+
+    def validate_penalty_rule_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
+        restart_delay_seconds = settings.get("restart_delay_seconds", PENALTY_RELEASE_DELAY_SECONDS)
+        if isinstance(restart_delay_seconds, bool) or not isinstance(restart_delay_seconds, int | float):
+            raise ValueError("restart_delay_seconds must be a number")
+        restart_delay_seconds = float(restart_delay_seconds)
+        if restart_delay_seconds < 0 or restart_delay_seconds > 60:
+            raise ValueError("restart_delay_seconds must be between 0 and 60")
+        return {
+            "restart_delay_seconds": restart_delay_seconds,
         }
 
     def resolved_topic_selections(self) -> dict[str, bool]:

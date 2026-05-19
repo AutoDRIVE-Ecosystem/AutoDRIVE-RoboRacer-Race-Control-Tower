@@ -52,6 +52,9 @@ class RaceControlState:
             "pre_accident_seconds": 5.0,
             "include_camera": False,
         }
+        self._penalty_rule_settings: dict[str, float] = {
+            "restart_delay_seconds": 2.0,
+        }
         self._accident_logs: list[AccidentLogMonitorState] = []
         self._penalty_decision = PenaltyDecisionMonitorState(
             collision_vehicle_ids=[],
@@ -185,6 +188,24 @@ class RaceControlState:
         with self._lock:
             return dict(self._accident_recorder_settings)
 
+    def set_penalty_rule_settings(
+        self,
+        *,
+        restart_delay_seconds: float,
+    ) -> None:
+        next_settings = {
+            "restart_delay_seconds": float(restart_delay_seconds),
+        }
+        with self._lock:
+            if self._penalty_rule_settings == next_settings:
+                return
+            self._penalty_rule_settings = next_settings
+            self._revision += 1
+
+    def penalty_rule_settings(self) -> dict[str, float]:
+        with self._lock:
+            return dict(self._penalty_rule_settings)
+
     def set_accident_logs(self, accident_logs: Iterable[AccidentLogMonitorState]) -> None:
         next_logs = list(accident_logs)
         with self._lock:
@@ -253,6 +274,7 @@ class RaceControlState:
                 "devkits": [asdict(devkit) for devkit in self._devkits.values()],
                 "topic_selections": dict(self._topic_selections),
                 "accident_recorder": dict(self._accident_recorder_settings),
+                "penalty_rule": dict(self._penalty_rule_settings),
                 "accident_logs": [asdict(accident_log) for accident_log in self._accident_logs],
                 "penalty_decision": asdict(self._penalty_decision),
                 "vehicle_penalties": {str(vehicle_id): count for vehicle_id, count in sorted(self._vehicle_penalties.items())},
