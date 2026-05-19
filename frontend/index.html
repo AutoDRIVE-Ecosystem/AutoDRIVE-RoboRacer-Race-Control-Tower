@@ -845,6 +845,7 @@
       let selectedAccidentLogFilename = null;
       let autoSelectLatestAccidentLog = false;
       let penaltyDecisionActive = false;
+      let penaltyDecisionAccidentLogFilename = null;
       const accidentLogSummaryCache = new Map();
       let accidentReplayCanvas = null;
       let accidentReplayFrames = [];
@@ -919,6 +920,7 @@
         accidentLogs = nextAccidentLogs;
         if (autoSelectLatestAccidentLog && accidentLogs.length > 0) {
           selectedAccidentLogFilename = accidentLogs[0].filename;
+          penaltyDecisionAccidentLogFilename = accidentLogs[0].filename;
           autoSelectLatestAccidentLog = false;
         }
         const filenames = new Set(accidentLogs.map((accidentLog) => accidentLog.filename));
@@ -1061,29 +1063,10 @@
         replayTime.textContent = "Loading replay...";
         controls.append(actions, replayTime);
 
-        const manualDecision = document.createElement("div");
-        manualDecision.className = "rct-manual-decision";
-        const manualDecisionTitle = document.createElement("div");
-        manualDecisionTitle.className = "rct-manual-decision-title";
-        manualDecisionTitle.textContent = "1. Manual Decision";
-        const manualDecisionActions = document.createElement("div");
-        manualDecisionActions.className = "rct-manual-decision-actions";
-        const vehicleAButton = document.createElement("button");
-        vehicleAButton.className = "btn btn-outline-danger";
-        vehicleAButton.type = "button";
-        vehicleAButton.textContent = "Vehicle A";
-        vehicleAButton.disabled = !penaltyDecisionActive;
-        const vehicleBButton = document.createElement("button");
-        vehicleBButton.className = "btn btn-outline-danger";
-        vehicleBButton.type = "button";
-        vehicleBButton.textContent = "Vehicle B";
-        vehicleBButton.disabled = !penaltyDecisionActive;
-        vehicleAButton.addEventListener("click", () => submitManualPenaltyDecision(1));
-        vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(2));
-        manualDecisionActions.append(vehicleAButton, vehicleBButton);
-        manualDecision.append(manualDecisionTitle, manualDecisionActions);
-
-        shell.append(title, canvasFrame, slider, controls, manualDecision);
+        shell.append(title, canvasFrame, slider, controls);
+        if (shouldShowManualDecisionPane(accidentLog)) {
+          shell.append(createManualDecisionPane());
+        }
         accidentLogDetail.appendChild(shell);
 
         accidentReplayCanvas = new RaceTrajectoryCanvas({
@@ -1335,13 +1318,48 @@
           command: "manual-penalty-decision",
           penalty_vehicle_id: penaltyVehicleId,
         }));
+        penaltyDecisionActive = false;
+        penaltyDecisionAccidentLogFilename = null;
         accidentLogsModal.hide();
+      }
+
+      function shouldShowManualDecisionPane(accidentLog) {
+        return Boolean(
+          penaltyDecisionActive
+          && accidentLog
+          && accidentLog.filename
+          && accidentLog.filename === penaltyDecisionAccidentLogFilename
+        );
+      }
+
+      function createManualDecisionPane() {
+        const manualDecision = document.createElement("div");
+        manualDecision.className = "rct-manual-decision";
+        const manualDecisionTitle = document.createElement("div");
+        manualDecisionTitle.className = "rct-manual-decision-title";
+        manualDecisionTitle.textContent = "1. Manual Decision";
+        const manualDecisionActions = document.createElement("div");
+        manualDecisionActions.className = "rct-manual-decision-actions";
+        const vehicleAButton = document.createElement("button");
+        vehicleAButton.className = "btn btn-outline-danger";
+        vehicleAButton.type = "button";
+        vehicleAButton.textContent = "Vehicle A";
+        const vehicleBButton = document.createElement("button");
+        vehicleBButton.className = "btn btn-outline-danger";
+        vehicleBButton.type = "button";
+        vehicleBButton.textContent = "Vehicle B";
+        vehicleAButton.addEventListener("click", () => submitManualPenaltyDecision(1));
+        vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(2));
+        manualDecisionActions.append(vehicleAButton, vehicleBButton);
+        manualDecision.append(manualDecisionTitle, manualDecisionActions);
+        return manualDecision;
       }
 
       function openAccidentLogsForManualDecision() {
         penaltyDecisionActive = true;
         autoSelectLatestAccidentLog = true;
         selectedAccidentLogFilename = accidentLogs.length > 0 ? accidentLogs[0].filename : null;
+        penaltyDecisionAccidentLogFilename = selectedAccidentLogFilename;
         accidentLogsModal.show();
         renderAccidentLogs();
         updateAccidentLogsButton();
@@ -2446,6 +2464,8 @@
             openAccidentLogsForManualDecision();
           } else if (message.penalty_decision && !message.penalty_decision.active) {
             penaltyDecisionActive = false;
+            penaltyDecisionAccidentLogFilename = null;
+            renderAccidentLogs();
           }
         } else if (message.event === "telemetry") {
           updateTelemetry(message.vehicles);
@@ -2454,6 +2474,8 @@
             openAccidentLogsForManualDecision();
           } else {
             penaltyDecisionActive = false;
+            penaltyDecisionAccidentLogFilename = null;
+            renderAccidentLogs();
           }
         }
       }
