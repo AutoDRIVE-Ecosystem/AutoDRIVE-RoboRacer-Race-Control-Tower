@@ -362,9 +362,9 @@ Penalty decision event:
 }
 ```
 
-RCT emits `penalty-decision` with `active: true` when both vehicles' collision counts increase in the same simulator telemetry update. While active and before a manual decision, RCT filters both vehicles' throttle and steering commands to `0.0` before merging into the outgoing control cache and before emitting the cache to the simulator.
+RCT emits `penalty-decision` with `active: true` when both vehicles' collision counts increase in the same simulator telemetry update. While active and before a final decision, RCT filters both vehicles' throttle and steering commands to `0.0` before merging into the outgoing control cache and before emitting the cache to the simulator.
 
-After a manual decision, RCT emits another active `penalty-decision` event with `penalty_vehicle_id`, `victim_vehicle_id`, and only the penalty vehicle in `filtered_vehicle_ids`:
+After a final decision, RCT emits another active `penalty-decision` event with `penalty_vehicle_id`, `victim_vehicle_id`, and only the penalty vehicle in `filtered_vehicle_ids`:
 
 ```json
 {
