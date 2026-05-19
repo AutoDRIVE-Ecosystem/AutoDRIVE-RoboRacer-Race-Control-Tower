@@ -851,6 +851,8 @@
       let accidentReplayFrames = [];
       let accidentReplayFrameIndex = 0;
       let accidentReplayTimer = null;
+      let accidentReplayStartedAt = 0;
+      let accidentReplayStartOffset = 0;
       let accidentReplayPlaying = false;
       let accidentReplayRepeat = true;
       const accidentReplayView = {
@@ -1207,44 +1209,77 @@
 
       function stopAccidentReplayTimer() {
         if (accidentReplayTimer !== null) {
-          window.clearTimeout(accidentReplayTimer);
+          window.cancelAnimationFrame(accidentReplayTimer);
           accidentReplayTimer = null;
         }
         accidentReplayPlaying = false;
       }
 
-      function accidentReplayFrameDelay(currentIndex) {
-        const currentFrame = accidentReplayFrames[currentIndex];
-        const nextFrame = accidentReplayFrames[currentIndex + 1];
-        const currentTime = Number(currentFrame && currentFrame.time_offset_seconds);
-        const nextTime = Number(nextFrame && nextFrame.time_offset_seconds);
-        if (Number.isFinite(currentTime) && Number.isFinite(nextTime) && nextTime > currentTime) {
-          return Math.min(500, Math.max(16, (nextTime - currentTime) * 1000));
+      function accidentReplayFrameOffset(frameIndex) {
+        const frame = accidentReplayFrames[frameIndex];
+        const offset = Number(frame && frame.time_offset_seconds);
+        return Number.isFinite(offset) ? Math.max(0, offset) : 0;
+      }
+
+      function accidentReplayDuration() {
+        if (accidentReplayFrames.length === 0) {
+          return 0;
         }
-        return 100;
+        return accidentReplayFrameOffset(accidentReplayFrames.length - 1);
+      }
+
+      function accidentReplayFrameIndexForOffset(offsetSeconds) {
+        if (accidentReplayFrames.length === 0) {
+          return 0;
+        }
+        let low = 0;
+        let high = accidentReplayFrames.length - 1;
+        while (low < high) {
+          const mid = Math.ceil((low + high) / 2);
+          if (accidentReplayFrameOffset(mid) <= offsetSeconds) {
+            low = mid;
+          } else {
+            high = mid - 1;
+          }
+        }
+        return low;
       }
 
       function scheduleNextAccidentReplayFrame(controls) {
         if (accidentReplayTimer !== null) {
-          window.clearTimeout(accidentReplayTimer);
+          window.cancelAnimationFrame(accidentReplayTimer);
           accidentReplayTimer = null;
         }
-        if (accidentReplayFrameIndex >= accidentReplayFrames.length - 1) {
-          if (accidentReplayRepeat && accidentReplayFrames.length > 0) {
-            accidentReplayTimer = window.setTimeout(() => {
-              renderAccidentReplayFrame(0, controls);
-              scheduleNextAccidentReplayFrame(controls);
-            }, accidentReplayFrameDelay(0));
-          } else {
-            accidentReplayPlaying = false;
-            updateAccidentReplayPlayPauseButton(controls && controls.playPauseButton);
+
+        const step = () => {
+          if (!accidentReplayPlaying) {
+            accidentReplayTimer = null;
+            return;
           }
-          return;
-        }
-        accidentReplayTimer = window.setTimeout(() => {
-          renderAccidentReplayFrame(accidentReplayFrameIndex + 1, controls);
-          scheduleNextAccidentReplayFrame(controls);
-        }, accidentReplayFrameDelay(accidentReplayFrameIndex));
+
+          const duration = accidentReplayDuration();
+          const elapsedSeconds = (performance.now() - accidentReplayStartedAt) / 1000;
+          let offsetSeconds = accidentReplayStartOffset + elapsedSeconds;
+
+          if (duration > 0 && offsetSeconds >= duration) {
+            if (accidentReplayRepeat) {
+              offsetSeconds %= duration;
+              accidentReplayStartedAt = performance.now();
+              accidentReplayStartOffset = offsetSeconds;
+            } else {
+              accidentReplayPlaying = false;
+              renderAccidentReplayFrame(accidentReplayFrames.length - 1, controls);
+              updateAccidentReplayPlayPauseButton(controls && controls.playPauseButton);
+              accidentReplayTimer = null;
+              return;
+            }
+          }
+
+          renderAccidentReplayFrame(accidentReplayFrameIndexForOffset(offsetSeconds), controls);
+          accidentReplayTimer = window.requestAnimationFrame(step);
+        };
+
+        accidentReplayTimer = window.requestAnimationFrame(step);
       }
 
       function startAccidentReplay(controls, { restart = false } = {}) {
@@ -1255,6 +1290,8 @@
           ? 0
           : accidentReplayFrameIndex;
         accidentReplayPlaying = true;
+        accidentReplayStartedAt = performance.now();
+        accidentReplayStartOffset = accidentReplayFrameOffset(nextIndex);
         renderAccidentReplayFrame(nextIndex, controls);
         scheduleNextAccidentReplayFrame(controls);
       }
