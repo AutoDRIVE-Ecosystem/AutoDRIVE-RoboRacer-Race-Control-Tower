@@ -347,6 +347,8 @@ The victim vehicle is released immediately. The penalty vehicle remains filtered
 
 RCT increments `status.vehicle_penalties[penalty_vehicle_id]` when a manual penalty decision is accepted. Penalty counts are monitor-only RCT state; they are not forwarded to the simulator or DevKit bridge protocol.
 
+If the operator chooses no decision, RCT releases both vehicles immediately, does not increment any penalty count, and emits `penalty-decision` with `active: false`, `filtered_vehicle_ids: []`, and `no_decision: true`.
+
 The bundled frontend opens the Accident Logs dialog when it receives an active `penalty-decision` event or a `status.penalty_decision.active` snapshot. It selects the newest accident log and starts replay loading through `GET /monitor/REST/0.1/accident-logs/{filename}/summary`.
 
 Monitor WebSocket command surface:
@@ -393,6 +395,14 @@ Monitor WebSocket command surface:
 ```
 
 `manual-penalty-decision` is valid only while a penalty decision is active. The selected `penalty_vehicle_id` must be one of the vehicles in `status.penalty_decision.collision_vehicle_ids`. The selected vehicle remains command-filtered for `release_delay_seconds`; the other vehicle is treated as the victim and is released immediately.
+
+```json
+{
+  "command": "manual-no-decision"
+}
+```
+
+`manual-no-decision` is valid only while a penalty decision is active. It releases all filtered vehicles immediately and leaves `vehicle_penalties` unchanged.
 
 RCT initializes DevKit bridge endpoints from `RCT_DEVKIT_URLS` and connects configured and enabled DevKit bridge instances when the simulator connects, even if no frontend is connected. The frontend reads the current DevKit endpoint state from the monitor snapshot, and the connected/disconnected buttons update the selected DevKit through the REST endpoint above. Manual runtime changes now use `POST /monitor/REST/0.1/devkits/{vehicle_id}/endpoint`.
 

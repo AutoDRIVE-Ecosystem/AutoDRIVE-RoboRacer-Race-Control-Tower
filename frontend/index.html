@@ -1359,14 +1359,22 @@
       }
 
       function submitManualPenaltyDecision(penaltyVehicleId) {
-        if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
-          console.warn("Cannot submit manual penalty decision while RCT WebSocket is disconnected");
-          return;
-        }
-        rctSocket.send(JSON.stringify({
+        submitManualDecision({
           command: "manual-penalty-decision",
           penalty_vehicle_id: penaltyVehicleId,
-        }));
+        });
+      }
+
+      function submitManualNoDecision() {
+        submitManualDecision({ command: "manual-no-decision" });
+      }
+
+      function submitManualDecision(command) {
+        if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
+          console.warn("Cannot submit manual decision while RCT WebSocket is disconnected");
+          return;
+        }
+        rctSocket.send(JSON.stringify(command));
         penaltyDecisionActive = false;
         penaltyDecisionAccidentLogFilename = null;
         accidentLogsModal.hide();
@@ -1397,9 +1405,14 @@
         vehicleBButton.className = "btn btn-outline-danger";
         vehicleBButton.type = "button";
         vehicleBButton.textContent = "Vehicle B";
+        const noDecisionButton = document.createElement("button");
+        noDecisionButton.className = "btn btn-outline-secondary";
+        noDecisionButton.type = "button";
+        noDecisionButton.textContent = "No Decision";
         vehicleAButton.addEventListener("click", () => submitManualPenaltyDecision(1));
         vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(2));
-        manualDecisionActions.append(vehicleAButton, vehicleBButton);
+        noDecisionButton.addEventListener("click", submitManualNoDecision);
+        manualDecisionActions.append(vehicleAButton, vehicleBButton, noDecisionButton);
         manualDecision.append(manualDecisionTitle, manualDecisionActions);
         return manualDecision;
       }

@@ -1559,6 +1559,37 @@ class RaceControlTower:
         self._penalty_release_tasks[penalty_vehicle_id] = task
         task.add_done_callback(self._log_penalty_release_failure)
 
+    async def apply_manual_no_decision(self) -> None:
+        decision = self.state.penalty_decision()
+        collision_vehicle_ids = [int(vehicle_id) for vehicle_id in decision.get("collision_vehicle_ids", [])]
+        if not decision.get("active"):
+            raise ValueError("manual no decision requires an active penalty decision")
+
+        for task in self._penalty_release_tasks.values():
+            task.cancel()
+        self._penalty_release_tasks.clear()
+
+        self.filtered_control_vehicle_ids.clear()
+        self.state.set_penalty_decision(
+            active=False,
+            collision_vehicle_ids=collision_vehicle_ids,
+            filtered_vehicle_ids=self.filtered_control_vehicle_ids,
+            release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
+        )
+        await self.publish_status()
+        await self.emit_control_cache_to_simulator()
+        await self.broadcast_monitor(
+            envelope(
+                "penalty-decision",
+                source="monitor",
+                active=False,
+                collision_vehicle_ids=collision_vehicle_ids,
+                filtered_vehicle_ids=[],
+                no_decision=True,
+                release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
+            )
+        )
+
     async def release_penalty_vehicle_after_delay(
         self,
         penalty_vehicle_id: int,
@@ -1767,6 +1798,8 @@ class RaceControlTower:
             elif command_name == "manual-penalty-decision":
                 penalty_vehicle_id = self._penalty_vehicle_id_from_payload(command)
                 await self.apply_manual_penalty_decision(penalty_vehicle_id)
+            elif command_name == "manual-no-decision":
+                await self.apply_manual_no_decision()
             else:
                 raise ValueError(f"unsupported monitor command {command_name!r}")
         except ValueError as exc:
