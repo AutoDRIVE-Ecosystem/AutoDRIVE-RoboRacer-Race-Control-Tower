@@ -30,6 +30,16 @@ class AccidentLogMonitorState:
     size_bytes: int
 
 
+@dataclass
+class PenaltyDecisionMonitorState:
+    active: bool = False
+    collision_vehicle_ids: list[int] | None = None
+    filtered_vehicle_ids: list[int] | None = None
+    penalty_vehicle_id: int | None = None
+    victim_vehicle_id: int | None = None
+    release_delay_seconds: float = 2.0
+
+
 class RaceControlState:
     def __init__(self) -> None:
         self._lock = RLock()
@@ -43,6 +53,10 @@ class RaceControlState:
             "include_camera": False,
         }
         self._accident_logs: list[AccidentLogMonitorState] = []
+        self._penalty_decision = PenaltyDecisionMonitorState(
+            collision_vehicle_ids=[],
+            filtered_vehicle_ids=[],
+        )
 
     def configure_devkits(self, devkits: Iterable[DevKitMonitorState]) -> None:
         with self._lock:
@@ -190,6 +204,34 @@ class RaceControlState:
         with self._lock:
             return [asdict(accident_log) for accident_log in self._accident_logs]
 
+    def set_penalty_decision(
+        self,
+        *,
+        active: bool,
+        collision_vehicle_ids: Iterable[int] | None = None,
+        filtered_vehicle_ids: Iterable[int] | None = None,
+        penalty_vehicle_id: int | None = None,
+        victim_vehicle_id: int | None = None,
+        release_delay_seconds: float = 2.0,
+    ) -> None:
+        next_decision = PenaltyDecisionMonitorState(
+            active=bool(active),
+            collision_vehicle_ids=sorted(int(vehicle_id) for vehicle_id in (collision_vehicle_ids or [])),
+            filtered_vehicle_ids=sorted(int(vehicle_id) for vehicle_id in (filtered_vehicle_ids or [])),
+            penalty_vehicle_id=penalty_vehicle_id,
+            victim_vehicle_id=victim_vehicle_id,
+            release_delay_seconds=float(release_delay_seconds),
+        )
+        with self._lock:
+            if self._penalty_decision == next_decision:
+                return
+            self._penalty_decision = next_decision
+            self._revision += 1
+
+    def penalty_decision(self) -> dict[str, Any]:
+        with self._lock:
+            return asdict(self._penalty_decision)
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -200,4 +242,5 @@ class RaceControlState:
                 "topic_selections": dict(self._topic_selections),
                 "accident_recorder": dict(self._accident_recorder_settings),
                 "accident_logs": [asdict(accident_log) for accident_log in self._accident_logs],
+                "penalty_decision": asdict(self._penalty_decision),
             }

@@ -120,6 +120,30 @@ class RaceControlStateTests(unittest.TestCase):
             ],
         )
 
+    def test_snapshot_tracks_penalty_decision(self):
+        state = RaceControlState()
+
+        state.set_penalty_decision(
+            active=True,
+            collision_vehicle_ids=[2, 1],
+            filtered_vehicle_ids=[1, 2],
+            penalty_vehicle_id=2,
+            victim_vehicle_id=1,
+            release_delay_seconds=2.0,
+        )
+
+        self.assertEqual(
+            state.snapshot()["penalty_decision"],
+            {
+                "active": True,
+                "collision_vehicle_ids": [1, 2],
+                "filtered_vehicle_ids": [1, 2],
+                "penalty_vehicle_id": 2,
+                "victim_vehicle_id": 1,
+                "release_delay_seconds": 2.0,
+            },
+        )
+
     def test_revision_changes_only_when_values_change(self):
         state = RaceControlState()
         state.configure_devkits([DevKitMonitorState("devkit:1", 1, "ws://127.0.0.1:4568")])

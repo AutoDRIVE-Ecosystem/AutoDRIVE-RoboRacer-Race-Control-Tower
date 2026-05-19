@@ -65,6 +65,8 @@ WHITE_FRONT_CAMERA_JPEG_BASE64 = (
 "EQEAAAAAAAAAAAAAAAAAAAAg/9oACAECAQE/EB//xAAUEAEAAAAAAAAAAAAAAAAAAAAg/9oACAEB"
 "AAE/EB//2Q=="
 )
+PENALTY_RELEASE_DELAY_SECONDS = 2.0
+CONTROL_FILTER_FIELDS = ("Throttle", "Steering")
 ANSI_RED = "\033[31m"
 ANSI_BLUE = "\033[34m"
 ANSI_GRAY = "\033[90m"
@@ -555,6 +557,8 @@ class RaceControlTower:
         self.bridge_rates = BridgeRateTracker()
         self.latest_front_camera_fields: dict[str, Any] = {}
         self.collision_counts: dict[int, int] = {}
+        self.filtered_control_vehicle_ids: set[int] = set()
+        self._penalty_release_tasks: dict[int, asyncio.Task[None]] = {}
         self.trace_lidar_vehicle_ids: set[int] = set()
         self.monitor_vehicle_positions: dict[int, dict[str, Any]] = {}
         self.monitor_vehicle_telemetry: dict[int, dict[str, Any]] = {}
@@ -1273,6 +1277,8 @@ class RaceControlTower:
         await self.publish_simulator_telemetry(payload, "Bridge")
         if collision_triggers:
             vehicle_id, count = collision_triggers[0]
+            if len(collision_triggers) >= 2:
+                await self.start_manual_penalty_decision(collision_triggers)
             self.start_accident_record_save(vehicle_id, count, pre_accident_seconds)
         await self.emit_control_cache_to_simulator()
 
@@ -1366,7 +1372,9 @@ class RaceControlTower:
         if self.monitor_ws_interval <= 0:
             await self.publish_status()
         rewritten_args = rewrite_args_for_simulator(args, devkit.vehicle_id)
-        rewritten_payload = socketio_data_from_args(rewritten_args)
+        rewritten_payload = self.filter_control_payload_for_penalty_decision(
+            socketio_data_from_args(rewritten_args)
+        )
         await self.control_cache.merge(
             rewritten_payload,
             received_at,
@@ -1389,6 +1397,7 @@ class RaceControlTower:
         _timestamp, outgoing_payload = await self.control_cache.snapshot(
             include_origin=self.settings.enable_origin,
         )
+        outgoing_payload = self.filter_control_payload_for_penalty_decision(outgoing_payload)
         outgoing_args = (outgoing_payload,)
         await self.emit_to_simulators("Bridge", outgoing_args)
         self.log_bridge_flow("rct-to-sim")
@@ -1473,6 +1482,132 @@ class RaceControlTower:
                 if self.settings.debug_bridge_flow:
                     LOGGER.info("%s", color_arrow(f"COLLISION DETECTED [V{vehicle_id}]", ANSI_RED))
         return triggers
+
+    async def start_manual_penalty_decision(self, collision_triggers: list[tuple[int, int]]) -> None:
+        collision_vehicle_ids = sorted({vehicle_id for vehicle_id, _count in collision_triggers})
+        if len(collision_vehicle_ids) < 2 or self.state.penalty_decision().get("active"):
+            return
+
+        for task in self._penalty_release_tasks.values():
+            task.cancel()
+        self._penalty_release_tasks.clear()
+        self.filtered_control_vehicle_ids = set(collision_vehicle_ids)
+        self.state.set_penalty_decision(
+            active=True,
+            collision_vehicle_ids=collision_vehicle_ids,
+            filtered_vehicle_ids=self.filtered_control_vehicle_ids,
+            release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
+        )
+        LOGGER.info("manual penalty decision pending for vehicles %s", collision_vehicle_ids)
+        await self.publish_status()
+        await self.broadcast_monitor(
+            envelope(
+                "penalty-decision",
+                source="rct",
+                active=True,
+                collision_vehicle_ids=collision_vehicle_ids,
+                filtered_vehicle_ids=sorted(self.filtered_control_vehicle_ids),
+                release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
+            )
+        )
+
+    async def apply_manual_penalty_decision(self, penalty_vehicle_id: int) -> None:
+        decision = self.state.penalty_decision()
+        collision_vehicle_ids = [int(vehicle_id) for vehicle_id in decision.get("collision_vehicle_ids", [])]
+        if penalty_vehicle_id not in collision_vehicle_ids:
+            raise ValueError(f"penalty vehicle {penalty_vehicle_id} is not part of the active accident")
+        victim_vehicle_ids = [vehicle_id for vehicle_id in collision_vehicle_ids if vehicle_id != penalty_vehicle_id]
+        victim_vehicle_id = victim_vehicle_ids[0] if victim_vehicle_ids else None
+
+        for task in self._penalty_release_tasks.values():
+            task.cancel()
+        self._penalty_release_tasks.clear()
+
+        self.filtered_control_vehicle_ids = {penalty_vehicle_id}
+        self.state.set_penalty_decision(
+            active=True,
+            collision_vehicle_ids=collision_vehicle_ids,
+            filtered_vehicle_ids=self.filtered_control_vehicle_ids,
+            penalty_vehicle_id=penalty_vehicle_id,
+            victim_vehicle_id=victim_vehicle_id,
+            release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
+        )
+        await self.publish_status()
+        await self.emit_control_cache_to_simulator()
+        await self.broadcast_monitor(
+            envelope(
+                "penalty-decision",
+                source="monitor",
+                active=True,
+                collision_vehicle_ids=collision_vehicle_ids,
+                filtered_vehicle_ids=sorted(self.filtered_control_vehicle_ids),
+                penalty_vehicle_id=penalty_vehicle_id,
+                victim_vehicle_id=victim_vehicle_id,
+                release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
+            )
+        )
+
+        task = asyncio.create_task(
+            self.release_penalty_vehicle_after_delay(
+                penalty_vehicle_id,
+                collision_vehicle_ids,
+                PENALTY_RELEASE_DELAY_SECONDS,
+                victim_vehicle_id,
+            )
+        )
+        self._penalty_release_tasks[penalty_vehicle_id] = task
+        task.add_done_callback(self._log_penalty_release_failure)
+
+    async def release_penalty_vehicle_after_delay(
+        self,
+        penalty_vehicle_id: int,
+        collision_vehicle_ids: list[int],
+        delay_seconds: float,
+        victim_vehicle_id: int | None,
+    ) -> None:
+        await asyncio.sleep(delay_seconds)
+        self.filtered_control_vehicle_ids.discard(penalty_vehicle_id)
+        self._penalty_release_tasks.pop(penalty_vehicle_id, None)
+        self.state.set_penalty_decision(
+            active=False,
+            collision_vehicle_ids=collision_vehicle_ids,
+            filtered_vehicle_ids=self.filtered_control_vehicle_ids,
+            penalty_vehicle_id=penalty_vehicle_id,
+            victim_vehicle_id=victim_vehicle_id,
+            release_delay_seconds=delay_seconds,
+        )
+        await self.publish_status()
+        await self.emit_control_cache_to_simulator()
+        await self.broadcast_monitor(
+            envelope(
+                "penalty-decision",
+                source="rct",
+                active=False,
+                collision_vehicle_ids=collision_vehicle_ids,
+                filtered_vehicle_ids=sorted(self.filtered_control_vehicle_ids),
+                penalty_vehicle_id=penalty_vehicle_id,
+                victim_vehicle_id=victim_vehicle_id,
+                release_delay_seconds=delay_seconds,
+            )
+        )
+
+    def _log_penalty_release_failure(self, task: asyncio.Task[None]) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            LOGGER.exception("penalty vehicle release failed")
+
+    def filter_control_payload_for_penalty_decision(self, payload: Any) -> Any:
+        if not isinstance(payload, dict) or not self.filtered_control_vehicle_ids:
+            return payload
+
+        filtered_payload = dict(payload)
+        for vehicle_id in self.filtered_control_vehicle_ids:
+            for field in CONTROL_FILTER_FIELDS:
+                filtered_payload[f"V{vehicle_id} {field}"] = "0.0"
+        return filtered_payload
 
     def start_accident_record_save(
         self,
@@ -1628,6 +1763,9 @@ class RaceControlTower:
             elif command_name == "disconnect-devkit":
                 devkit = self._devkit_from_payload(command)
                 await self.disconnect_devkit(devkit)
+            elif command_name == "manual-penalty-decision":
+                penalty_vehicle_id = self._penalty_vehicle_id_from_payload(command)
+                await self.apply_manual_penalty_decision(penalty_vehicle_id)
             else:
                 raise ValueError(f"unsupported monitor command {command_name!r}")
         except ValueError as exc:
@@ -1638,6 +1776,16 @@ class RaceControlTower:
         await self.publish_status()
         await self.broadcast_monitor(envelope("command", source="monitor", command=command_name))
         return True
+
+    def _penalty_vehicle_id_from_payload(self, payload: dict[str, Any]) -> int:
+        try:
+            vehicle_id = int(payload.get("penalty_vehicle_id", payload.get("vehicle_id")))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("manual penalty decision requires penalty_vehicle_id") from exc
+
+        if self._get_devkit_by_vehicle_id(vehicle_id) is None:
+            raise ValueError(f"unknown penalty_vehicle_id {vehicle_id}")
+        return vehicle_id
 
     def _devkit_endpoint_from_payload(
         self,

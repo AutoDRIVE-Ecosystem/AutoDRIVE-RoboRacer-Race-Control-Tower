@@ -602,6 +602,56 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(delivered_to_devkit, [("Bridge", ({"V1 Position": "next"},))])
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_filtered_devkit_control_sends_zero_throttle_and_steering(self):
+        tower = RaceControlTower(test_settings())
+        devkit = tower.devkits[0]
+
+        async def enqueue(_event, _args):
+            return None
+
+        async def broadcast_monitor(_message):
+            return None
+
+        devkit.enqueue = enqueue
+        tower.broadcast_monitor = broadcast_monitor
+        tower.filtered_control_vehicle_ids = {1}
+
+        received_at = monotonic()
+        await tower.bridge_history.append({"V1 Position": "next"}, now=received_at + 0.001)
+        await tower.process_devkit_bridge_control(
+            devkit,
+            received_at,
+            ({"V1 Throttle": "0.8", "V1 Steering": "-0.2"},),
+        )
+
+        _timestamp, control_payload = await tower.control_cache.snapshot()
+        self.assertEqual(control_payload["V1 Throttle"], "0.0")
+        self.assertEqual(control_payload["V1 Steering"], "0.0")
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_manual_penalty_decision_releases_victim_and_keeps_penalty_filtered(self):
+        tower = RaceControlTower(test_settings())
+
+        async def broadcast_monitor(_message):
+            return None
+
+        tower.broadcast_monitor = broadcast_monitor
+        await tower.start_manual_penalty_decision([(1, 1), (2, 1)])
+
+        await tower.apply_manual_penalty_decision(2)
+
+        try:
+            self.assertEqual(tower.filtered_control_vehicle_ids, {2})
+            decision = tower.state.penalty_decision()
+            self.assertTrue(decision["active"])
+            self.assertEqual(decision["penalty_vehicle_id"], 2)
+            self.assertEqual(decision["victim_vehicle_id"], 1)
+            self.assertEqual(decision["filtered_vehicle_ids"], [2])
+        finally:
+            for task in tower._penalty_release_tasks.values():
+                task.cancel()
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_devkit_bridge_outgoing_origin_is_opt_in(self):
         tower = RaceControlTower(replace(test_settings(), enable_origin=True))
         delivered_to_devkit = []

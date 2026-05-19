@@ -351,6 +351,33 @@
         text-align: right;
       }
 
+      .rct-manual-decision {
+        border-top: 1px solid #dee2e6;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        padding-top: 0.75rem;
+      }
+
+      .rct-manual-decision-title {
+        font-size: 1rem;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+
+      .rct-manual-decision-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: center;
+      }
+
+      .rct-manual-decision-actions .btn {
+        font-size: 1.05rem;
+        font-weight: 600;
+        min-width: 9rem;
+        padding: 0.75rem 1rem;
+      }
+
       .rct-accident-logs-detail dl {
         margin-bottom: 0;
       }
@@ -719,6 +746,7 @@
       const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
       const accidentLogsList = document.getElementById("accidentLogsList");
       const accidentLogDetail = document.getElementById("accidentLogDetail");
+      const accidentLogsModal = bootstrap.Modal.getOrCreateInstance(accidentLogsDialog);
       const roboracers = {
         1: {
           hostInput: document.getElementById("roboracer1Ip"),
@@ -815,6 +843,8 @@
       let simulatorConnected = false;
       let accidentLogs = [];
       let selectedAccidentLogFilename = null;
+      let autoSelectLatestAccidentLog = false;
+      let penaltyDecisionActive = false;
       const accidentLogSummaryCache = new Map();
       let accidentReplayCanvas = null;
       let accidentReplayFrames = [];
@@ -887,6 +917,10 @@
           return false;
         }
         accidentLogs = nextAccidentLogs;
+        if (autoSelectLatestAccidentLog && accidentLogs.length > 0) {
+          selectedAccidentLogFilename = accidentLogs[0].filename;
+          autoSelectLatestAccidentLog = false;
+        }
         const filenames = new Set(accidentLogs.map((accidentLog) => accidentLog.filename));
         for (const filename of accidentLogSummaryCache.keys()) {
           if (!filenames.has(filename)) {
@@ -1027,7 +1061,29 @@
         replayTime.textContent = "Loading replay...";
         controls.append(actions, replayTime);
 
-        shell.append(title, canvasFrame, slider, controls);
+        const manualDecision = document.createElement("div");
+        manualDecision.className = "rct-manual-decision";
+        const manualDecisionTitle = document.createElement("div");
+        manualDecisionTitle.className = "rct-manual-decision-title";
+        manualDecisionTitle.textContent = "1. Manual Decision";
+        const manualDecisionActions = document.createElement("div");
+        manualDecisionActions.className = "rct-manual-decision-actions";
+        const vehicleAButton = document.createElement("button");
+        vehicleAButton.className = "btn btn-outline-danger";
+        vehicleAButton.type = "button";
+        vehicleAButton.textContent = "Vehicle A";
+        vehicleAButton.disabled = !penaltyDecisionActive;
+        const vehicleBButton = document.createElement("button");
+        vehicleBButton.className = "btn btn-outline-danger";
+        vehicleBButton.type = "button";
+        vehicleBButton.textContent = "Vehicle B";
+        vehicleBButton.disabled = !penaltyDecisionActive;
+        vehicleAButton.addEventListener("click", () => submitManualPenaltyDecision(1));
+        vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(2));
+        manualDecisionActions.append(vehicleAButton, vehicleBButton);
+        manualDecision.append(manualDecisionTitle, manualDecisionActions);
+
+        shell.append(title, canvasFrame, slider, controls, manualDecision);
         accidentLogDetail.appendChild(shell);
 
         accidentReplayCanvas = new RaceTrajectoryCanvas({
@@ -1268,6 +1324,30 @@
         const payload = await response.json();
         setAccidentLogs(Array.isArray(payload.accident_logs) ? payload.accident_logs : []);
         updateAccidentLogsButton();
+      }
+
+      function submitManualPenaltyDecision(penaltyVehicleId) {
+        if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
+          console.warn("Cannot submit manual penalty decision while RCT WebSocket is disconnected");
+          return;
+        }
+        rctSocket.send(JSON.stringify({
+          command: "manual-penalty-decision",
+          penalty_vehicle_id: penaltyVehicleId,
+        }));
+        accidentLogsModal.hide();
+      }
+
+      function openAccidentLogsForManualDecision() {
+        penaltyDecisionActive = true;
+        autoSelectLatestAccidentLog = true;
+        selectedAccidentLogFilename = accidentLogs.length > 0 ? accidentLogs[0].filename : null;
+        accidentLogsModal.show();
+        renderAccidentLogs();
+        updateAccidentLogsButton();
+        void loadAccidentLogs().catch((error) => {
+          console.warn("Failed to refresh accident logs:", error);
+        });
       }
 
       function topicAccessLabel(access) {
@@ -2362,8 +2442,19 @@
             setAccidentLogs(message.accident_logs);
             updateAccidentLogsButton();
           }
+          if (message.penalty_decision && message.penalty_decision.active && !penaltyDecisionActive) {
+            openAccidentLogsForManualDecision();
+          } else if (message.penalty_decision && !message.penalty_decision.active) {
+            penaltyDecisionActive = false;
+          }
         } else if (message.event === "telemetry") {
           updateTelemetry(message.vehicles);
+        } else if (message.event === "penalty-decision") {
+          if (message.active) {
+            openAccidentLogsForManualDecision();
+          } else {
+            penaltyDecisionActive = false;
+          }
         }
       }
 
