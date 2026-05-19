@@ -173,7 +173,7 @@ Logs are returned newest first. RCT refreshes the list from the accident recorde
 GET /monitor/REST/0.1/accident-logs/{filename}/summary
 ```
 
-`filename` must be a basename from the accident log list. Path segments are rejected. The summary endpoint reads the MCAP sequentially and can return a partial summary if the frontend asks for a newly created file before the MCAP footer is available.
+`filename` must be a basename from the accident log list. Path segments are rejected. RCT writes new accident MCAP files to a temporary filename and atomically publishes the final `.mcap` filename after the writer finishes. The summary endpoint still reads MCAP files sequentially and reports whether it reached the footer through the `complete` field.
 
 Response:
 
@@ -185,6 +185,7 @@ Response:
   "time": "2026-05-19 23:20:56:540",
   "size_bytes": 1863259,
   "duration_seconds": 4.99534,
+  "complete": true,
   "metadata": {
     "type": "metadata",
     "created_at": "2026-05-19T23:20:56.540000",

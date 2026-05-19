@@ -81,58 +81,64 @@ class AccidentRecorder:
         created = created_at or datetime.now()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         output_path = self.output_dir / accident_log_filename(created)
+        temporary_path = output_path.with_name(f".{output_path.name}.tmp")
 
         from mcap.writer import Writer
 
-        with output_path.open("wb") as output:
-            writer = Writer(output)
-            writer.start(profile="rct-accident-bridge")
-            schema_id = writer.register_schema(
-                name="autodrive.rct.AccidentBridgeEvent",
-                encoding="jsonschema",
-                data=json.dumps(BRIDGE_EVENT_SCHEMA, separators=(",", ":")).encode("utf-8"),
-            )
-            channel_id = writer.register_channel(
-                topic="/rct/accident/bridge",
-                message_encoding="json",
-                schema_id=schema_id,
-            )
-            metadata_channel_id = writer.register_channel(
-                topic="/rct/accident/metadata",
-                message_encoding="json",
-                schema_id=schema_id,
-            )
-            created_at_ns = int(created.timestamp() * 1_000_000_000)
-            metadata = {
-                "type": "metadata",
-                "created_at": created.isoformat(),
-                "trigger_vehicle_id": trigger_vehicle_id,
-                "collision_count": collision_count,
-                "record_count": len(records),
-            }
-            writer.add_message(
-                channel_id=metadata_channel_id,
-                log_time=created_at_ns,
-                publish_time=created_at_ns,
-                data=json.dumps(metadata, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
-            )
-            for index, record in enumerate(records):
-                message = {
-                    "type": "bridge",
-                    "index": index,
-                    "event": record.event,
-                    "monotonic_timestamp": record.monotonic_timestamp,
-                    "wall_time_ns": record.wall_time_ns,
-                    "payload": json_safe(record.payload),
-                }
-                data = json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-                writer.add_message(
-                    channel_id=channel_id,
-                    log_time=record.wall_time_ns,
-                    publish_time=record.wall_time_ns,
-                    data=data,
+        try:
+            with temporary_path.open("wb") as output:
+                writer = Writer(output)
+                writer.start(profile="rct-accident-bridge")
+                schema_id = writer.register_schema(
+                    name="autodrive.rct.AccidentBridgeEvent",
+                    encoding="jsonschema",
+                    data=json.dumps(BRIDGE_EVENT_SCHEMA, separators=(",", ":")).encode("utf-8"),
                 )
-            writer.finish()
+                channel_id = writer.register_channel(
+                    topic="/rct/accident/bridge",
+                    message_encoding="json",
+                    schema_id=schema_id,
+                )
+                metadata_channel_id = writer.register_channel(
+                    topic="/rct/accident/metadata",
+                    message_encoding="json",
+                    schema_id=schema_id,
+                )
+                created_at_ns = int(created.timestamp() * 1_000_000_000)
+                metadata = {
+                    "type": "metadata",
+                    "created_at": created.isoformat(),
+                    "trigger_vehicle_id": trigger_vehicle_id,
+                    "collision_count": collision_count,
+                    "record_count": len(records),
+                }
+                writer.add_message(
+                    channel_id=metadata_channel_id,
+                    log_time=created_at_ns,
+                    publish_time=created_at_ns,
+                    data=json.dumps(metadata, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+                )
+                for index, record in enumerate(records):
+                    message = {
+                        "type": "bridge",
+                        "index": index,
+                        "event": record.event,
+                        "monotonic_timestamp": record.monotonic_timestamp,
+                        "wall_time_ns": record.wall_time_ns,
+                        "payload": json_safe(record.payload),
+                    }
+                    data = json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                    writer.add_message(
+                        channel_id=channel_id,
+                        log_time=record.wall_time_ns,
+                        publish_time=record.wall_time_ns,
+                        data=data,
+                    )
+                writer.finish()
+            temporary_path.replace(output_path)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
 
         return accident_log_record_from_path(output_path)
 

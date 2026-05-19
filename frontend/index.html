@@ -1327,7 +1327,9 @@
           throw new Error(`Failed to load accident log summary: ${response.status} ${response.statusText}`);
         }
         const summary = await response.json();
-        accidentLogSummaryCache.set(filename, summary);
+        if (summary.complete !== false) {
+          accidentLogSummaryCache.set(filename, summary);
+        }
         return summary;
       }
 

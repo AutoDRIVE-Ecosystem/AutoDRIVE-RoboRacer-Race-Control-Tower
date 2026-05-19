@@ -1952,6 +1952,7 @@ class RaceControlTower:
 
         frames: list[dict[str, Any]] = []
         metadata: dict[str, Any] = {}
+        complete = True
         with path.open("rb") as mcap_file:
             reader = NonSeekingReader(mcap_file)
             try:
@@ -1982,6 +1983,7 @@ class RaceControlTower:
                         }
                     )
             except EndOfFile:
+                complete = False
                 LOGGER.debug("read partial accident log summary from %s before MCAP footer was available", path)
 
         frames.sort(key=lambda frame: frame["log_time_ns"])
@@ -2002,6 +2004,7 @@ class RaceControlTower:
             "time": path.stem.removeprefix("autodrive "),
             "size_bytes": path.stat().st_size,
             "duration_seconds": duration_seconds,
+            "complete": complete,
             "metadata": metadata,
             "frames": frames,
         }

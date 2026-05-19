@@ -5,9 +5,10 @@ import unittest
 import base64
 import gzip
 from datetime import datetime
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from rct.accident_recorder import AccidentRecorder, accident_log_filename, list_accident_logs
+from rct.accident_recorder import AccidentBridgeRecord, AccidentRecorder, accident_log_filename, list_accident_logs
 from rct.bridge import (
     BridgeHistory,
     BridgeRateTracker,
@@ -184,6 +185,28 @@ class AccidentRecorderTests(unittest.TestCase):
         filename = accident_log_filename(datetime(2026, 5, 19, 1, 2, 3, 456789))
 
         self.assertEqual(filename, "autodrive 2026-05-19 01:02:03:456.mcap")
+
+    def test_write_mcap_publishes_final_file_without_temporary_file(self):
+        recorder = AccidentRecorder()
+        with TemporaryDirectory() as temporary_directory:
+            recorder.output_dir = Path(temporary_directory)
+
+            log = recorder.write_mcap(
+                [
+                    AccidentBridgeRecord(
+                        monotonic_timestamp=1.0,
+                        wall_time_ns=1_000_000_000,
+                        event="simulator/Bridge",
+                        payload={"V1 Position": "1 2 0"},
+                    )
+                ],
+                trigger_vehicle_id=1,
+                collision_count=1,
+                created_at=datetime(2026, 5, 19, 1, 2, 3, 456000),
+            )
+
+            self.assertTrue(Path(log.path).exists())
+            self.assertEqual(list(Path(temporary_directory).glob("*.tmp")), [])
 
     def test_lists_accident_logs_newest_first(self):
         with TemporaryDirectory() as temporary_directory:
