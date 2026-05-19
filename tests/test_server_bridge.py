@@ -696,6 +696,87 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(penalty_decision_event["filtered_vehicle_ids"], [])
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_new_simulator_session_resets_pending_penalty_decision(self):
+        tower = RaceControlTower(test_settings())
+        await tower.start_manual_penalty_decision([(1, 1), (2, 1)])
+        tower.collision_counts = {1: 3, 2: 2}
+
+        reset = tower.reset_penalty_decision_for_simulator_session()
+
+        self.assertTrue(reset)
+        self.assertEqual(tower.collision_counts, {})
+        self.assertEqual(tower.filtered_control_vehicle_ids, set())
+        self.assertEqual(tower._penalty_release_tasks, {})
+        decision = tower.state.penalty_decision()
+        self.assertFalse(decision["active"])
+        self.assertEqual(decision["collision_vehicle_ids"], [])
+        self.assertEqual(decision["filtered_vehicle_ids"], [])
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_total_lap_count_finishes_race_and_filters_both_vehicles(self):
+        tower = RaceControlTower(test_settings())
+
+        async def broadcast_monitor(_message):
+            return None
+
+        emitted_to_simulator = []
+
+        async def emit_to_simulators(event, args):
+            emitted_to_simulator.append((event, args))
+
+        tower.broadcast_monitor = broadcast_monitor
+        tower.emit_to_simulators = emit_to_simulators
+        tower.state.set_racing_rule_settings(
+            total_lap_count=2,
+            maximum_penalty_count=0,
+            celebration_with_confetti=False,
+        )
+        await tower.control_cache.merge(
+            {"V1 Throttle": "0.7", "V1 Steering": "0.2", "V2 Throttle": "0.6"},
+            monotonic(),
+        )
+
+        await tower.publish_simulator_telemetry({"V1 Lap Count": "2"}, "Bridge")
+
+        race_result = tower.state.race_result()
+        self.assertTrue(race_result["active"])
+        self.assertEqual(race_result["winner_vehicle_id"], 1)
+        self.assertEqual(race_result["loser_vehicle_id"], 2)
+        self.assertEqual(race_result["reason"], "total_lap_count")
+        _event, args = emitted_to_simulator[-1]
+        self.assertEqual(args[0]["V1 Throttle"], "0.0")
+        self.assertEqual(args[0]["V1 Steering"], "0.0")
+        self.assertEqual(args[0]["V2 Throttle"], "0.0")
+        self.assertEqual(args[0]["V2 Steering"], "0.0")
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_maximum_penalty_count_finishes_race(self):
+        tower = RaceControlTower(test_settings())
+
+        async def broadcast_monitor(_message):
+            return None
+
+        async def emit_to_simulators(_event, _args):
+            return None
+
+        tower.broadcast_monitor = broadcast_monitor
+        tower.emit_to_simulators = emit_to_simulators
+        tower.state.set_racing_rule_settings(
+            total_lap_count=10,
+            maximum_penalty_count=1,
+            celebration_with_confetti=False,
+        )
+        await tower.start_manual_penalty_decision([(1, 1), (2, 1)])
+
+        await tower.apply_manual_penalty_decision(2)
+
+        race_result = tower.state.race_result()
+        self.assertTrue(race_result["active"])
+        self.assertEqual(race_result["winner_vehicle_id"], 1)
+        self.assertEqual(race_result["loser_vehicle_id"], 2)
+        self.assertEqual(race_result["reason"], "maximum_penalty_count")
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_devkit_bridge_outgoing_origin_is_opt_in(self):
         tower = RaceControlTower(replace(test_settings(), enable_origin=True))
         delivered_to_devkit = []

@@ -91,6 +91,8 @@ GET  /monitor/REST/0.1/accident-recorder
 POST /monitor/REST/0.1/accident-recorder
 GET  /monitor/REST/0.1/penalty-rule
 POST /monitor/REST/0.1/penalty-rule
+GET  /monitor/REST/0.1/racing-rule
+POST /monitor/REST/0.1/racing-rule
 GET  /monitor/REST/0.1/accident-logs
 GET  /monitor/REST/0.1/accident-logs/{filename}/summary
 DELETE /monitor/REST/0.1/accident-logs
@@ -177,6 +179,42 @@ Request:
 ```
 
 `restart_delay_seconds` must be a number from `0` to `60`. When greater than `0`, a vehicle that receives a manual penalty stays command-filtered for that duration after the decision while the other vehicle is released immediately. When set to `0`, both vehicles are released immediately after the decision. The response returns `ok: true` and the applied `penalty_rule` settings. RCT publishes an updated `status` event after the settings change.
+
+Racing rule settings:
+
+```http
+GET /monitor/REST/0.1/racing-rule
+```
+
+Response:
+
+```json
+{
+  "protocol": "autodrive-rct-monitor",
+  "version": "0.1",
+  "racing_rule": {
+    "total_lap_count": 10,
+    "maximum_penalty_count": 0,
+    "celebration_with_confetti": false
+  }
+}
+```
+
+```http
+POST /monitor/REST/0.1/racing-rule
+```
+
+Request:
+
+```json
+{
+  "total_lap_count": 10,
+  "maximum_penalty_count": 0,
+  "celebration_with_confetti": false
+}
+```
+
+`total_lap_count` must be a number from `1` to `1000`. The first vehicle to reach this lap count wins. `maximum_penalty_count` must be a number from `0` to `1000`; `0` disables penalty-count loss, and a value greater than `0` makes a vehicle lose immediately when its RCT penalty count reaches that value. `celebration_with_confetti` must be a boolean. The response returns `ok: true` and the applied `racing_rule` settings. RCT publishes an updated `status` event after the settings change.
 
 Accident logs:
 
@@ -300,6 +338,11 @@ Initial event:
   "penalty_rule": {
     "restart_delay_seconds": 2.0
   },
+  "racing_rule": {
+    "total_lap_count": 10,
+    "maximum_penalty_count": 0,
+    "celebration_with_confetti": false
+  },
   "accident_logs": [],
   "vehicle_penalties": {
     "1": 0,
@@ -312,6 +355,12 @@ Initial event:
     "penalty_vehicle_id": null,
     "victim_vehicle_id": null,
     "release_delay_seconds": 2.0
+  },
+  "race_result": {
+    "active": false,
+    "winner_vehicle_id": null,
+    "loser_vehicle_id": null,
+    "reason": null
   }
 }
 ```
@@ -346,6 +395,7 @@ Live monitor event categories:
 - `telemetry`: filtered per-Roboracer simulator values for `best_lap_time`, `collision_count`, `ips`, `lap_count`, `last_lap_count`, and `speed`
 - `frame`: DevKit-to-simulator command observation event
 - `penalty-decision`: accident penalty decision state transition event
+- `race-result`: race finish state transition event
 - `error`: monitor protocol or command error
 
 Penalty decision event:
@@ -385,6 +435,25 @@ The victim vehicle is released immediately. The penalty vehicle remains filtered
 RCT increments `status.vehicle_penalties[penalty_vehicle_id]` when a manual penalty decision is accepted. Penalty counts are monitor-only RCT state; they are not forwarded to the simulator or DevKit bridge protocol.
 
 If the operator chooses no decision, RCT releases both vehicles immediately, does not increment any penalty count, and emits `penalty-decision` with `active: false`, `filtered_vehicle_ids: []`, and `no_decision: true`.
+
+When a new simulator Socket.IO client connects, RCT clears any pending penalty decision from the previous simulator session. It also resets the collision count baseline, cancels pending penalty release timers, clears `filtered_vehicle_ids`, resets `status.penalty_decision` to inactive, and emits `penalty-decision` with `active: false` and `reset_reason: "simulator-connected"`.
+
+Race result event:
+
+```json
+{
+  "event": "race-result",
+  "timestamp": "2026-05-19T19:22:00.000000+00:00",
+  "source": "rct",
+  "active": true,
+  "winner_vehicle_id": 1,
+  "loser_vehicle_id": 2,
+  "reason": "total_lap_count",
+  "celebration_with_confetti": false
+}
+```
+
+RCT emits `race-result` when the first vehicle reaches `racing_rule.total_lap_count` or when a vehicle reaches `racing_rule.maximum_penalty_count` while that setting is greater than `0`. `reason` is `total_lap_count` or `maximum_penalty_count`. Once a race result is active, RCT filters both vehicles' throttle and steering commands to `0.0` before merging into the outgoing control cache and before emitting the cache to the simulator. When a new simulator Socket.IO client connects, RCT clears the race result and emits `race-result` with `active: false` and `reset_reason: "simulator-connected"`.
 
 The bundled frontend opens the Accident Logs dialog when it receives an active `penalty-decision` event or a `status.penalty_decision.active` snapshot. It selects the newest accident log and starts replay loading through `GET /monitor/REST/0.1/accident-logs/{filename}/summary`.
 

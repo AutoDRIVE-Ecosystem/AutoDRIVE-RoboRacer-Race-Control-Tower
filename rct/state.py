@@ -55,12 +55,23 @@ class RaceControlState:
         self._penalty_rule_settings: dict[str, float] = {
             "restart_delay_seconds": 2.0,
         }
+        self._racing_rule_settings: dict[str, float | bool] = {
+            "total_lap_count": 10,
+            "maximum_penalty_count": 0,
+            "celebration_with_confetti": False,
+        }
         self._accident_logs: list[AccidentLogMonitorState] = []
         self._penalty_decision = PenaltyDecisionMonitorState(
             collision_vehicle_ids=[],
             filtered_vehicle_ids=[],
         )
         self._vehicle_penalties: dict[int, int] = {}
+        self._race_result: dict[str, Any] = {
+            "active": False,
+            "winner_vehicle_id": None,
+            "loser_vehicle_id": None,
+            "reason": None,
+        }
 
     def configure_devkits(self, devkits: Iterable[DevKitMonitorState]) -> None:
         with self._lock:
@@ -206,6 +217,28 @@ class RaceControlState:
         with self._lock:
             return dict(self._penalty_rule_settings)
 
+    def set_racing_rule_settings(
+        self,
+        *,
+        total_lap_count: int,
+        maximum_penalty_count: int,
+        celebration_with_confetti: bool,
+    ) -> None:
+        next_settings = {
+            "total_lap_count": int(total_lap_count),
+            "maximum_penalty_count": int(maximum_penalty_count),
+            "celebration_with_confetti": bool(celebration_with_confetti),
+        }
+        with self._lock:
+            if self._racing_rule_settings == next_settings:
+                return
+            self._racing_rule_settings = next_settings
+            self._revision += 1
+
+    def racing_rule_settings(self) -> dict[str, float | bool]:
+        with self._lock:
+            return dict(self._racing_rule_settings)
+
     def set_accident_logs(self, accident_logs: Iterable[AccidentLogMonitorState]) -> None:
         next_logs = list(accident_logs)
         with self._lock:
@@ -265,6 +298,30 @@ class RaceControlState:
         with self._lock:
             return {str(vehicle_id): count for vehicle_id, count in sorted(self._vehicle_penalties.items())}
 
+    def set_race_result(
+        self,
+        *,
+        active: bool,
+        winner_vehicle_id: int | None = None,
+        loser_vehicle_id: int | None = None,
+        reason: str | None = None,
+    ) -> None:
+        next_result = {
+            "active": bool(active),
+            "winner_vehicle_id": winner_vehicle_id,
+            "loser_vehicle_id": loser_vehicle_id,
+            "reason": reason,
+        }
+        with self._lock:
+            if self._race_result == next_result:
+                return
+            self._race_result = next_result
+            self._revision += 1
+
+    def race_result(self) -> dict[str, Any]:
+        with self._lock:
+            return dict(self._race_result)
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -275,7 +332,9 @@ class RaceControlState:
                 "topic_selections": dict(self._topic_selections),
                 "accident_recorder": dict(self._accident_recorder_settings),
                 "penalty_rule": dict(self._penalty_rule_settings),
+                "racing_rule": dict(self._racing_rule_settings),
                 "accident_logs": [asdict(accident_log) for accident_log in self._accident_logs],
                 "penalty_decision": asdict(self._penalty_decision),
                 "vehicle_penalties": {str(vehicle_id): count for vehicle_id, count in sorted(self._vehicle_penalties.items())},
+                "race_result": dict(self._race_result),
             }

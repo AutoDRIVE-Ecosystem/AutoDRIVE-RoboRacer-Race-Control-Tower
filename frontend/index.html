@@ -250,6 +250,42 @@
         background-color: #ced4da;
       }
 
+      .rct-trophy {
+        display: none;
+        margin-top: 1rem;
+        text-align: center;
+      }
+
+      .rct-trophy img {
+        width: 80%;
+      }
+
+      .rct-confetti {
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+        position: fixed;
+        z-index: 2000;
+      }
+
+      .rct-confetti-piece {
+        animation: rct-confetti-fall 5s linear forwards;
+        height: 0.85rem;
+        opacity: 0.95;
+        position: absolute;
+        top: -1rem;
+        width: 0.45rem;
+      }
+
+      @keyframes rct-confetti-fall {
+        0% {
+          transform: translateY(0) rotate(0deg);
+        }
+        100% {
+          transform: translateY(calc(100vh + 2rem)) rotate(720deg);
+        }
+      }
+
       .rct-footer {
         background-color: #adb5bd;
       }
@@ -517,6 +553,9 @@
                 <button class="nav-link" id="penalty-rule-tab" data-bs-toggle="tab" data-bs-target="#penalty-rule-tab-pane" type="button" role="tab" aria-controls="penalty-rule-tab-pane" aria-selected="false">Penalty Rule</button>
               </li>
               <li class="nav-item" role="presentation">
+                <button class="nav-link" id="racing-rule-tab" data-bs-toggle="tab" data-bs-target="#racing-rule-tab-pane" type="button" role="tab" aria-controls="racing-rule-tab-pane" aria-selected="false">Racing Rule</button>
+              </li>
+              <li class="nav-item" role="presentation">
                 <button class="nav-link" id="about-tab" data-bs-toggle="tab" data-bs-target="#about-tab-pane" type="button" role="tab" aria-controls="about-tab-pane" aria-selected="false">About</button>
               </li>
             </ul>
@@ -565,6 +604,23 @@
                 <div class="d-flex justify-content-start align-items-center gap-2">
                   <label for="penaltyRestartDelaySeconds" class="col-form-label">Penalty restart delay seconds:</label>
                   <input id="penaltyRestartDelaySeconds" class="form-control form-control-sm rct-pre-accident-input" type="number" min="0" max="60" step="0.1" value="2">
+                </div>
+              </div>
+              <div class="tab-pane fade" id="racing-rule-tab-pane" role="tabpanel" aria-labelledby="racing-rule-tab" tabindex="0">
+                <p class="rct-settings-description">
+                  Configure the race win conditions. RCT ends the race when a vehicle reaches the target lap count first, or when the other vehicle reaches the maximum penalty count if that limit is greater than zero.
+                </p>
+                <div class="d-flex justify-content-start align-items-center gap-2">
+                  <label for="totalLapCount" class="col-form-label">Total Lap Count:</label>
+                  <input id="totalLapCount" class="form-control form-control-sm rct-pre-accident-input" type="number" min="1" max="1000" step="1" value="10">
+                </div>
+                <div class="d-flex justify-content-start align-items-center gap-2 mt-2">
+                  <label for="maximumPenaltyCount" class="col-form-label">Maximum Penalty Count:</label>
+                  <input id="maximumPenaltyCount" class="form-control form-control-sm rct-pre-accident-input" type="number" min="0" max="1000" step="1" value="0">
+                </div>
+                <div class="d-flex justify-content-start align-items-center gap-2 mt-2">
+                  <label for="celebrationWithConfetti" class="col-form-label">Celebration with Confetti:</label>
+                  <input id="celebrationWithConfetti" class="form-check-input mt-0" type="checkbox">
                 </div>
               </div>
               <div class="tab-pane fade" id="about-tab-pane" role="tabpanel" aria-labelledby="about-tab" tabindex="0">
@@ -665,6 +721,9 @@
                   <dd id="roboracer1Ips" class="mb-0">0, 0</dd>
                 </div>
               </dl>
+              <div id="roboracer1Trophy" class="rct-trophy">
+                <img src="assets/trophy.png" alt="Winner trophy">
+              </div>
               <button id="roboracer1TraceLidar" class="btn btn-sm btn-primary w-100 mt-auto mb-3" type="button">Trace LiDAR</button>
             </div>
           </div>
@@ -723,6 +782,9 @@
                   <dd id="roboracer2Ips" class="mb-0">0, 0</dd>
                 </div>
               </dl>
+              <div id="roboracer2Trophy" class="rct-trophy">
+                <img src="assets/trophy.png" alt="Winner trophy">
+              </div>
               <button id="roboracer2TraceLidar" class="btn btn-sm btn-primary w-100 mt-auto mb-3" type="button">Trace LiDAR</button>
             </div>
           </div>
@@ -762,6 +824,9 @@
       const preAccidentSecondsInput = document.getElementById("preAccidentSeconds");
       const includeCameraCheckbox = document.getElementById("includeCamera");
       const penaltyRestartDelaySecondsInput = document.getElementById("penaltyRestartDelaySeconds");
+      const totalLapCountInput = document.getElementById("totalLapCount");
+      const maximumPenaltyCountInput = document.getElementById("maximumPenaltyCount");
+      const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
       const accidentLogsButton = document.getElementById("accidentLogsButton");
       const accidentLogsButtonText = document.getElementById("accidentLogsButtonText");
       const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
@@ -779,6 +844,7 @@
           ips: document.getElementById("roboracer1Ips"),
           collisions: document.getElementById("roboracer1Collisions"),
           penalties: document.getElementById("roboracer1Penalties"),
+          trophy: document.getElementById("roboracer1Trophy"),
           thisLap: document.getElementById("roboracer1ThisLap"),
           lastLap: document.getElementById("roboracer1LastLap"),
           bestLap: document.getElementById("roboracer1BestLap"),
@@ -794,6 +860,7 @@
           ips: document.getElementById("roboracer2Ips"),
           collisions: document.getElementById("roboracer2Collisions"),
           penalties: document.getElementById("roboracer2Penalties"),
+          trophy: document.getElementById("roboracer2Trophy"),
           thisLap: document.getElementById("roboracer2ThisLap"),
           lastLap: document.getElementById("roboracer2LastLap"),
           bestLap: document.getElementById("roboracer2BestLap"),
@@ -862,9 +929,15 @@
       let topicSettingsSaveChain = Promise.resolve();
       let accidentRecorderSettingsSaveChain = Promise.resolve();
       let penaltyRuleSettingsSaveChain = Promise.resolve();
+      let racingRuleSettingsSaveChain = Promise.resolve();
       let appliedPreAccidentSeconds = 5;
       let appliedIncludeCamera = false;
       let appliedPenaltyRestartDelaySeconds = 2;
+      let appliedTotalLapCount = 10;
+      let appliedMaximumPenaltyCount = 0;
+      let appliedCelebrationWithConfetti = false;
+      let raceResultActive = false;
+      let confettiTimer = null;
       let simulatorConnected = false;
       let accidentLogs = [];
       let selectedAccidentLogFilename = null;
@@ -1386,7 +1459,7 @@
 
       function submitManualDecision(command) {
         if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
-          console.warn("Cannot submit manual decision while RCT WebSocket is disconnected");
+          console.warn("Cannot submit final decision while RCT WebSocket is disconnected");
           return;
         }
         rctSocket.send(JSON.stringify(command));
@@ -1502,6 +1575,24 @@
         return Number.isFinite(parsed) ? parsed : NaN;
       }
 
+      function racingRuleSettingsChanged() {
+        return (
+          totalLapCountValue() !== appliedTotalLapCount
+          || maximumPenaltyCountValue() !== appliedMaximumPenaltyCount
+          || celebrationWithConfettiCheckbox.checked !== appliedCelebrationWithConfetti
+        );
+      }
+
+      function totalLapCountValue() {
+        const parsed = Number.parseInt(totalLapCountInput.value, 10);
+        return Number.isFinite(parsed) ? parsed : NaN;
+      }
+
+      function maximumPenaltyCountValue() {
+        const parsed = Number.parseInt(maximumPenaltyCountInput.value, 10);
+        return Number.isFinite(parsed) ? parsed : NaN;
+      }
+
       function syncTopicSelectionsFromState(nextTopicSelections) {
         if (!nextTopicSelections || typeof nextTopicSelections !== "object") {
           return;
@@ -1601,6 +1692,28 @@
           appliedPenaltyRestartDelaySeconds = restartDelaySeconds;
           penaltyRestartDelaySecondsInput.value = String(restartDelaySeconds);
         }
+        updateSettingsApplyState();
+      }
+
+      async function loadRacingRuleSettings() {
+        const response = await fetch(monitorRestUrl("/racing-rule"));
+        if (!response.ok) {
+          throw new Error(`Failed to load racing rule settings: ${response.status} ${response.statusText}`);
+        }
+        const payload = await response.json();
+        const settings = payload.racing_rule || {};
+        const totalLapCount = Number(settings.total_lap_count);
+        if (Number.isFinite(totalLapCount)) {
+          appliedTotalLapCount = totalLapCount;
+          totalLapCountInput.value = String(totalLapCount);
+        }
+        const maximumPenaltyCount = Number(settings.maximum_penalty_count);
+        if (Number.isFinite(maximumPenaltyCount)) {
+          appliedMaximumPenaltyCount = maximumPenaltyCount;
+          maximumPenaltyCountInput.value = String(maximumPenaltyCount);
+        }
+        appliedCelebrationWithConfetti = Boolean(settings.celebration_with_confetti);
+        celebrationWithConfettiCheckbox.checked = appliedCelebrationWithConfetti;
         updateSettingsApplyState();
       }
 
@@ -1743,20 +1856,75 @@
         return penaltyRuleSettingsSaveChain;
       }
 
+      async function postRacingRuleSettings() {
+        const response = await fetch(monitorRestUrl("/racing-rule"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            total_lap_count: totalLapCountValue(),
+            maximum_penalty_count: maximumPenaltyCountValue(),
+            celebration_with_confetti: celebrationWithConfettiCheckbox.checked,
+          }),
+        });
+        if (!response.ok) {
+          let errorText = `${response.status} ${response.statusText}`;
+          try {
+            const errorBody = await response.json();
+            if (errorBody && typeof errorBody.error === "string") {
+              errorText = errorBody.error;
+            }
+          } catch (error) {
+            // ignore JSON parse failures and keep the HTTP status text
+          }
+          throw new Error(errorText);
+        }
+        return response.json();
+      }
+
+      function saveRacingRuleSettings() {
+        racingRuleSettingsSaveChain = racingRuleSettingsSaveChain
+          .catch(() => {})
+          .then(async () => {
+            if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
+              throw new Error("RCT monitor websocket is disconnected");
+            }
+            const payload = await postRacingRuleSettings();
+            const settings = payload.racing_rule || {};
+            appliedTotalLapCount = Number(settings.total_lap_count);
+            appliedMaximumPenaltyCount = Number(settings.maximum_penalty_count);
+            appliedCelebrationWithConfetti = Boolean(settings.celebration_with_confetti);
+            totalLapCountInput.value = String(appliedTotalLapCount);
+            maximumPenaltyCountInput.value = String(appliedMaximumPenaltyCount);
+            celebrationWithConfettiCheckbox.checked = appliedCelebrationWithConfetti;
+            updateSettingsApplyState();
+            return payload;
+          })
+          .catch((error) => {
+            console.warn("Racing rule settings save failed:", error);
+          });
+        return racingRuleSettingsSaveChain;
+      }
+
       function updateSettingsApplyState() {
         const topicsTabButton = document.getElementById("topics-tab");
         const accidentRecorderTabButton = document.getElementById("accident-recorder-tab");
         const penaltyRuleTabButton = document.getElementById("penalty-rule-tab");
+        const racingRuleTabButton = document.getElementById("racing-rule-tab");
         const topicsChanged = topicSelectionsChanged();
         const accidentRecorderChanged = accidentRecorderSettingsChanged();
         const accidentRecorderValid = Number.isFinite(preAccidentSecondsValue());
         const penaltyRuleChanged = penaltyRuleSettingsChanged();
         const penaltyRuleValid = Number.isFinite(penaltyRestartDelaySecondsValue());
+        const racingRuleChanged = racingRuleSettingsChanged();
+        const racingRuleValid = Number.isFinite(totalLapCountValue()) && Number.isFinite(maximumPenaltyCountValue());
         const wsConnected = Boolean(rctSocket && rctSocket.readyState === WebSocket.OPEN);
         const activeTabChanged = (
           (topicsTabButton.classList.contains("active") && topicsChanged)
           || (accidentRecorderTabButton.classList.contains("active") && accidentRecorderChanged && accidentRecorderValid)
           || (penaltyRuleTabButton.classList.contains("active") && penaltyRuleChanged && penaltyRuleValid)
+          || (racingRuleTabButton.classList.contains("active") && racingRuleChanged && racingRuleValid)
         );
         settingsApplyButton.disabled = !activeTabChanged || !wsConnected;
       }
@@ -2600,6 +2768,47 @@
         }
       }
 
+      function updateRaceResult(raceResult) {
+        const active = Boolean(raceResult && raceResult.active);
+        raceResultActive = active;
+        const winnerVehicleId = active ? Number(raceResult.winner_vehicle_id) : null;
+        for (const [vehicleId, roboracer] of Object.entries(roboracers)) {
+          roboracer.trophy.style.display = Number(vehicleId) === winnerVehicleId ? "block" : "none";
+        }
+        if (!active) {
+          clearConfetti();
+        }
+      }
+
+      function showConfetti() {
+        clearConfetti();
+        const confetti = document.createElement("div");
+        confetti.className = "rct-confetti";
+        const colors = ["#f94144", "#f3722c", "#f9c74f", "#43aa8b", "#277da1", "#7b2cbf"];
+        for (let index = 0; index < 120; index += 1) {
+          const piece = document.createElement("span");
+          piece.className = "rct-confetti-piece";
+          piece.style.left = `${Math.random() * 100}%`;
+          piece.style.backgroundColor = colors[index % colors.length];
+          piece.style.animationDelay = `${Math.random() * 0.8}s`;
+          piece.style.animationDuration = `${4.2 + Math.random() * 0.8}s`;
+          piece.style.transform = `rotate(${Math.random() * 360}deg)`;
+          confetti.append(piece);
+        }
+        document.body.append(confetti);
+        confettiTimer = window.setTimeout(clearConfetti, 5000);
+      }
+
+      function clearConfetti() {
+        if (confettiTimer !== null) {
+          window.clearTimeout(confettiTimer);
+          confettiTimer = null;
+        }
+        for (const confetti of document.querySelectorAll(".rct-confetti")) {
+          confetti.remove();
+        }
+      }
+
       function handleMonitorMessage(data) {
         let message = null;
         try {
@@ -2614,6 +2823,9 @@
           updateRoboracerStatusFromState(message.devkits);
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
           updateVehiclePenalties(message.vehicle_penalties);
+          if (message.race_result && !message.race_result.active) {
+            updateRaceResult(message.race_result);
+          }
           if (Array.isArray(message.accident_logs)) {
             setAccidentLogs(message.accident_logs);
             updateAccidentLogsButton();
@@ -2634,6 +2846,11 @@
             penaltyDecisionActive = false;
             penaltyDecisionAccidentLogFilename = null;
             renderAccidentLogs();
+          }
+        } else if (message.event === "race-result") {
+          updateRaceResult(message);
+          if (message.active && message.celebration_with_confetti) {
+            showConfetti();
           }
         }
       }
@@ -3173,12 +3390,17 @@
       preAccidentSecondsInput.addEventListener("input", updateSettingsApplyState);
       includeCameraCheckbox.addEventListener("change", updateSettingsApplyState);
       penaltyRestartDelaySecondsInput.addEventListener("input", updateSettingsApplyState);
+      totalLapCountInput.addEventListener("input", updateSettingsApplyState);
+      maximumPenaltyCountInput.addEventListener("input", updateSettingsApplyState);
+      celebrationWithConfettiCheckbox.addEventListener("change", updateSettingsApplyState);
       settingsApplyButton.addEventListener("click", () => {
         const activeTabButton = document.querySelector("#settingsTabs .nav-link.active");
         if (activeTabButton && activeTabButton.id === "accident-recorder-tab") {
           void saveAccidentRecorderSettings();
         } else if (activeTabButton && activeTabButton.id === "penalty-rule-tab") {
           void savePenaltyRuleSettings();
+        } else if (activeTabButton && activeTabButton.id === "racing-rule-tab") {
+          void saveRacingRuleSettings();
         } else {
           void saveTopicSelections();
         }
@@ -3195,6 +3417,9 @@
         });
         void loadPenaltyRuleSettings().catch((error) => {
           console.warn("Failed to refresh penalty rule settings:", error);
+        });
+        void loadRacingRuleSettings().catch((error) => {
+          console.warn("Failed to refresh racing rule settings:", error);
         });
       });
       accidentLogsDialog.addEventListener("show.bs.modal", () => {

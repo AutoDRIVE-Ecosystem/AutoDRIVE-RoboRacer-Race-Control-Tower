@@ -164,6 +164,10 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def other_vehicle_id(vehicle_id: int) -> int:
+    return 2 if vehicle_id == 1 else 1
+
+
 def envelope(event: str, **fields: Any) -> str:
     return json.dumps(
         {
@@ -689,6 +693,14 @@ class RaceControlTower:
             self.handle_monitor_penalty_rule_post,
         )
         app.router.add_get(
+            "/monitor/REST/{version}/racing-rule",
+            self.handle_monitor_racing_rule_get,
+        )
+        app.router.add_post(
+            "/monitor/REST/{version}/racing-rule",
+            self.handle_monitor_racing_rule_post,
+        )
+        app.router.add_get(
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_get,
         )
@@ -737,9 +749,37 @@ class RaceControlTower:
         async def connect(sid: str, environ: dict[str, Any], auth: Any = None) -> bool:
             self.simulator_sids.add(sid)
             self.state.set_simulator_clients(len(self.simulator_sids))
+            reset_penalty_decision = self.reset_penalty_decision_for_simulator_session()
             LOGGER.info("simulator connected via Socket.IO sid=%s", sid)
+            if reset_penalty_decision:
+                LOGGER.info("cleared pending penalty decision for new simulator session")
             self.connect_all_devkits()
             await self.publish_status()
+            if reset_penalty_decision:
+                await self.broadcast_monitor(
+                    envelope(
+                        "penalty-decision",
+                        source="rct",
+                        active=False,
+                        collision_vehicle_ids=[],
+                        filtered_vehicle_ids=[],
+                        reset_reason="simulator-connected",
+                        release_delay_seconds=float(
+                            self.state.penalty_rule_settings()["restart_delay_seconds"]
+                        ),
+                    )
+                )
+                await self.broadcast_monitor(
+                    envelope(
+                        "race-result",
+                        source="rct",
+                        active=False,
+                        winner_vehicle_id=None,
+                        loser_vehicle_id=None,
+                        reason=None,
+                        reset_reason="simulator-connected",
+                    )
+                )
             return True
 
         async def disconnect(sid: str, reason: str | None = None) -> None:
@@ -977,6 +1017,43 @@ class RaceControlTower:
             }
         )
 
+    async def handle_monitor_racing_rule_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        return web.json_response(
+            {
+                "protocol": "autodrive-rct-monitor",
+                "version": MONITOR_PROTOCOL_VERSION,
+                "racing_rule": self.state.racing_rule_settings(),
+            }
+        )
+
+    async def handle_monitor_racing_rule_post(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            body = {}
+
+        try:
+            settings = self.validate_racing_rule_settings(body)
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        self.state.set_racing_rule_settings(**settings)
+        await self.publish_status()
+        return web.json_response(
+            {
+                "ok": True,
+                "racing_rule": self.state.racing_rule_settings(),
+            }
+        )
+
     async def handle_monitor_accident_logs_get(self, request: web.Request) -> web.Response:
         version_path = f"/monitor/REST/{request.match_info['version']}"
         if not is_monitor_rest_path(version_path):
@@ -1195,6 +1272,33 @@ class RaceControlTower:
     async def disconnect_all_devkits(self) -> None:
         await asyncio.gather(*(devkit.stop() for devkit in self.devkits), return_exceptions=True)
 
+    def reset_penalty_decision_for_simulator_session(self) -> bool:
+        self.collision_counts.clear()
+        had_race_result = bool(self.state.race_result().get("active"))
+        decision = self.state.penalty_decision()
+        had_pending_decision = bool(
+            decision.get("active")
+            or decision.get("collision_vehicle_ids")
+            or decision.get("filtered_vehicle_ids")
+            or self.filtered_control_vehicle_ids
+            or self._penalty_release_tasks
+        )
+        if not had_pending_decision and not had_race_result:
+            return False
+
+        for task in self._penalty_release_tasks.values():
+            task.cancel()
+        self._penalty_release_tasks.clear()
+        self.filtered_control_vehicle_ids.clear()
+        self.state.set_race_result(active=False)
+        self.state.set_penalty_decision(
+            active=False,
+            collision_vehicle_ids=[],
+            filtered_vehicle_ids=[],
+            release_delay_seconds=float(self.state.penalty_rule_settings()["restart_delay_seconds"]),
+        )
+        return True
+
     async def configure_devkit(
         self,
         devkit: DevKitConnection,
@@ -1380,6 +1484,8 @@ class RaceControlTower:
             cached["socketio_event"] = socketio_event
             cached["source"] = source
 
+        await self.check_race_result(telemetry)
+
         if self.monitor_ws_interval <= 0:
             telemetry_message = self.cached_telemetry_message()
             if telemetry_message is not None:
@@ -1420,6 +1526,7 @@ class RaceControlTower:
         rewritten_payload = self.filter_control_payload_for_penalty_decision(
             socketio_data_from_args(rewritten_args)
         )
+        rewritten_payload = self.filter_control_payload_for_race_result(rewritten_payload)
         await self.control_cache.merge(
             rewritten_payload,
             received_at,
@@ -1443,6 +1550,7 @@ class RaceControlTower:
             include_origin=self.settings.enable_origin,
         )
         outgoing_payload = self.filter_control_payload_for_penalty_decision(outgoing_payload)
+        outgoing_payload = self.filter_control_payload_for_race_result(outgoing_payload)
         outgoing_args = (outgoing_payload,)
         await self.emit_to_simulators("Bridge", outgoing_args)
         self.log_bridge_flow("rct-to-sim")
@@ -1568,10 +1676,11 @@ class RaceControlTower:
             task.cancel()
         self._penalty_release_tasks.clear()
 
-        self.state.increment_vehicle_penalty(penalty_vehicle_id)
+        penalty_count = self.state.increment_vehicle_penalty(penalty_vehicle_id)
+        await self.check_penalty_loss(penalty_vehicle_id, penalty_count)
         penalty_rule = self.state.penalty_rule_settings()
         release_delay_seconds = float(penalty_rule["restart_delay_seconds"])
-        restart_delay_active = release_delay_seconds > 0
+        restart_delay_active = release_delay_seconds > 0 and not self.state.race_result().get("active")
         self.filtered_control_vehicle_ids = {penalty_vehicle_id} if restart_delay_active else set()
         self.state.set_penalty_decision(
             active=restart_delay_active,
@@ -1680,12 +1789,90 @@ class RaceControlTower:
         except Exception:
             LOGGER.exception("penalty vehicle release failed")
 
+    async def check_race_result(self, telemetry: dict[int, dict[str, Any]]) -> None:
+        if self.state.race_result().get("active"):
+            return
+
+        settings = self.state.racing_rule_settings()
+        total_lap_count = int(settings["total_lap_count"])
+        for vehicle_id in sorted(telemetry):
+            lap_count = telemetry[vehicle_id].get("lap_count")
+            if isinstance(lap_count, int | float) and int(lap_count) >= total_lap_count:
+                await self.finish_race(
+                    winner_vehicle_id=vehicle_id,
+                    loser_vehicle_id=other_vehicle_id(vehicle_id),
+                    reason="total_lap_count",
+                )
+                return
+
+    async def check_penalty_loss(self, penalty_vehicle_id: int, penalty_count: int) -> None:
+        if self.state.race_result().get("active"):
+            return
+
+        settings = self.state.racing_rule_settings()
+        maximum_penalty_count = int(settings["maximum_penalty_count"])
+        if maximum_penalty_count <= 0 or penalty_count < maximum_penalty_count:
+            return
+
+        await self.finish_race(
+            winner_vehicle_id=other_vehicle_id(penalty_vehicle_id),
+            loser_vehicle_id=penalty_vehicle_id,
+            reason="maximum_penalty_count",
+        )
+
+    async def finish_race(self, winner_vehicle_id: int, loser_vehicle_id: int, reason: str) -> None:
+        if self.state.race_result().get("active"):
+            return
+
+        for task in self._penalty_release_tasks.values():
+            task.cancel()
+        self._penalty_release_tasks.clear()
+        self.filtered_control_vehicle_ids.clear()
+        self.state.set_penalty_decision(
+            active=False,
+            collision_vehicle_ids=[],
+            filtered_vehicle_ids=[],
+            release_delay_seconds=float(self.state.penalty_rule_settings()["restart_delay_seconds"]),
+        )
+        self.state.set_race_result(
+            active=True,
+            winner_vehicle_id=winner_vehicle_id,
+            loser_vehicle_id=loser_vehicle_id,
+            reason=reason,
+        )
+        LOGGER.info("race finished: winner=V%s loser=V%s reason=%s", winner_vehicle_id, loser_vehicle_id, reason)
+        await self.publish_status()
+        await self.emit_control_cache_to_simulator()
+        await self.broadcast_monitor(
+            envelope(
+                "race-result",
+                source="rct",
+                active=True,
+                winner_vehicle_id=winner_vehicle_id,
+                loser_vehicle_id=loser_vehicle_id,
+                reason=reason,
+                celebration_with_confetti=bool(
+                    self.state.racing_rule_settings()["celebration_with_confetti"]
+                ),
+            )
+        )
+
     def filter_control_payload_for_penalty_decision(self, payload: Any) -> Any:
         if not isinstance(payload, dict) or not self.filtered_control_vehicle_ids:
             return payload
 
         filtered_payload = dict(payload)
         for vehicle_id in self.filtered_control_vehicle_ids:
+            for field in CONTROL_FILTER_FIELDS:
+                filtered_payload[f"V{vehicle_id} {field}"] = "0.0"
+        return filtered_payload
+
+    def filter_control_payload_for_race_result(self, payload: Any) -> Any:
+        if not isinstance(payload, dict) or not self.state.race_result().get("active"):
+            return payload
+
+        filtered_payload = dict(payload)
+        for vehicle_id in (1, 2):
             for field in CONTROL_FILTER_FIELDS:
                 filtered_payload[f"V{vehicle_id} {field}"] = "0.0"
         return filtered_payload
@@ -2142,6 +2329,31 @@ class RaceControlTower:
             raise ValueError("restart_delay_seconds must be between 0 and 60")
         return {
             "restart_delay_seconds": restart_delay_seconds,
+        }
+
+    def validate_racing_rule_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
+        total_lap_count = settings.get("total_lap_count", 10)
+        if isinstance(total_lap_count, bool) or not isinstance(total_lap_count, int | float):
+            raise ValueError("total_lap_count must be a number")
+        total_lap_count = int(total_lap_count)
+        if total_lap_count < 1 or total_lap_count > 1000:
+            raise ValueError("total_lap_count must be between 1 and 1000")
+
+        maximum_penalty_count = settings.get("maximum_penalty_count", 0)
+        if isinstance(maximum_penalty_count, bool) or not isinstance(maximum_penalty_count, int | float):
+            raise ValueError("maximum_penalty_count must be a number")
+        maximum_penalty_count = int(maximum_penalty_count)
+        if maximum_penalty_count < 0 or maximum_penalty_count > 1000:
+            raise ValueError("maximum_penalty_count must be between 0 and 1000")
+
+        celebration_with_confetti = settings.get("celebration_with_confetti", False)
+        if not isinstance(celebration_with_confetti, bool):
+            raise ValueError("celebration_with_confetti must be a boolean")
+
+        return {
+            "total_lap_count": total_lap_count,
+            "maximum_penalty_count": maximum_penalty_count,
+            "celebration_with_confetti": celebration_with_confetti,
         }
 
     def resolved_topic_selections(self) -> dict[str, bool]:
