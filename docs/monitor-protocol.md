@@ -87,6 +87,11 @@ REST command surface:
 POST /monitor/REST/0.1/devkits/{vehicle_id}/connect
 POST /monitor/REST/0.1/devkits/{vehicle_id}/disconnect
 POST /monitor/REST/0.1/devkits/{vehicle_id}/endpoint
+GET  /monitor/REST/0.1/accident-recorder
+POST /monitor/REST/0.1/accident-recorder
+GET  /monitor/REST/0.1/accident-logs
+GET  /monitor/REST/0.1/accident-logs/{filename}/summary
+DELETE /monitor/REST/0.1/accident-logs
 ```
 
 These commands start or stop the Socket.IO client session from RCT to the selected DevKit bridge instance. Normal operation starts DevKit sessions automatically when the simulator connects.
@@ -104,6 +109,132 @@ Example:
 ```
 
 When `enabled` is `true`, RCT updates the DevKit endpoint and connects it immediately. When `enabled` is `false`, RCT updates the endpoint and disconnects the DevKit immediately.
+
+Accident recorder settings:
+
+```http
+GET /monitor/REST/0.1/accident-recorder
+```
+
+Response:
+
+```json
+{
+  "protocol": "autodrive-rct-monitor",
+  "version": "0.1",
+  "accident_recorder": {
+    "pre_accident_seconds": 5.0,
+    "include_camera": false
+  }
+}
+```
+
+```http
+POST /monitor/REST/0.1/accident-recorder
+```
+
+Request:
+
+```json
+{
+  "pre_accident_seconds": 5.0,
+  "include_camera": false
+}
+```
+
+`pre_accident_seconds` must be a number from `0` to `60`. `include_camera` must be a boolean. The response returns `ok: true` and the applied `accident_recorder` settings. RCT publishes an updated `status` event after the settings change.
+
+Accident logs:
+
+```http
+GET /monitor/REST/0.1/accident-logs
+```
+
+Response:
+
+```json
+{
+  "protocol": "autodrive-rct-monitor",
+  "version": "0.1",
+  "accident_logs": [
+    {
+      "filename": "autodrive 2026-05-19 23:20:56:540.mcap",
+      "path": "accident_logs/autodrive 2026-05-19 23:20:56:540.mcap",
+      "time": "2026-05-19 23:20:56:540",
+      "size_bytes": 1863259
+    }
+  ]
+}
+```
+
+Logs are returned newest first. RCT refreshes the list from the accident recorder output directory before responding.
+
+```http
+GET /monitor/REST/0.1/accident-logs/{filename}/summary
+```
+
+`filename` must be a basename from the accident log list. Path segments are rejected. The summary endpoint reads the MCAP sequentially and can return a partial summary if the frontend asks for a newly created file before the MCAP footer is available.
+
+Response:
+
+```json
+{
+  "protocol": "autodrive-rct-monitor",
+  "version": "0.1",
+  "filename": "autodrive 2026-05-19 23:20:56:540.mcap",
+  "time": "2026-05-19 23:20:56:540",
+  "size_bytes": 1863259,
+  "duration_seconds": 4.99534,
+  "metadata": {
+    "type": "metadata",
+    "created_at": "2026-05-19T23:20:56.540000",
+    "trigger_vehicle_id": 1,
+    "collision_count": 2,
+    "record_count": 735
+  },
+  "frames": [
+    {
+      "index": 0,
+      "log_time_ns": 1779218451540000000,
+      "wall_time_ns": 1779218451540000000,
+      "time_offset_seconds": 0.0,
+      "time_to_accident_seconds": -4.99534,
+      "vehicles": {
+        "1": {
+          "collision_count": 1,
+          "ips": {
+            "x": 1.25,
+            "y": -0.5
+          }
+        },
+        "2": {
+          "collision_count": 1,
+          "ips": {
+            "x": 1.75,
+            "y": -0.25
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+`frames` contain monitor telemetry extracted from each recorded simulator `Bridge` payload. Binary fields and non-monitor bridge fields are not returned in the summary response.
+
+```http
+DELETE /monitor/REST/0.1/accident-logs
+```
+
+Deletes `autodrive *.mcap` files from the recorder output directory, refreshes shared monitor state, publishes a `status` event, and returns:
+
+```json
+{
+  "ok": true,
+  "deleted": 2,
+  "accident_logs": []
+}
+```
 
 ### WebSocket
 
@@ -126,7 +257,20 @@ Initial event:
   },
   "simulator_clients": 0,
   "monitor_clients": 1,
-  "devkits": []
+  "devkits": [],
+  "accident_recorder": {
+    "pre_accident_seconds": 5.0,
+    "include_camera": false
+  },
+  "accident_logs": [],
+  "penalty_decision": {
+    "active": false,
+    "collision_vehicle_ids": [],
+    "filtered_vehicle_ids": [],
+    "penalty_vehicle_id": null,
+    "victim_vehicle_id": null,
+    "release_delay_seconds": 2.0
+  }
 }
 ```
 
@@ -158,9 +302,45 @@ Live monitor event categories:
 
 - `status`: RCT server, simulator, monitor client, and DevKit connection state
 - `telemetry`: filtered per-Roboracer simulator values for `best_lap_time`, `collision_count`, `ips`, `lap_count`, `last_lap_count`, and `speed`
-- `bridge_rate`: bridge protocol Hz between simulator and each Roboracer DevKit instance
 - `frame`: DevKit-to-simulator command observation event
+- `penalty-decision`: accident penalty decision state transition event
 - `error`: monitor protocol or command error
+
+Penalty decision event:
+
+```json
+{
+  "event": "penalty-decision",
+  "timestamp": "2026-05-19T19:20:56.540000+00:00",
+  "source": "rct",
+  "active": true,
+  "collision_vehicle_ids": [1, 2],
+  "filtered_vehicle_ids": [1, 2],
+  "release_delay_seconds": 2.0
+}
+```
+
+RCT emits `penalty-decision` with `active: true` when both vehicles' collision counts increase in the same simulator telemetry update. While active and before a manual decision, RCT filters both vehicles' throttle and steering commands to `0.0` before merging into the outgoing control cache and before emitting the cache to the simulator.
+
+After a manual decision, RCT emits another active `penalty-decision` event with `penalty_vehicle_id`, `victim_vehicle_id`, and only the penalty vehicle in `filtered_vehicle_ids`:
+
+```json
+{
+  "event": "penalty-decision",
+  "timestamp": "2026-05-19T19:20:57.100000+00:00",
+  "source": "monitor",
+  "active": true,
+  "collision_vehicle_ids": [1, 2],
+  "filtered_vehicle_ids": [2],
+  "penalty_vehicle_id": 2,
+  "victim_vehicle_id": 1,
+  "release_delay_seconds": 2.0
+}
+```
+
+The victim vehicle is released immediately. The penalty vehicle remains filtered for `release_delay_seconds` and is then released. RCT emits a final `penalty-decision` event with `active: false` and an empty `filtered_vehicle_ids` list.
+
+The bundled frontend opens the Accident Logs dialog when it receives an active `penalty-decision` event or a `status.penalty_decision.active` snapshot. It selects the newest accident log and starts replay loading through `GET /monitor/REST/0.1/accident-logs/{filename}/summary`.
 
 Monitor WebSocket command surface:
 
@@ -197,6 +377,15 @@ Monitor WebSocket command surface:
   "vehicle_id": 1
 }
 ```
+
+```json
+{
+  "command": "manual-penalty-decision",
+  "penalty_vehicle_id": 2
+}
+```
+
+`manual-penalty-decision` is valid only while a penalty decision is active. The selected `penalty_vehicle_id` must be one of the vehicles in `status.penalty_decision.collision_vehicle_ids`. The selected vehicle remains command-filtered for `release_delay_seconds`; the other vehicle is treated as the victim and is released immediately.
 
 RCT initializes DevKit bridge endpoints from `RCT_DEVKIT_URLS` and connects configured and enabled DevKit bridge instances when the simulator connects, even if no frontend is connected. The frontend reads the current DevKit endpoint state from the monitor snapshot, and the connected/disconnected buttons update the selected DevKit through the REST endpoint above. Manual runtime changes now use `POST /monitor/REST/0.1/devkits/{vehicle_id}/endpoint`.
 

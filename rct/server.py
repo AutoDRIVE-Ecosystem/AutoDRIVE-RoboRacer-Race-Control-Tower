@@ -1946,37 +1946,42 @@ class RaceControlTower:
         )
 
     def accident_log_summary_from_mcap(self, path: Path) -> dict[str, Any]:
-        from mcap.reader import make_reader
+        from mcap.exceptions import EndOfFile
+        from mcap.reader import NonSeekingReader
 
         frames: list[dict[str, Any]] = []
         metadata: dict[str, Any] = {}
         with path.open("rb") as mcap_file:
-            reader = make_reader(mcap_file)
-            for _schema, channel, message in reader.iter_messages(
-                topics=("/rct/accident/metadata", "/rct/accident/bridge")
-            ):
-                try:
-                    payload = json.loads(message.data.decode("utf-8"))
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    continue
+            reader = NonSeekingReader(mcap_file)
+            try:
+                for _schema, channel, message in reader.iter_messages(
+                    topics=("/rct/accident/metadata", "/rct/accident/bridge"),
+                    log_time_order=False,
+                ):
+                    try:
+                        payload = json.loads(message.data.decode("utf-8"))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
 
-                if channel.topic == "/rct/accident/metadata":
-                    metadata = payload
-                    continue
+                    if channel.topic == "/rct/accident/metadata":
+                        metadata = payload
+                        continue
 
-                bridge_payload = payload.get("payload") if isinstance(payload, dict) else None
-                vehicles = extract_monitor_telemetry(bridge_payload)
-                if not vehicles:
-                    continue
+                    bridge_payload = payload.get("payload") if isinstance(payload, dict) else None
+                    vehicles = extract_monitor_telemetry(bridge_payload)
+                    if not vehicles:
+                        continue
 
-                frames.append(
-                    {
-                        "index": payload.get("index", len(frames)) if isinstance(payload, dict) else len(frames),
-                        "log_time_ns": message.log_time,
-                        "wall_time_ns": payload.get("wall_time_ns", message.log_time) if isinstance(payload, dict) else message.log_time,
-                        "vehicles": {str(vehicle_id): telemetry for vehicle_id, telemetry in sorted(vehicles.items())},
-                    }
-                )
+                    frames.append(
+                        {
+                            "index": payload.get("index", len(frames)) if isinstance(payload, dict) else len(frames),
+                            "log_time_ns": message.log_time,
+                            "wall_time_ns": payload.get("wall_time_ns", message.log_time) if isinstance(payload, dict) else message.log_time,
+                            "vehicles": {str(vehicle_id): telemetry for vehicle_id, telemetry in sorted(vehicles.items())},
+                        }
+                    )
+            except EndOfFile:
+                LOGGER.debug("read partial accident log summary from %s before MCAP footer was available", path)
 
         frames.sort(key=lambda frame: frame["log_time_ns"])
         if frames:
