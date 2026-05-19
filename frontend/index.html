@@ -629,6 +629,10 @@
                   <dd id="roboracer1Collisions" class="mb-1">0</dd>
                 </div>
                 <div class="d-flex justify-content-between">
+                  <dt>Penalties:</dt>
+                  <dd id="roboracer1Penalties" class="mb-1">0</dd>
+                </div>
+                <div class="d-flex justify-content-between">
                   <dt>This Lap:</dt>
                   <dd id="roboracer1ThisLap" class="mb-1">00:00</dd>
                 </div>
@@ -681,6 +685,10 @@
                 <div class="d-flex justify-content-between">
                   <dt>Collisions:</dt>
                   <dd id="roboracer2Collisions" class="mb-1">0</dd>
+                </div>
+                <div class="d-flex justify-content-between">
+                  <dt>Penalties:</dt>
+                  <dd id="roboracer2Penalties" class="mb-1">0</dd>
                 </div>
                 <div class="d-flex justify-content-between">
                   <dt>This Lap:</dt>
@@ -757,6 +765,7 @@
           bridgeHz: document.getElementById("roboracer1BridgeHz"),
           ips: document.getElementById("roboracer1Ips"),
           collisions: document.getElementById("roboracer1Collisions"),
+          penalties: document.getElementById("roboracer1Penalties"),
           thisLap: document.getElementById("roboracer1ThisLap"),
           lastLap: document.getElementById("roboracer1LastLap"),
           bestLap: document.getElementById("roboracer1BestLap"),
@@ -771,6 +780,7 @@
           bridgeHz: document.getElementById("roboracer2BridgeHz"),
           ips: document.getElementById("roboracer2Ips"),
           collisions: document.getElementById("roboracer2Collisions"),
+          penalties: document.getElementById("roboracer2Penalties"),
           thisLap: document.getElementById("roboracer2ThisLap"),
           lastLap: document.getElementById("roboracer2LastLap"),
           bestLap: document.getElementById("roboracer2BestLap"),
@@ -2480,6 +2490,13 @@
         mainTrajectoryCanvas.draw();
       }
 
+      function updateVehiclePenalties(vehiclePenalties) {
+        for (const [vehicleId, roboracer] of Object.entries(roboracers)) {
+          const count = Number(vehiclePenalties && vehiclePenalties[vehicleId]);
+          roboracer.penalties.textContent = Number.isFinite(count) ? formatNumber(count, 0) : "0";
+        }
+      }
+
       function handleMonitorMessage(data) {
         let message = null;
         try {
@@ -2493,6 +2510,7 @@
           setSimulatorStatus(Number(message.simulator_clients || 0) > 0);
           updateRoboracerStatusFromState(message.devkits);
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
+          updateVehiclePenalties(message.vehicle_penalties);
           if (Array.isArray(message.accident_logs)) {
             setAccidentLogs(message.accident_logs);
             updateAccidentLogsButton();

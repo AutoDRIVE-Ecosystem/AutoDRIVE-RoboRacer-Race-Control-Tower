@@ -144,6 +144,16 @@ class RaceControlStateTests(unittest.TestCase):
             },
         )
 
+    def test_snapshot_tracks_vehicle_penalties(self):
+        state = RaceControlState()
+
+        self.assertEqual(state.snapshot()["vehicle_penalties"], {})
+
+        self.assertEqual(state.increment_vehicle_penalty(2), 1)
+        self.assertEqual(state.increment_vehicle_penalty(2), 2)
+
+        self.assertEqual(state.snapshot()["vehicle_penalties"], {"2": 2})
+
     def test_revision_changes_only_when_values_change(self):
         state = RaceControlState()
         state.configure_devkits([DevKitMonitorState("devkit:1", 1, "ws://127.0.0.1:4568")])

@@ -57,6 +57,7 @@ class RaceControlState:
             collision_vehicle_ids=[],
             filtered_vehicle_ids=[],
         )
+        self._vehicle_penalties: dict[int, int] = {}
 
     def configure_devkits(self, devkits: Iterable[DevKitMonitorState]) -> None:
         with self._lock:
@@ -232,6 +233,17 @@ class RaceControlState:
         with self._lock:
             return asdict(self._penalty_decision)
 
+    def increment_vehicle_penalty(self, vehicle_id: int) -> int:
+        with self._lock:
+            count = self._vehicle_penalties.get(vehicle_id, 0) + 1
+            self._vehicle_penalties[vehicle_id] = count
+            self._revision += 1
+            return count
+
+    def vehicle_penalties(self) -> dict[str, int]:
+        with self._lock:
+            return {str(vehicle_id): count for vehicle_id, count in sorted(self._vehicle_penalties.items())}
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -243,4 +255,5 @@ class RaceControlState:
                 "accident_recorder": dict(self._accident_recorder_settings),
                 "accident_logs": [asdict(accident_log) for accident_log in self._accident_logs],
                 "penalty_decision": asdict(self._penalty_decision),
+                "vehicle_penalties": {str(vehicle_id): count for vehicle_id, count in sorted(self._vehicle_penalties.items())},
             }

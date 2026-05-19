@@ -1523,6 +1523,7 @@ class RaceControlTower:
             task.cancel()
         self._penalty_release_tasks.clear()
 
+        self.state.increment_vehicle_penalty(penalty_vehicle_id)
         self.filtered_control_vehicle_ids = {penalty_vehicle_id}
         self.state.set_penalty_decision(
             active=True,

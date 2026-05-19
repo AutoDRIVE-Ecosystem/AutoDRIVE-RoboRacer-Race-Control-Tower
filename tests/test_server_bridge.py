@@ -647,6 +647,7 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(decision["penalty_vehicle_id"], 2)
             self.assertEqual(decision["victim_vehicle_id"], 1)
             self.assertEqual(decision["filtered_vehicle_ids"], [2])
+            self.assertEqual(tower.state.vehicle_penalties(), {"2": 1})
         finally:
             for task in tower._penalty_release_tasks.values():
                 task.cancel()

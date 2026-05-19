@@ -263,6 +263,10 @@ Initial event:
     "include_camera": false
   },
   "accident_logs": [],
+  "vehicle_penalties": {
+    "1": 0,
+    "2": 0
+  },
   "penalty_decision": {
     "active": false,
     "collision_vehicle_ids": [],
@@ -339,6 +343,8 @@ After a manual decision, RCT emits another active `penalty-decision` event with 
 ```
 
 The victim vehicle is released immediately. The penalty vehicle remains filtered for `release_delay_seconds` and is then released. RCT emits a final `penalty-decision` event with `active: false` and an empty `filtered_vehicle_ids` list.
+
+RCT increments `status.vehicle_penalties[penalty_vehicle_id]` when a manual penalty decision is accepted. Penalty counts are monitor-only RCT state; they are not forwarded to the simulator or DevKit bridge protocol.
 
 The bundled frontend opens the Accident Logs dialog when it receives an active `penalty-decision` event or a `status.penalty_decision.active` snapshot. It selects the newest accident log and starts replay loading through `GET /monitor/REST/0.1/accident-logs/{filename}/summary`.
 
