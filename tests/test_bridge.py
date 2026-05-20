@@ -4,6 +4,7 @@ import asyncio
 import unittest
 import base64
 import gzip
+from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -19,6 +20,9 @@ from rct.bridge import (
     extract_lidar_scans,
     extract_monitor_telemetry,
 )
+from rct.config import load_settings
+from rct.ros2_mcap import bridge_payload_to_ros2_messages, convert_accident_mcap_to_ros2_mcap, vehicle_tf_transforms
+from rct.server import RaceControlTower, ros2_mcap_download_filename
 
 
 class BridgeHistoryTests(unittest.IsolatedAsyncioTestCase):
@@ -223,6 +227,96 @@ class AccidentRecorderTests(unittest.TestCase):
             "autodrive 2026-05-19 01:02:04:000.mcap",
             "autodrive 2026-05-19 01:02:03:456.mcap",
         ])
+
+    def test_converts_accident_bridge_mcap_to_ros2_topics_for_both_vehicles(self):
+        from mcap.reader import NonSeekingReader
+
+        recorder = AccidentRecorder()
+        with TemporaryDirectory() as temporary_directory:
+            recorder.output_dir = Path(temporary_directory)
+            log = recorder.write_mcap(
+                [
+                    AccidentBridgeRecord(
+                        monotonic_timestamp=1.0,
+                        wall_time_ns=1_000_000_000,
+                        event="simulator/Bridge",
+                        payload={
+                            "V1 Throttle": "0.1",
+                            "V1 Position": "1 2 0",
+                            "V1 Orientation Quaternion": "0 0 0 1",
+                            "V2 Throttle": "0.2",
+                            "V2 Position": "3 4 0",
+                            "V2 Orientation Quaternion": "0 0 0 1",
+                        },
+                    )
+                ],
+                trigger_vehicle_id=1,
+                collision_count=1,
+                created_at=datetime(2026, 5, 19, 1, 2, 3, 456000),
+            )
+
+            converted = convert_accident_mcap_to_ros2_mcap(Path(log.path))
+            reader = NonSeekingReader(BytesIO(converted))
+            messages = list(reader.iter_messages(log_time_order=False))
+
+        channels = {channel.topic: channel for _schema, channel, _message in messages}
+        self.assertIn("/autodrive/roboracer_1/throttle", channels)
+        self.assertIn("/autodrive/roboracer_1/ips", channels)
+        self.assertIn("/autodrive/roboracer_2/throttle", channels)
+        self.assertIn("/autodrive/roboracer_2/ips", channels)
+        self.assertIn("/tf", channels)
+        self.assertNotIn("/autodrive/roboracer_1/tf", channels)
+        self.assertNotIn("/autodrive/roboracer_2/tf", channels)
+        self.assertEqual(channels["/tf"].message_encoding, "cdr")
+        self.assertEqual(channels["/autodrive/roboracer_2/ips"].message_encoding, "cdr")
+
+    def test_vehicle_tf_transforms_match_autodrive_bridge_tree_names(self):
+        transforms = vehicle_tf_transforms(2, [1.0, 2.0, 0.0], [0.0, 0.0, 0.0, 1.0], [0.0, 0.0], 0.0)
+
+        self.assertIn(
+            ("world", "roboracer_2"),
+            [(parent, child) for parent, child, _translation, _rotation in transforms],
+        )
+        self.assertIn(
+            ("roboracer_2", "lidar"),
+            [(parent, child) for parent, child, _translation, _rotation in transforms],
+        )
+
+    def test_tf_cdr_deserializes_with_world_parent_frame(self):
+        try:
+            from rosbags.typesys import Stores, get_typestore
+        except ImportError:
+            self.skipTest("rosbags is not installed")
+
+        payload = {
+            "V1 Position": "1 2 0",
+            "V1 Orientation Quaternion": "0 0 0 1",
+        }
+        tf_message = [
+            message
+            for message in bridge_payload_to_ros2_messages(payload, 1_000_000_000)
+            if message.topic == "/tf"
+        ][0]
+
+        typestore = get_typestore(Stores.ROS2_HUMBLE)
+        decoded = typestore.deserialize_cdr(tf_message.data, "tf2_msgs/msg/TFMessage")
+
+        self.assertEqual(decoded.transforms[0].header.frame_id, "world")
+        self.assertEqual(decoded.transforms[0].child_frame_id, "roboracer_1")
+
+    def test_ros2_download_filename_uses_ros2_suffix(self):
+        self.assertEqual(
+            ros2_mcap_download_filename("autodrive 2026-05-19 01:02:03:456.mcap"),
+            "autodrive 2026-05-19 01:02:03:456_ros2.mcap",
+        )
+
+    def test_resolve_accident_log_path_rejects_paths_outside_accident_log_directory(self):
+        with TemporaryDirectory() as temporary_directory:
+            tower = RaceControlTower(load_settings())
+            tower.accident_recorder.output_dir = Path(temporary_directory)
+
+            with self.assertRaises(ValueError):
+                tower.resolve_accident_log_path("../outside.mcap")
 
 
 class MonitorTelemetryTests(unittest.TestCase):

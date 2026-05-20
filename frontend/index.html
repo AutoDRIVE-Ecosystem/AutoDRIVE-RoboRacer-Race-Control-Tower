@@ -333,10 +333,22 @@
       }
 
       .rct-accident-replay-title {
+        align-items: center;
+        display: flex;
+        gap: 0.5rem;
         font-size: 1rem;
         font-weight: 600;
+        justify-content: space-between;
         line-height: 1.25;
+      }
+
+      .rct-accident-replay-title-text {
+        min-width: 0;
         overflow-wrap: anywhere;
+      }
+
+      .rct-accident-log-download {
+        flex: 0 0 auto;
       }
 
       .rct-accident-replay-canvas-frame {
@@ -1105,7 +1117,16 @@
         shell.className = "rct-accident-replay";
         const title = document.createElement("div");
         title.className = "rct-accident-replay-title";
-        title.textContent = `${accidentLog.filename || "-"} (${formatBytes(accidentLog.size_bytes)})`;
+        const titleText = document.createElement("span");
+        titleText.className = "rct-accident-replay-title-text";
+        titleText.textContent = `${accidentLog.filename || "-"} (${formatBytes(accidentLog.size_bytes)})`;
+        const downloadLink = document.createElement("a");
+        downloadLink.className = "btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center rct-accident-log-download";
+        downloadLink.href = monitorRestUrl(`/accident-logs/ros2-mcap?path=${encodeURIComponent(accidentLog.path || "")}`);
+        downloadLink.title = "Download ROS2 MCAP";
+        downloadLink.setAttribute("aria-label", "Download ROS2 MCAP");
+        downloadLink.innerHTML = '<i class="bi bi-download" aria-hidden="true"></i>';
+        title.append(titleText, downloadLink);
         const canvasFrame = document.createElement("div");
         canvasFrame.className = "rct-accident-replay-canvas-frame";
         const canvas = document.createElement("canvas");

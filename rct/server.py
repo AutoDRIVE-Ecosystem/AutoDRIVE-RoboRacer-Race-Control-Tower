@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse
 
 import socketio
 from socketio import packet as socketio_packet
@@ -45,6 +45,7 @@ from .protocol import (
     rewrite_devkit_payload_to_simulator,
     rewrite_simulator_payload_to_devkit,
 )
+from .ros2_mcap import convert_accident_mcap_to_ros2_mcap
 from .state import AccidentLogMonitorState, DevKitMonitorState, RaceControlState
 from .static_files import build_static_file_response
 
@@ -363,6 +364,12 @@ def default_topic_selections() -> dict[str, bool]:
         option["topic"]: option["access"] != "restricted" and option["topic"] not in RECOMMENDED_OFF_TOPICS
         for option in TOPIC_OPTIONS
     }
+
+
+def ros2_mcap_download_filename(filename: str) -> str:
+    if filename.endswith(".mcap"):
+        return f"{filename[:-5]}_ros2.mcap"
+    return f"{filename}_ros2.mcap"
 
 
 @dataclass
@@ -703,6 +710,10 @@ class RaceControlTower:
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_get,
+        )
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-logs/ros2-mcap",
+            self.handle_monitor_accident_log_ros2_mcap_get,
         )
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs/{filename}/summary",
@@ -1066,6 +1077,39 @@ class RaceControlTower:
                 "version": MONITOR_PROTOCOL_VERSION,
                 "accident_logs": self.state.accident_logs(),
             }
+        )
+
+    async def handle_monitor_accident_log_ros2_mcap_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        path_param = request.query.get("path")
+        if not path_param:
+            return web.json_response({"error": "path is required"}, status=400)
+
+        try:
+            path = self.resolve_accident_log_path(path_param)
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        if not path.is_file():
+            return web.json_response({"error": "accident log not found"}, status=404)
+
+        try:
+            body = await asyncio.to_thread(convert_accident_mcap_to_ros2_mcap, path)
+        except Exception:
+            LOGGER.exception("failed to convert accident log to ROS2 MCAP from %s", path)
+            return web.json_response({"error": "failed to convert accident log to ROS2 MCAP"}, status=500)
+
+        filename = ros2_mcap_download_filename(path.name)
+        quoted_filename = quote(filename)
+        return web.Response(
+            body=body,
+            headers={
+                "Content-Type": "application/octet-stream",
+                "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quoted_filename}",
+            },
         )
 
     async def handle_monitor_accident_log_summary_get(self, request: web.Request) -> web.Response:
@@ -2216,6 +2260,19 @@ class RaceControlTower:
             )
             for accident_log in list_accident_logs(self.accident_recorder.output_dir)
         )
+
+    def resolve_accident_log_path(self, path_param: str) -> Path:
+        output_dir = self.accident_recorder.output_dir.resolve()
+        path = Path(path_param)
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+        else:
+            path = path.resolve()
+        if path.suffix != ".mcap":
+            raise ValueError("accident log path must point to an .mcap file")
+        if not path.is_relative_to(output_dir):
+            raise ValueError("accident log path must be inside accident log directory")
+        return path
 
     def accident_log_summary_from_mcap(self, path: Path) -> dict[str, Any]:
         from mcap.exceptions import EndOfFile
