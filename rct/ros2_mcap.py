@@ -525,7 +525,7 @@ def vehicle_tf_transforms(
 
 
 def vehicle_child_frame(vehicle_id: int, child_frame: str) -> str:
-    return child_frame
+    return f"{child_frame}_{vehicle_id}"
 
 
 def serialize_tf_transforms(log_time_ns: int, transforms: list[TransformTuple]) -> bytes:

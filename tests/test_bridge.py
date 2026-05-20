@@ -270,7 +270,7 @@ class AccidentRecorderTests(unittest.TestCase):
         self.assertEqual(channels["/tf"].message_encoding, "cdr")
         self.assertEqual(channels["/autodrive/roboracer_2/ips"].message_encoding, "cdr")
 
-    def test_vehicle_tf_transforms_match_autodrive_bridge_tree_names(self):
+    def test_vehicle_tf_transforms_use_unique_child_frame_names_under_each_vehicle(self):
         transforms = vehicle_tf_transforms(2, [1.0, 2.0, 0.0], [0.0, 0.0, 0.0, 1.0], [0.0, 0.0], 0.0)
 
         self.assertIn(
@@ -278,7 +278,7 @@ class AccidentRecorderTests(unittest.TestCase):
             [(parent, child) for parent, child, _translation, _rotation in transforms],
         )
         self.assertIn(
-            ("roboracer_2", "lidar"),
+            ("roboracer_2", "lidar_2"),
             [(parent, child) for parent, child, _translation, _rotation in transforms],
         )
 
