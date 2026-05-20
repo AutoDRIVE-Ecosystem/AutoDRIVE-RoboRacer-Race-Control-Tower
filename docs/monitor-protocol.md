@@ -195,7 +195,7 @@ Response:
   "racing_rule": {
     "total_lap_count": 10,
     "maximum_penalty_count": 0,
-    "celebration_with_confetti": false
+    "celebration_with_confetti": true
   }
 }
 ```
@@ -210,7 +210,7 @@ Request:
 {
   "total_lap_count": 10,
   "maximum_penalty_count": 0,
-  "celebration_with_confetti": false
+  "celebration_with_confetti": true
 }
 ```
 
@@ -341,7 +341,7 @@ Initial event:
   "racing_rule": {
     "total_lap_count": 10,
     "maximum_penalty_count": 0,
-    "celebration_with_confetti": false
+    "celebration_with_confetti": true
   },
   "accident_logs": [],
   "vehicle_penalties": {
@@ -449,7 +449,7 @@ Race result event:
   "winner_vehicle_id": 1,
   "loser_vehicle_id": 2,
   "reason": "total_lap_count",
-  "celebration_with_confetti": false
+  "celebration_with_confetti": true
 }
 ```
 

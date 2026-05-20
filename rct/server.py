@@ -1275,6 +1275,7 @@ class RaceControlTower:
     def reset_penalty_decision_for_simulator_session(self) -> bool:
         self.collision_counts.clear()
         had_race_result = bool(self.state.race_result().get("active"))
+        had_vehicle_penalties = bool(self.state.vehicle_penalties())
         decision = self.state.penalty_decision()
         had_pending_decision = bool(
             decision.get("active")
@@ -1283,13 +1284,14 @@ class RaceControlTower:
             or self.filtered_control_vehicle_ids
             or self._penalty_release_tasks
         )
-        if not had_pending_decision and not had_race_result:
+        if not had_pending_decision and not had_race_result and not had_vehicle_penalties:
             return False
 
         for task in self._penalty_release_tasks.values():
             task.cancel()
         self._penalty_release_tasks.clear()
         self.filtered_control_vehicle_ids.clear()
+        self.state.reset_vehicle_penalties()
         self.state.set_race_result(active=False)
         self.state.set_penalty_decision(
             active=False,

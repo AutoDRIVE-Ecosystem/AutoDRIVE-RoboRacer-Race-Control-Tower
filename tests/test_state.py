@@ -111,17 +111,17 @@ class RaceControlStateTests(unittest.TestCase):
 
         self.assertEqual(state.snapshot()["racing_rule"]["total_lap_count"], 10)
         self.assertEqual(state.snapshot()["racing_rule"]["maximum_penalty_count"], 0)
-        self.assertFalse(state.snapshot()["racing_rule"]["celebration_with_confetti"])
+        self.assertTrue(state.snapshot()["racing_rule"]["celebration_with_confetti"])
 
         state.set_racing_rule_settings(
             total_lap_count=5,
             maximum_penalty_count=2,
-            celebration_with_confetti=True,
+            celebration_with_confetti=False,
         )
 
         self.assertEqual(state.snapshot()["racing_rule"]["total_lap_count"], 5)
         self.assertEqual(state.snapshot()["racing_rule"]["maximum_penalty_count"], 2)
-        self.assertTrue(state.snapshot()["racing_rule"]["celebration_with_confetti"])
+        self.assertFalse(state.snapshot()["racing_rule"]["celebration_with_confetti"])
 
     def test_snapshot_tracks_accident_logs(self):
         state = RaceControlState()
@@ -179,6 +179,10 @@ class RaceControlStateTests(unittest.TestCase):
         self.assertEqual(state.increment_vehicle_penalty(2), 2)
 
         self.assertEqual(state.snapshot()["vehicle_penalties"], {"2": 2})
+
+        state.reset_vehicle_penalties()
+
+        self.assertEqual(state.snapshot()["vehicle_penalties"], {})
 
     def test_revision_changes_only_when_values_change(self):
         state = RaceControlState()

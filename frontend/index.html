@@ -261,19 +261,21 @@
       }
 
       .rct-confetti {
-        inset: 0;
+        height: 400vh;
+        left: 0;
         overflow: hidden;
         pointer-events: none;
         position: fixed;
+        top: -300vh;
+        width: 100vw;
         z-index: 2000;
       }
 
       .rct-confetti-piece {
-        animation: rct-confetti-fall 5s linear forwards;
+        animation: rct-confetti-fall 14s linear forwards;
         height: 0.85rem;
         opacity: 0.95;
         position: absolute;
-        top: -1rem;
         width: 0.45rem;
       }
 
@@ -282,7 +284,7 @@
           transform: translateY(0) rotate(0deg);
         }
         100% {
-          transform: translateY(calc(100vh + 2rem)) rotate(720deg);
+          transform: translateY(calc(400vh + 2rem)) rotate(1080deg);
         }
       }
 
@@ -620,7 +622,7 @@
                 </div>
                 <div class="d-flex justify-content-start align-items-center gap-2 mt-2">
                   <label for="celebrationWithConfetti" class="col-form-label">Celebration with Confetti:</label>
-                  <input id="celebrationWithConfetti" class="form-check-input mt-0" type="checkbox">
+                  <input id="celebrationWithConfetti" class="form-check-input mt-0" type="checkbox" checked>
                 </div>
               </div>
               <div class="tab-pane fade" id="about-tab-pane" role="tabpanel" aria-labelledby="about-tab" tabindex="0">
@@ -935,7 +937,7 @@
       let appliedPenaltyRestartDelaySeconds = 2;
       let appliedTotalLapCount = 10;
       let appliedMaximumPenaltyCount = 0;
-      let appliedCelebrationWithConfetti = false;
+      let appliedCelebrationWithConfetti = true;
       let raceResultActive = false;
       let confettiTimer = null;
       let simulatorConnected = false;
@@ -2785,18 +2787,19 @@
         const confetti = document.createElement("div");
         confetti.className = "rct-confetti";
         const colors = ["#f94144", "#f3722c", "#f9c74f", "#43aa8b", "#277da1", "#7b2cbf"];
-        for (let index = 0; index < 120; index += 1) {
+        for (let index = 0; index < 512; index += 1) {
           const piece = document.createElement("span");
           piece.className = "rct-confetti-piece";
           piece.style.left = `${Math.random() * 100}%`;
+          piece.style.top = `${Math.random() * 300}vh`;
           piece.style.backgroundColor = colors[index % colors.length];
-          piece.style.animationDelay = `${Math.random() * 0.8}s`;
-          piece.style.animationDuration = `${4.2 + Math.random() * 0.8}s`;
+          piece.style.animationDelay = `${Math.random() * 3.5}s`;
+          piece.style.animationDuration = `${11.5 + Math.random() * 3.5}s`;
           piece.style.transform = `rotate(${Math.random() * 360}deg)`;
           confetti.append(piece);
         }
         document.body.append(confetti);
-        confettiTimer = window.setTimeout(clearConfetti, 5000);
+        confettiTimer = window.setTimeout(clearConfetti, 15000);
       }
 
       function clearConfetti() {

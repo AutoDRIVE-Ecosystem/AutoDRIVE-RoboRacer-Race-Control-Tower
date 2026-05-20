@@ -58,7 +58,7 @@ class RaceControlState:
         self._racing_rule_settings: dict[str, float | bool] = {
             "total_lap_count": 10,
             "maximum_penalty_count": 0,
-            "celebration_with_confetti": False,
+            "celebration_with_confetti": True,
         }
         self._accident_logs: list[AccidentLogMonitorState] = []
         self._penalty_decision = PenaltyDecisionMonitorState(
@@ -297,6 +297,13 @@ class RaceControlState:
     def vehicle_penalties(self) -> dict[str, int]:
         with self._lock:
             return {str(vehicle_id): count for vehicle_id, count in sorted(self._vehicle_penalties.items())}
+
+    def reset_vehicle_penalties(self) -> None:
+        with self._lock:
+            if not self._vehicle_penalties:
+                return
+            self._vehicle_penalties.clear()
+            self._revision += 1
 
     def set_race_result(
         self,

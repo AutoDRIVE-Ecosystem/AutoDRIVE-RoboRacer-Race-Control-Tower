@@ -700,11 +700,13 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         tower = RaceControlTower(test_settings())
         await tower.start_manual_penalty_decision([(1, 1), (2, 1)])
         tower.collision_counts = {1: 3, 2: 2}
+        tower.state.increment_vehicle_penalty(2)
 
         reset = tower.reset_penalty_decision_for_simulator_session()
 
         self.assertTrue(reset)
         self.assertEqual(tower.collision_counts, {})
+        self.assertEqual(tower.state.vehicle_penalties(), {})
         self.assertEqual(tower.filtered_control_vehicle_ids, set())
         self.assertEqual(tower._penalty_release_tasks, {})
         decision = tower.state.penalty_decision()
