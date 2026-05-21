@@ -439,33 +439,6 @@
         margin-top: 0.25rem;
       }
 
-      .rct-rear-end-analysis {
-        display: grid;
-        gap: 0.5rem;
-        margin-top: 0.5rem;
-      }
-
-      .rct-rear-end-chart {
-        background-color: #ffffff;
-        border: 1px solid #dee2e6;
-        border-radius: 6px;
-        display: block;
-        height: 12rem;
-        width: 100%;
-      }
-
-      .rct-rear-end-metrics {
-        color: #6c757d;
-        display: grid;
-        font-size: 0.8125rem;
-        gap: 0.25rem;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .rct-rear-end-metrics span {
-        overflow-wrap: anywhere;
-      }
-
       .rct-manual-decision-actions {
         display: flex;
         gap: 0.75rem;
@@ -1060,12 +1033,13 @@
       let accidentReplayCanvas = null;
       let accidentReplayFrames = [];
       let accidentReplayFrameIndex = 0;
-      let rearEndAnalysisRenderer = null;
+      let decisionAnalysisRenderers = [];
       let accidentReplayTimer = null;
       let accidentReplayStartedAt = 0;
       let accidentReplayStartOffset = 0;
       let accidentReplayPlaying = false;
       let accidentReplayRepeat = true;
+      const loadedDecisionPacks = new Map();
       const accidentReplayView = {
         zoom: 1,
         rotation: 90,
@@ -1207,7 +1181,7 @@
           accidentLogDetail.textContent = "Select an accident log";
           accidentReplayCanvas = null;
           accidentReplayFrames = [];
-          rearEndAnalysisRenderer = null;
+          decisionAnalysisRenderers = [];
           accidentReplayPlaying = false;
           return;
         }
@@ -1287,7 +1261,7 @@
         controls.append(actions, replayTime);
 
         shell.append(title, canvasFrame, slider, controls);
-        rearEndAnalysisRenderer = null;
+        decisionAnalysisRenderers = [];
         if (shouldShowManualDecisionPane(accidentLog)) {
           shell.append(createManualDecisionPane());
         }
@@ -1322,9 +1296,7 @@
               return;
             }
             accidentReplayFrames = Array.isArray(summary.frames) ? summary.frames : [];
-            if (rearEndAnalysisRenderer) {
-              rearEndAnalysisRenderer(accidentReplayFrames);
-            }
+            renderDecisionAnalyses(accidentReplayFrames);
             const lastIndex = Math.max(0, accidentReplayFrames.length - 1);
             slider.max = String(lastIndex);
             slider.disabled = accidentReplayFrames.length === 0;
@@ -1341,9 +1313,7 @@
           .catch((error) => {
             console.warn("Failed to load accident log summary:", error);
             replayTime.textContent = "Replay unavailable";
-            if (rearEndAnalysisRenderer) {
-              rearEndAnalysisRenderer([]);
-            }
+            renderDecisionAnalyses([]);
             playPauseButton.disabled = true;
             stopButton.disabled = true;
           });
@@ -1607,384 +1577,118 @@
         );
       }
 
-      function vehicleFramePoint(frame, vehicleId) {
-        const vehicles = frame && frame.vehicles;
-        const telemetry = vehicles && vehicles[String(vehicleId)];
-        const ips = telemetry && telemetry.ips;
-        if (!ips || !Number.isFinite(Number(ips.x)) || !Number.isFinite(Number(ips.y))) {
-          return null;
-        }
-        return {
-          x: Number(ips.x),
-          y: Number(ips.y),
-          speed: Number.isFinite(Number(telemetry.speed)) ? Number(telemetry.speed) : null,
-          headingYaw: Number.isFinite(Number(telemetry.heading_yaw)) ? Number(telemetry.heading_yaw) : null,
-          linearVelocity: telemetry.linear_velocity || null,
-        };
-      }
-
-      function velocityFromFrame(samples, index, vehicleId) {
-        const sample = samples[index];
-        const point = sample && sample.vehicles[vehicleId];
-        if (!point) {
-          return null;
-        }
-        if (
-          point.linearVelocity
-          && Number.isFinite(Number(point.linearVelocity.x))
-          && Number.isFinite(Number(point.linearVelocity.y))
-        ) {
-          return { x: Number(point.linearVelocity.x), y: Number(point.linearVelocity.y) };
-        }
-
-        let previousSample = null;
-        let previousPoint = null;
-        for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-          const candidate = samples[cursor];
-          const candidatePoint = candidate && candidate.vehicles[vehicleId];
-          if (candidatePoint) {
-            previousSample = candidate;
-            previousPoint = candidatePoint;
-            break;
+      function renderDecisionAnalyses(frames) {
+        for (const renderer of decisionAnalysisRenderers) {
+          try {
+            renderer(frames);
+          } catch (error) {
+            console.warn("Decision analysis render failed:", error);
           }
         }
-        if (!previousSample || !previousPoint) {
-          return null;
-        }
-        const dt = sample.time - previousSample.time;
-        if (!Number.isFinite(dt) || dt <= 0.001) {
-          return null;
-        }
-        return {
-          x: (point.x - previousPoint.x) / dt,
-          y: (point.y - previousPoint.y) / dt,
-        };
       }
 
-      function speedFromVelocity(velocity) {
-        return velocity ? Math.hypot(velocity.x, velocity.y) : null;
+      function decisionPackSlug(optionId) {
+        return String(optionId || "").replace(/_/g, "-");
       }
 
-      function headingFromSample(point, velocity) {
-        if (Number.isFinite(point.headingYaw)) {
-          return point.headingYaw;
+      function loadDecisionPack(optionId) {
+        if (loadedDecisionPacks.has(optionId)) {
+          return loadedDecisionPacks.get(optionId);
         }
-        if (velocity && Math.hypot(velocity.x, velocity.y) > 0.05) {
-          return Math.atan2(velocity.y, velocity.x);
-        }
-        return null;
-      }
 
-      function rearEndSamplesFromFrames(frames) {
-        const samples = [];
-        for (const frame of frames) {
-          const vehicleA = vehicleFramePoint(frame, 1);
-          const vehicleB = vehicleFramePoint(frame, 2);
-          if (!vehicleA || !vehicleB) {
-            continue;
-          }
-          const time = Number(frame.time_to_accident_seconds);
-          samples.push({
-            time: Number.isFinite(time) ? time : samples.length,
-            vehicles: {
-              1: vehicleA,
-              2: vehicleB,
-            },
+        const slug = decisionPackSlug(optionId);
+        const loaded = fetch(`decision/${slug}.html`, { cache: "no-store" })
+          .then((response) => {
+            if (response.status === 404) {
+              return null;
+            }
+            if (!response.ok) {
+              throw new Error(`Failed to load decision HTML: ${response.status}`);
+            }
+            return response.text();
+          })
+          .then((html) => {
+            if (html === null) {
+              return null;
+            }
+
+            if (!document.querySelector(`link[data-decision-pack="${slug}"]`)) {
+              const link = document.createElement("link");
+              link.rel = "stylesheet";
+              link.href = `decision/${slug}.css`;
+              link.dataset.decisionPack = slug;
+              document.head.append(link);
+            }
+
+            return loadDecisionScript(slug).then(() => {
+              const module = window.RctDecisionModules && window.RctDecisionModules[slug];
+              if (!module || typeof module.mount !== "function") {
+                throw new Error(`Decision module ${slug} did not register a mount function`);
+              }
+              return { html, module };
+            });
           });
+        loadedDecisionPacks.set(optionId, loaded);
+        return loaded;
+      }
+
+      function loadDecisionScript(slug) {
+        if (window.RctDecisionModules && window.RctDecisionModules[slug]) {
+          return Promise.resolve();
         }
-        for (let index = 0; index < samples.length; index += 1) {
-          for (const vehicleId of [1, 2]) {
-            const point = samples[index].vehicles[vehicleId];
-            const velocity = velocityFromFrame(samples, index, vehicleId);
-            point.velocity = velocity;
-            point.calculatedSpeed = point.speed !== null ? point.speed : speedFromVelocity(velocity);
-            point.headingYaw = headingFromSample(point, velocity);
+        return new Promise((resolve, reject) => {
+          const existingScript = document.querySelector(`script[data-decision-pack="${slug}"]`);
+          if (existingScript) {
+            existingScript.addEventListener("load", resolve, { once: true });
+            existingScript.addEventListener("error", reject, { once: true });
+            return;
           }
-        }
-        return samples;
-      }
-
-      function rearEndCandidate(samples, attackerId, targetId) {
-        if (samples.length < 2) {
-          return null;
-        }
-        const lastIndex = samples.length - 1;
-        const last = samples[lastIndex];
-        const attacker = last.vehicles[attackerId];
-        const target = last.vehicles[targetId];
-        if (!attacker || !target || !Number.isFinite(attacker.headingYaw)) {
-          return null;
-        }
-
-        const forward = { x: Math.cos(attacker.headingYaw), y: Math.sin(attacker.headingYaw) };
-        const right = { x: -forward.y, y: forward.x };
-        const dx = target.x - attacker.x;
-        const dy = target.y - attacker.y;
-        const longitudinal = dx * forward.x + dy * forward.y;
-        const lateral = Math.abs(dx * right.x + dy * right.y);
-        const distance = Math.hypot(dx, dy);
-        const attackerVelocity = attacker.velocity;
-        const targetVelocity = target.velocity;
-        const relativeVelocity = attackerVelocity && targetVelocity
-          ? { x: attackerVelocity.x - targetVelocity.x, y: attackerVelocity.y - targetVelocity.y }
-          : null;
-        const closingSpeed = relativeVelocity
-          ? relativeVelocity.x * forward.x + relativeVelocity.y * forward.y
-          : (
-              Number.isFinite(attacker.calculatedSpeed) && Number.isFinite(target.calculatedSpeed)
-                ? attacker.calculatedSpeed - target.calculatedSpeed
-                : null
-            );
-        const first = samples.find((sample) => sample.time >= last.time - 2.0) || samples[0];
-        const firstAttacker = first.vehicles[attackerId];
-        const firstTarget = first.vehicles[targetId];
-        const firstDistance = firstAttacker && firstTarget
-          ? Math.hypot(firstTarget.x - firstAttacker.x, firstTarget.y - firstAttacker.y)
-          : distance;
-        const approach = firstDistance - distance;
-
-        let score = 0;
-        if (longitudinal > 0.15) {
-          score += 0.34;
-        }
-        if (lateral <= 1.2) {
-          score += 0.2;
-        } else if (lateral <= 1.8) {
-          score += 0.1;
-        }
-        if (Number.isFinite(closingSpeed) && closingSpeed > 0.2) {
-          score += 0.25;
-        } else if (Number.isFinite(closingSpeed) && closingSpeed > 0.05) {
-          score += 0.12;
-        }
-        if (approach > 0.25) {
-          score += 0.14;
-        } else if (approach > 0.05) {
-          score += 0.07;
-        }
-        if (distance <= 2.0) {
-          score += 0.07;
-        }
-
-        return {
-          attackerId,
-          targetId,
-          score: Math.min(1, score),
-          longitudinal,
-          lateral,
-          distance,
-          closingSpeed,
-          approach,
-        };
-      }
-
-      function analyzeRearEndCollision(frames) {
-        const samples = rearEndSamplesFromFrames(frames);
-        if (samples.length < 2) {
-          return {
-            samples,
-            opinion: "Opinion: Waiting for enough A/B position history.",
-            metrics: [],
-          };
-        }
-
-        const candidates = [
-          rearEndCandidate(samples, 1, 2),
-          rearEndCandidate(samples, 2, 1),
-        ].filter(Boolean).sort((left, right) => right.score - left.score);
-        const best = candidates[0];
-        const runnerUp = candidates[1];
-        if (!best) {
-          return {
-            samples,
-            opinion: "Opinion: Rear-end collision cannot be evaluated from this log.",
-            metrics: [],
-          };
-        }
-
-        const attackerLabel = displayRoboracerLabel(best.attackerId);
-        const targetLabel = displayRoboracerLabel(best.targetId);
-        const confidence = Math.round(best.score * 100);
-        let decision = "Rear-end unlikely";
-        let penalty = "no clear penalty";
-        if (best.score >= 0.7 && (!runnerUp || best.score - runnerUp.score >= 0.15)) {
-          decision = "Rear-end likely";
-          penalty = `primary penalty Vehicle ${attackerLabel}`;
-        } else if (best.score >= 0.5) {
-          decision = "Rear-end possible";
-          penalty = runnerUp && best.score - runnerUp.score < 0.15
-            ? "shared/uncertain responsibility"
-            : `possible penalty Vehicle ${attackerLabel}`;
-        }
-
-        const reasonParts = [
-          `Vehicle ${attackerLabel} was ${formatNumber(Math.max(0, best.longitudinal), 2)}m behind Vehicle ${targetLabel}`,
-          `lateral gap ${formatNumber(best.lateral, 2)}m`,
-        ];
-        if (Number.isFinite(best.closingSpeed)) {
-          reasonParts.push(`closing ${formatNumber(best.closingSpeed, 2)}m/s`);
-        }
-
-        return {
-          samples,
-          candidate: best,
-          opinion: `Opinion: ${decision}; ${penalty}. Confidence ${confidence}%. ${reasonParts.join(", ")}.`,
-          metrics: [
-            `A->B score ${rearEndScoreLabel(candidates, 1)}`,
-            `B->A score ${rearEndScoreLabel(candidates, 2)}`,
-            `Final gap ${formatNumber(best.distance, 2)}m`,
-            `Approach ${formatNumber(best.approach, 2)}m`,
-          ],
-        };
-      }
-
-      function rearEndScoreLabel(candidates, attackerId) {
-        const candidate = candidates.find((item) => item.attackerId === attackerId);
-        return candidate ? `${formatNumber(candidate.score * 100, 0)}%` : "-";
-      }
-
-      function drawRearEndAnalysisChart(canvas, analysis) {
-        const context = canvas.getContext("2d");
-        const rect = canvas.getBoundingClientRect();
-        const pixelRatio = window.devicePixelRatio || 1;
-        const width = Math.max(1, Math.round(rect.width * pixelRatio));
-        const height = Math.max(1, Math.round(rect.height * pixelRatio));
-        if (canvas.width !== width || canvas.height !== height) {
-          canvas.width = width;
-          canvas.height = height;
-        }
-        context.clearRect(0, 0, width, height);
-        context.fillStyle = "#ffffff";
-        context.fillRect(0, 0, width, height);
-
-        const samples = analysis.samples || [];
-        const padding = { left: 42 * pixelRatio, right: 12 * pixelRatio, top: 18 * pixelRatio, bottom: 30 * pixelRatio };
-        const plotWidth = Math.max(1, width - padding.left - padding.right);
-        const plotHeight = Math.max(1, height - padding.top - padding.bottom);
-        context.strokeStyle = "#dee2e6";
-        context.lineWidth = pixelRatio;
-        context.strokeRect(padding.left, padding.top, plotWidth, plotHeight);
-
-        if (samples.length < 2) {
-          context.fillStyle = "#6c757d";
-          context.font = `${12 * pixelRatio}px system-ui, sans-serif`;
-          context.textAlign = "center";
-          context.fillText("No chart data", width / 2, height / 2);
-          return;
-        }
-
-        const firstTime = samples[0].time;
-        const lastTime = samples[samples.length - 1].time;
-        const rows = samples.map((sample, index) => {
-          const vehicleA = sample.vehicles[1];
-          const vehicleB = sample.vehicles[2];
-          const candidateA = rearEndCandidate(samples.slice(0, index + 1), 1, 2);
-          return {
-            time: sample.time,
-            distance: Math.hypot(vehicleB.x - vehicleA.x, vehicleB.y - vehicleA.y),
-            speedA: Number.isFinite(vehicleA.calculatedSpeed) ? vehicleA.calculatedSpeed : null,
-            speedB: Number.isFinite(vehicleB.calculatedSpeed) ? vehicleB.calculatedSpeed : null,
-            closing: candidateA && Number.isFinite(candidateA.closingSpeed) ? candidateA.closingSpeed : null,
-          };
+          const script = document.createElement("script");
+          script.src = `decision/${slug}.js`;
+          script.defer = true;
+          script.dataset.decisionPack = slug;
+          script.addEventListener("load", resolve, { once: true });
+          script.addEventListener("error", reject, { once: true });
+          document.body.append(script);
         });
-        const values = rows.flatMap((row) => [row.distance, row.speedA, row.speedB, row.closing])
-          .filter((value) => Number.isFinite(value));
-        const minValue = Math.min(0, ...values);
-        const maxValue = Math.max(1, ...values);
-        const valueRange = Math.max(1, maxValue - minValue);
-        const xForTime = (time) => padding.left + ((time - firstTime) / Math.max(0.001, lastTime - firstTime)) * plotWidth;
-        const yForValue = (value) => padding.top + plotHeight - ((value - minValue) / valueRange) * plotHeight;
-
-        context.fillStyle = "#6c757d";
-        context.font = `${11 * pixelRatio}px system-ui, sans-serif`;
-        context.textAlign = "left";
-        context.fillText(`${formatNumber(maxValue, 1)}`, 6 * pixelRatio, padding.top + 4 * pixelRatio);
-        context.fillText(`${formatNumber(minValue, 1)}`, 6 * pixelRatio, padding.top + plotHeight);
-        context.textAlign = "center";
-        context.fillText("time to collision", padding.left + plotWidth / 2, height - 8 * pixelRatio);
-
-        const drawSeries = (key, color, dash = []) => {
-          context.beginPath();
-          context.strokeStyle = color;
-          context.lineWidth = 2 * pixelRatio;
-          context.setLineDash(dash.map((item) => item * pixelRatio));
-          let started = false;
-          for (const row of rows) {
-            const value = row[key];
-            if (!Number.isFinite(value)) {
-              continue;
-            }
-            const x = xForTime(row.time);
-            const y = yForValue(value);
-            if (!started) {
-              context.moveTo(x, y);
-              started = true;
-            } else {
-              context.lineTo(x, y);
-            }
-          }
-          context.stroke();
-          context.setLineDash([]);
-        };
-
-        drawSeries("distance", "#0d6efd");
-        drawSeries("speedA", "#dc3545");
-        drawSeries("speedB", "#198754");
-        drawSeries("closing", "#6f42c1", [4, 3]);
-
-        const legend = [
-          ["A-B distance", "#0d6efd"],
-          ["A speed", "#dc3545"],
-          ["B speed", "#198754"],
-          ["A closing", "#6f42c1"],
-        ];
-        let legendX = padding.left;
-        const legendY = 11 * pixelRatio;
-        context.textAlign = "left";
-        for (const [label, color] of legend) {
-          context.fillStyle = color;
-          context.fillRect(legendX, legendY - 7 * pixelRatio, 8 * pixelRatio, 3 * pixelRatio);
-          context.fillStyle = "#495057";
-          context.fillText(label, legendX + 12 * pixelRatio, legendY);
-          legendX += (label.length * 6 + 28) * pixelRatio;
-        }
       }
 
-      function createRearEndAnalysisPane(resultOpinion) {
-        const analysisPane = document.createElement("div");
-        analysisPane.className = "rct-rear-end-analysis";
-        const chart = document.createElement("canvas");
-        chart.className = "rct-rear-end-chart";
-        chart.setAttribute("aria-label", "Rear-end collision distance and speed chart");
-        const metrics = document.createElement("div");
-        metrics.className = "rct-rear-end-metrics";
-        analysisPane.append(chart, metrics);
-
-        rearEndAnalysisRenderer = (frames) => {
-          const analysis = analyzeRearEndCollision(frames);
-          resultOpinion.textContent = analysis.opinion;
-          metrics.innerHTML = "";
-          for (const metric of analysis.metrics) {
-            const item = document.createElement("span");
-            item.textContent = metric;
-            metrics.append(item);
-          }
-          drawRearEndAnalysisChart(chart, analysis);
-        };
-        rearEndAnalysisRenderer(accidentReplayFrames);
-        if ("ResizeObserver" in window) {
-          new ResizeObserver(() => {
-            const analysis = analyzeRearEndCollision(accidentReplayFrames);
-            drawRearEndAnalysisChart(chart, analysis);
-          }).observe(chart);
-        }
-        return analysisPane;
+      function createDecisionPackPane(option, resultOpinion) {
+        const pane = document.createElement("div");
+        pane.className = "rct-decision-pack";
+        pane.textContent = "Loading analysis...";
+        loadDecisionPack(option.id)
+          .then((pack) => {
+            if (!pack) {
+              pane.remove();
+              return;
+            }
+            pane.innerHTML = pack.html;
+            const renderer = pack.module.mount(pane, {
+              initialFrames: accidentReplayFrames,
+              setOpinion(text) {
+                resultOpinion.textContent = text;
+              },
+              formatNumber,
+              displayRoboracerLabel,
+            });
+            if (typeof renderer === "function") {
+              decisionAnalysisRenderers.push(renderer);
+              renderer(accidentReplayFrames);
+            }
+          })
+          .catch((error) => {
+            console.warn(`Failed to load decision pack ${option.id}:`, error);
+            resultOpinion.textContent = "Opinion: Analysis module unavailable";
+            pane.textContent = "Analysis module unavailable";
+          });
+        return pane;
       }
 
       function createManualDecisionPane() {
         const manualDecision = document.createElement("div");
         manualDecision.className = "rct-manual-decision";
-        rearEndAnalysisRenderer = null;
+        decisionAnalysisRenderers = [];
         const selectedSwAnalysisOptions = selectedPenaltySwAnalysisOptions();
         const swAnalysisResults = document.createElement("div");
         swAnalysisResults.className = "rct-sw-analysis-results";
@@ -1998,9 +1702,7 @@
           resultOpinion.className = "rct-sw-analysis-result-opinion";
           resultOpinion.textContent = "Opinion: To be added";
           result.append(resultTitle, resultOpinion);
-          if (option.id === "rear_end_collision") {
-            result.append(createRearEndAnalysisPane(resultOpinion));
-          }
+          result.append(createDecisionPackPane(option, resultOpinion));
           swAnalysisResults.append(result);
         });
         const manualDecisionTitle = document.createElement("div");
