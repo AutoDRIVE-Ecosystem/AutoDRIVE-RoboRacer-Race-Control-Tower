@@ -161,7 +161,15 @@ Response:
   "protocol": "autodrive-rct-monitor",
   "version": "0.1",
   "penalty_rule": {
-    "restart_delay_seconds": 2.0
+    "restart_delay_seconds": 2.0,
+    "sw_analysis": {
+      "rear_end_collision": true,
+      "unsafe_lateral_movement": true,
+      "late_braking_divebomb": true,
+      "squeeze_at_corner_exit": true,
+      "unsafe_rejoin": true,
+      "shared_racing_incident": true
+    }
   }
 }
 ```
@@ -174,11 +182,19 @@ Request:
 
 ```json
 {
-  "restart_delay_seconds": 2.0
+  "restart_delay_seconds": 2.0,
+  "sw_analysis": {
+    "rear_end_collision": true,
+    "unsafe_lateral_movement": true,
+    "late_braking_divebomb": true,
+    "squeeze_at_corner_exit": true,
+    "unsafe_rejoin": true,
+    "shared_racing_incident": true
+  }
 }
 ```
 
-`restart_delay_seconds` must be a number from `0` to `60`. When greater than `0`, a vehicle that receives a manual penalty stays command-filtered for that duration after the decision while the other vehicle is released immediately. When set to `0`, both vehicles are released immediately after the decision. The response returns `ok: true` and the applied `penalty_rule` settings. RCT publishes an updated `status` event after the settings change.
+`restart_delay_seconds` must be a number from `0` to `60`. `sw_analysis` must be an object of supported software-analysis option booleans. When `restart_delay_seconds` is greater than `0`, a vehicle that receives a manual penalty stays command-filtered for that duration after the decision while the other vehicle is released immediately. When set to `0`, both vehicles are released immediately after the decision. The response returns `ok: true` and the applied `penalty_rule` settings. RCT publishes an updated `status` event after the settings change.
 
 Racing rule settings:
 
@@ -336,7 +352,15 @@ Initial event:
     "include_camera": false
   },
   "penalty_rule": {
-    "restart_delay_seconds": 2.0
+    "restart_delay_seconds": 2.0,
+    "sw_analysis": {
+      "rear_end_collision": true,
+      "unsafe_lateral_movement": true,
+      "late_braking_divebomb": true,
+      "squeeze_at_corner_exit": true,
+      "unsafe_rejoin": true,
+      "shared_racing_incident": true
+    }
   },
   "racing_rule": {
     "total_lap_count": 10,

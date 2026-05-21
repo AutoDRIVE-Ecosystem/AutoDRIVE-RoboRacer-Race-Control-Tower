@@ -6,6 +6,15 @@ from dataclasses import asdict, dataclass
 from threading import RLock
 from typing import Any, Iterable, Mapping
 
+DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS: dict[str, bool] = {
+    "rear_end_collision": True,
+    "unsafe_lateral_movement": True,
+    "late_braking_divebomb": True,
+    "squeeze_at_corner_exit": True,
+    "unsafe_rejoin": True,
+    "shared_racing_incident": True,
+}
+
 
 @dataclass
 class DevKitMonitorState:
@@ -52,8 +61,9 @@ class RaceControlState:
             "pre_accident_seconds": 5.0,
             "include_camera": False,
         }
-        self._penalty_rule_settings: dict[str, float] = {
+        self._penalty_rule_settings: dict[str, Any] = {
             "restart_delay_seconds": 2.0,
+            "sw_analysis": dict(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS),
         }
         self._racing_rule_settings: dict[str, float | bool] = {
             "total_lap_count": 10,
@@ -203,9 +213,14 @@ class RaceControlState:
         self,
         *,
         restart_delay_seconds: float,
+        sw_analysis: Mapping[str, bool] | None = None,
     ) -> None:
+        next_sw_analysis = dict(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS)
+        if sw_analysis is not None:
+            next_sw_analysis.update(sw_analysis)
         next_settings = {
             "restart_delay_seconds": float(restart_delay_seconds),
+            "sw_analysis": next_sw_analysis,
         }
         with self._lock:
             if self._penalty_rule_settings == next_settings:
@@ -213,9 +228,11 @@ class RaceControlState:
             self._penalty_rule_settings = next_settings
             self._revision += 1
 
-    def penalty_rule_settings(self) -> dict[str, float]:
+    def penalty_rule_settings(self) -> dict[str, Any]:
         with self._lock:
-            return dict(self._penalty_rule_settings)
+            settings = dict(self._penalty_rule_settings)
+            settings["sw_analysis"] = dict(settings.get("sw_analysis", {}))
+            return settings
 
     def set_racing_rule_settings(
         self,
@@ -338,7 +355,7 @@ class RaceControlState:
                 "devkits": [asdict(devkit) for devkit in self._devkits.values()],
                 "topic_selections": dict(self._topic_selections),
                 "accident_recorder": dict(self._accident_recorder_settings),
-                "penalty_rule": dict(self._penalty_rule_settings),
+                "penalty_rule": self.penalty_rule_settings(),
                 "racing_rule": dict(self._racing_rule_settings),
                 "accident_logs": [asdict(accident_log) for accident_log in self._accident_logs],
                 "penalty_decision": asdict(self._penalty_decision),

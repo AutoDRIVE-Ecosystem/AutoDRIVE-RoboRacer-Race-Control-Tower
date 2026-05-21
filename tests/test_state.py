@@ -101,10 +101,22 @@ class RaceControlStateTests(unittest.TestCase):
         state = RaceControlState()
 
         self.assertEqual(state.snapshot()["penalty_rule"]["restart_delay_seconds"], 2.0)
+        self.assertTrue(state.snapshot()["penalty_rule"]["sw_analysis"]["rear_end_collision"])
 
-        state.set_penalty_rule_settings(restart_delay_seconds=1.5)
+        state.set_penalty_rule_settings(
+            restart_delay_seconds=1.5,
+            sw_analysis={
+                "rear_end_collision": False,
+                "unsafe_lateral_movement": True,
+                "late_braking_divebomb": True,
+                "squeeze_at_corner_exit": True,
+                "unsafe_rejoin": True,
+                "shared_racing_incident": True,
+            },
+        )
 
         self.assertEqual(state.snapshot()["penalty_rule"]["restart_delay_seconds"], 1.5)
+        self.assertFalse(state.snapshot()["penalty_rule"]["sw_analysis"]["rear_end_collision"])
 
     def test_snapshot_tracks_racing_rule_settings(self):
         state = RaceControlState()

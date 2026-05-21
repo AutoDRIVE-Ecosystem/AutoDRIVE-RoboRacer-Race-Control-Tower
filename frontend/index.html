@@ -163,6 +163,12 @@
         margin-bottom: 0.75rem;
       }
 
+      .rct-settings-subtitle {
+        font-size: 0.95rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+      }
+
       .rct-pre-accident-input {
         width: 6rem;
       }
@@ -415,6 +421,24 @@
         line-height: 1.25;
       }
 
+      .rct-sw-analysis-results {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      .rct-sw-analysis-result-title {
+        font-size: 0.95rem;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+
+      .rct-sw-analysis-result-opinion {
+        color: #495057;
+        font-size: 0.9rem;
+        margin-top: 0.25rem;
+      }
+
       .rct-manual-decision-actions {
         display: flex;
         gap: 0.75rem;
@@ -618,6 +642,47 @@
                 <div class="d-flex justify-content-start align-items-center gap-2">
                   <label for="penaltyRestartDelaySeconds" class="col-form-label">Penalty restart delay seconds:</label>
                   <input id="penaltyRestartDelaySeconds" class="form-control form-control-sm rct-pre-accident-input" type="number" min="0" max="60" step="0.1" value="2">
+                </div>
+                <div class="mt-3">
+                  <div class="rct-settings-subtitle">SW Analysis</div>
+                  <div class="row row-cols-1 row-cols-md-2 g-2">
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="swAnalysisRearEndCollision" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="rear_end_collision" data-analysis-label="Rear-end collision" checked>
+                        <label class="form-check-label" for="swAnalysisRearEndCollision">Rear-end collision</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="swAnalysisUnsafeLateralMovement" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="unsafe_lateral_movement" data-analysis-label="Unsafe lateral movement" checked>
+                        <label class="form-check-label" for="swAnalysisUnsafeLateralMovement">Unsafe lateral movement</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="swAnalysisLateBrakingDivebomb" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="late_braking_divebomb" data-analysis-label="Late braking/divebomb" checked>
+                        <label class="form-check-label" for="swAnalysisLateBrakingDivebomb">Late braking/divebomb</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="swAnalysisSqueezeAtCornerExit" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="squeeze_at_corner_exit" data-analysis-label="Squeeze at corner exit" checked>
+                        <label class="form-check-label" for="swAnalysisSqueezeAtCornerExit">Squeeze at corner exit</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="swAnalysisUnsafeRejoin" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="unsafe_rejoin" data-analysis-label="Unsafe rejoin" checked>
+                        <label class="form-check-label" for="swAnalysisUnsafeRejoin">Unsafe rejoin</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="swAnalysisSharedRacingIncident" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="shared_racing_incident" data-analysis-label="Shared racing incident" checked>
+                        <label class="form-check-label" for="swAnalysisSharedRacingIncident">Shared racing incident</label>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="tab-pane fade" id="racing-rule-tab-pane" role="tabpanel" aria-labelledby="racing-rule-tab" tabindex="0">
@@ -838,6 +903,11 @@
       const preAccidentSecondsInput = document.getElementById("preAccidentSeconds");
       const includeCameraCheckbox = document.getElementById("includeCamera");
       const penaltyRestartDelaySecondsInput = document.getElementById("penaltyRestartDelaySeconds");
+      const swAnalysisCheckboxes = Array.from(document.querySelectorAll(".sw-analysis-checkbox"));
+      const defaultPenaltySwAnalysis = swAnalysisCheckboxes.reduce((settings, checkbox) => {
+        settings[checkbox.dataset.analysisId] = checkbox.checked;
+        return settings;
+      }, {});
       const totalLapCountInput = document.getElementById("totalLapCount");
       const maximumPenaltyCountInput = document.getElementById("maximumPenaltyCount");
       const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
@@ -947,6 +1017,7 @@
       let appliedPreAccidentSeconds = 5;
       let appliedIncludeCamera = false;
       let appliedPenaltyRestartDelaySeconds = 2;
+      let appliedPenaltySwAnalysis = { ...defaultPenaltySwAnalysis };
       let appliedTotalLapCount = 10;
       let appliedMaximumPenaltyCount = 0;
       let appliedCelebrationWithConfetti = true;
@@ -1503,9 +1574,24 @@
       function createManualDecisionPane() {
         const manualDecision = document.createElement("div");
         manualDecision.className = "rct-manual-decision";
+        const selectedSwAnalysisOptions = selectedPenaltySwAnalysisOptions();
+        const swAnalysisResults = document.createElement("div");
+        swAnalysisResults.className = "rct-sw-analysis-results";
+        selectedSwAnalysisOptions.forEach((option, index) => {
+          const result = document.createElement("div");
+          result.className = "rct-sw-analysis-result";
+          const resultTitle = document.createElement("div");
+          resultTitle.className = "rct-sw-analysis-result-title";
+          resultTitle.textContent = `${index + 1}. ${option.label}`;
+          const resultOpinion = document.createElement("div");
+          resultOpinion.className = "rct-sw-analysis-result-opinion";
+          resultOpinion.textContent = "Opinion: To be added";
+          result.append(resultTitle, resultOpinion);
+          swAnalysisResults.append(result);
+        });
         const manualDecisionTitle = document.createElement("div");
         manualDecisionTitle.className = "rct-manual-decision-title";
-        manualDecisionTitle.textContent = "1. Final Decision";
+        manualDecisionTitle.textContent = `${selectedSwAnalysisOptions.length + 1}. Final decision`;
         const manualDecisionActions = document.createElement("div");
         manualDecisionActions.className = "rct-manual-decision-actions";
         const vehicleAButton = document.createElement("button");
@@ -1524,6 +1610,9 @@
         vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(2));
         noDecisionButton.addEventListener("click", submitManualNoDecision);
         manualDecisionActions.append(vehicleAButton, vehicleBButton, noDecisionButton);
+        if (selectedSwAnalysisOptions.length > 0) {
+          manualDecision.append(swAnalysisResults);
+        }
         manualDecision.append(manualDecisionTitle, manualDecisionActions);
         return manualDecision;
       }
@@ -1590,12 +1679,53 @@
       }
 
       function penaltyRuleSettingsChanged() {
-        return penaltyRestartDelaySecondsValue() !== appliedPenaltyRestartDelaySeconds;
+        return (
+          penaltyRestartDelaySecondsValue() !== appliedPenaltyRestartDelaySeconds
+          || JSON.stringify(collectPenaltySwAnalysisSettings()) !== JSON.stringify(appliedPenaltySwAnalysis)
+        );
       }
 
       function penaltyRestartDelaySecondsValue() {
         const parsed = Number.parseFloat(penaltyRestartDelaySecondsInput.value);
         return Number.isFinite(parsed) ? parsed : NaN;
+      }
+
+      function collectPenaltySwAnalysisSettings() {
+        return swAnalysisCheckboxes.reduce((settings, checkbox) => {
+          settings[checkbox.dataset.analysisId] = checkbox.checked;
+          return settings;
+        }, {});
+      }
+
+      function normalizePenaltySwAnalysisSettings(settings) {
+        const defaults = { ...defaultPenaltySwAnalysis };
+        if (!settings || typeof settings !== "object") {
+          return defaults;
+        }
+        const normalized = { ...defaults };
+        for (const checkbox of swAnalysisCheckboxes) {
+          const analysisId = checkbox.dataset.analysisId;
+          if (Object.prototype.hasOwnProperty.call(settings, analysisId)) {
+            normalized[analysisId] = Boolean(settings[analysisId]);
+          }
+        }
+        return normalized;
+      }
+
+      function syncPenaltySwAnalysisSettings(settings) {
+        appliedPenaltySwAnalysis = normalizePenaltySwAnalysisSettings(settings);
+        for (const checkbox of swAnalysisCheckboxes) {
+          checkbox.checked = Boolean(appliedPenaltySwAnalysis[checkbox.dataset.analysisId]);
+        }
+      }
+
+      function selectedPenaltySwAnalysisOptions() {
+        return swAnalysisCheckboxes
+          .filter((checkbox) => Boolean(appliedPenaltySwAnalysis[checkbox.dataset.analysisId]))
+          .map((checkbox) => ({
+            id: checkbox.dataset.analysisId,
+            label: checkbox.dataset.analysisLabel,
+          }));
       }
 
       function racingRuleSettingsChanged() {
@@ -1715,6 +1845,7 @@
           appliedPenaltyRestartDelaySeconds = restartDelaySeconds;
           penaltyRestartDelaySecondsInput.value = String(restartDelaySeconds);
         }
+        syncPenaltySwAnalysisSettings(settings.sw_analysis);
         updateSettingsApplyState();
       }
 
@@ -1842,6 +1973,7 @@
           },
           body: JSON.stringify({
             restart_delay_seconds: penaltyRestartDelaySecondsValue(),
+            sw_analysis: collectPenaltySwAnalysisSettings(),
           }),
         });
         if (!response.ok) {
@@ -1870,6 +2002,7 @@
             const settings = payload.penalty_rule || {};
             appliedPenaltyRestartDelaySeconds = Number(settings.restart_delay_seconds);
             penaltyRestartDelaySecondsInput.value = String(appliedPenaltyRestartDelaySeconds);
+            syncPenaltySwAnalysisSettings(settings.sw_analysis);
             updateSettingsApplyState();
             return payload;
           })
@@ -2847,6 +2980,24 @@
           updateRoboracerStatusFromState(message.devkits);
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
           updateVehiclePenalties(message.vehicle_penalties);
+          if (message.penalty_rule) {
+            const hasPendingPenaltyRuleChanges = penaltyRuleSettingsChanged();
+            const settings = message.penalty_rule;
+            const restartDelaySeconds = Number(settings.restart_delay_seconds);
+            if (Number.isFinite(restartDelaySeconds)) {
+              appliedPenaltyRestartDelaySeconds = restartDelaySeconds;
+              if (!hasPendingPenaltyRuleChanges) {
+                penaltyRestartDelaySecondsInput.value = String(restartDelaySeconds);
+              }
+            }
+            appliedPenaltySwAnalysis = normalizePenaltySwAnalysisSettings(settings.sw_analysis);
+            if (!hasPendingPenaltyRuleChanges) {
+              for (const checkbox of swAnalysisCheckboxes) {
+                checkbox.checked = Boolean(appliedPenaltySwAnalysis[checkbox.dataset.analysisId]);
+              }
+            }
+            updateSettingsApplyState();
+          }
           if (message.race_result && !message.race_result.active) {
             updateRaceResult(message.race_result);
           }
@@ -3414,6 +3565,9 @@
       preAccidentSecondsInput.addEventListener("input", updateSettingsApplyState);
       includeCameraCheckbox.addEventListener("change", updateSettingsApplyState);
       penaltyRestartDelaySecondsInput.addEventListener("input", updateSettingsApplyState);
+      swAnalysisCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", updateSettingsApplyState);
+      });
       totalLapCountInput.addEventListener("input", updateSettingsApplyState);
       maximumPenaltyCountInput.addEventListener("input", updateSettingsApplyState);
       celebrationWithConfettiCheckbox.addEventListener("change", updateSettingsApplyState);

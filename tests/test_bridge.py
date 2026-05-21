@@ -185,6 +185,21 @@ class AccidentRecorderTests(unittest.TestCase):
 
         self.assertEqual(snapshot[0].payload, {"V1 Position": "1 2 3"})
 
+    def test_ring_buffer_keeps_front_camera_when_enabled(self):
+        recorder = AccidentRecorder()
+
+        recorder.record_bridge_payload(
+            {"V1 Front Camera Image": "large", "V1 Position": "1 2 3"},
+            pre_accident_seconds=5.0,
+            include_camera=True,
+            now=10.0,
+            wall_time=10,
+        )
+
+        snapshot = recorder.snapshot(now=10.0, pre_accident_seconds=5.0)
+
+        self.assertEqual(snapshot[0].payload, {"V1 Front Camera Image": "large", "V1 Position": "1 2 3"})
+
     def test_accident_log_filename_uses_requested_format(self):
         filename = accident_log_filename(datetime(2026, 5, 19, 1, 2, 3, 456789))
 

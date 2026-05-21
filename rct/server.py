@@ -46,7 +46,12 @@ from .protocol import (
     rewrite_simulator_payload_to_devkit,
 )
 from .ros2_mcap import convert_accident_mcap_to_ros2_mcap
-from .state import AccidentLogMonitorState, DevKitMonitorState, RaceControlState
+from .state import (
+    DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS,
+    AccidentLogMonitorState,
+    DevKitMonitorState,
+    RaceControlState,
+)
 from .static_files import build_static_file_response
 
 LOGGER = logging.getLogger("rct")
@@ -2386,8 +2391,19 @@ class RaceControlTower:
         restart_delay_seconds = float(restart_delay_seconds)
         if restart_delay_seconds < 0 or restart_delay_seconds > 60:
             raise ValueError("restart_delay_seconds must be between 0 and 60")
+        sw_analysis = settings.get("sw_analysis", DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS)
+        if not isinstance(sw_analysis, dict):
+            raise ValueError("sw_analysis must be an object")
+        validated_sw_analysis = dict(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS)
+        for key, value in sw_analysis.items():
+            if key not in validated_sw_analysis:
+                raise ValueError(f"unknown sw_analysis option: {key}")
+            if not isinstance(value, bool):
+                raise ValueError(f"sw_analysis.{key} must be a boolean")
+            validated_sw_analysis[key] = value
         return {
             "restart_delay_seconds": restart_delay_seconds,
+            "sw_analysis": validated_sw_analysis,
         }
 
     def validate_racing_rule_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
