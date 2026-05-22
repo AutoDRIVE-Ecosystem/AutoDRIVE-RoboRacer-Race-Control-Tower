@@ -441,15 +441,17 @@
 
       .rct-manual-decision-actions {
         display: flex;
-        gap: 0.75rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
         justify-content: center;
       }
 
       .rct-manual-decision-actions .btn {
-        font-size: 1.05rem;
+        font-size: 0.95rem;
         font-weight: 600;
-        min-width: 9rem;
-        padding: 0.75rem 1rem;
+        min-width: 8rem;
+        padding: 0.625rem 0.875rem;
+        white-space: nowrap;
       }
 
       .rct-accident-logs-detail dl {
@@ -1026,6 +1028,7 @@
       let simulatorConnected = false;
       let accidentLogs = [];
       let selectedAccidentLogFilename = null;
+      let renderedAccidentLogDetailKey = null;
       let autoSelectLatestAccidentLog = false;
       let penaltyDecisionActive = false;
       let penaltyDecisionAccidentLogFilename = null;
@@ -1118,10 +1121,12 @@
         return true;
       }
 
-      function renderAccidentLogs() {
+      function renderAccidentLogs(options = {}) {
+        const forceDetail = Boolean(options.forceDetail);
         accidentLogsList.innerHTML = "";
         if (accidentLogs.length === 0) {
           selectedAccidentLogFilename = null;
+          renderedAccidentLogDetailKey = null;
           const emptyItem = document.createElement("div");
           emptyItem.className = "list-group-item text-body-secondary";
           emptyItem.textContent = "No accident logs";
@@ -1150,12 +1155,33 @@
           });
           accidentLogsList.appendChild(item);
         }
-        renderAccidentLogDetail(selectedAccidentLog);
+        const detailKey = accidentLogDetailKey(selectedAccidentLog);
+        if (!forceDetail && !isAccidentLogsDialogOpen()) {
+          return;
+        }
+        if (forceDetail || detailKey !== renderedAccidentLogDetailKey) {
+          renderedAccidentLogDetailKey = detailKey;
+          renderAccidentLogDetail(selectedAccidentLog);
+        }
       }
 
       function selectAccidentLog(filename) {
+        if (selectedAccidentLogFilename === filename && renderedAccidentLogDetailKey === accidentLogDetailKey(accidentLogs.find((accidentLog) => accidentLog.filename === filename))) {
+          return;
+        }
         selectedAccidentLogFilename = filename;
-        renderAccidentLogs();
+        renderAccidentLogs({ forceDetail: true });
+      }
+
+      function accidentLogDetailKey(accidentLog) {
+        if (!accidentLog || !accidentLog.filename) {
+          return null;
+        }
+        return `${accidentLog.filename}:${shouldShowManualDecisionPane(accidentLog) ? "manual" : "saved"}`;
+      }
+
+      function isAccidentLogsDialogOpen() {
+        return accidentLogsDialog.classList.contains("show");
       }
 
       function formatBytes(bytes) {
@@ -1503,8 +1529,9 @@
         renderAccidentReplayFrame(0, controls);
       }
 
-      async function loadAccidentLogSummary(filename) {
-        if (accidentLogSummaryCache.has(filename)) {
+      async function loadAccidentLogSummary(filename, options = {}) {
+        const forceReload = Boolean(options.forceReload);
+        if (!forceReload && accidentLogSummaryCache.has(filename)) {
           return accidentLogSummaryCache.get(filename);
         }
         const response = await fetch(
@@ -1586,6 +1613,7 @@
             cache: "no-store",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              fault_vehicle_id: command.penalty_vehicle_id || null,
               penalty_vehicle_id: command.penalty_vehicle_id || null,
               no_decision: command.command === "manual-no-decision",
               decision_package_ids: selectedSwAnalysisOptions.map((option) => option.id),
@@ -1596,6 +1624,9 @@
         if (!response.ok) {
           throw new Error(`Failed to save decision record: ${response.status} ${response.statusText}`);
         }
+        const payload = await response.json();
+        accidentLogSummaryCache.delete(accidentLog.filename);
+        return payload.decision_record || null;
       }
 
       function shouldShowManualDecisionPane(accidentLog) {
@@ -1658,11 +1689,11 @@
         const vehicleAButton = document.createElement("button");
         vehicleAButton.className = "btn btn-outline-danger";
         vehicleAButton.type = "button";
-        vehicleAButton.textContent = "Vehicle A";
+        vehicleAButton.textContent = "Fault A";
         const vehicleBButton = document.createElement("button");
         vehicleBButton.className = "btn btn-outline-danger";
         vehicleBButton.type = "button";
-        vehicleBButton.textContent = "Vehicle B";
+        vehicleBButton.textContent = "Fault B";
         const noDecisionButton = document.createElement("button");
         noDecisionButton.className = "btn btn-outline-secondary";
         noDecisionButton.type = "button";
@@ -1690,11 +1721,24 @@
         pane.className = "rct-manual-decision";
         const title = document.createElement("div");
         title.className = "rct-manual-decision-title";
+        const faultVehicleId = record.fault_vehicle_id || record.penalty_vehicle_id || null;
         const decisionText = record.no_decision
           ? "Final decision: No Decision"
-          : `Final decision: Vehicle ${displayRoboracerLabel(record.penalty_vehicle_id)}`;
+          : `Final decision: Fault Vehicle ${displayRoboracerLabel(faultVehicleId)}`;
         title.textContent = decisionText;
         pane.append(title);
+        const penalty = record.penalty || null;
+        const penaltyText = document.createElement("div");
+        penaltyText.className = "rct-sw-analysis-result-opinion";
+        if (penalty && penalty.vehicle_id) {
+          const delay = Number(penalty.delay_seconds);
+          penaltyText.textContent = Number.isFinite(delay)
+            ? `Penalty: Vehicle ${displayRoboracerLabel(penalty.vehicle_id)} receives a ${delay.toFixed(2).replace(/\\.00$/, "")}s late start delay.`
+            : `Penalty: Vehicle ${displayRoboracerLabel(penalty.vehicle_id)} receives ${penalty.label || "a penalty"}.`;
+        } else {
+          penaltyText.textContent = "Penalty: None";
+        }
+        pane.append(penaltyText);
         if (record.memo) {
           const memo = document.createElement("div");
           memo.className = "rct-sw-analysis-result-opinion";
@@ -1709,7 +1753,10 @@
           container.append(pane);
           return;
         }
-        const options = (record.decision_package_ids || []).map((id) => ({ id, label: id.replace(/_/g, " ") }));
+        const packageIds = Array.isArray(record.decision_package_ids) && record.decision_package_ids.length > 0
+          ? record.decision_package_ids
+          : (faultVehicleId && !penalty ? selectedPenaltySwAnalysisOptions().map((option) => option.id) : []);
+        const options = packageIds.map((id) => ({ id, label: id.replace(/_/g, " ") }));
         options.forEach((option, index) => {
           const result = document.createElement("div");
           result.className = "rct-sw-analysis-result";
@@ -1727,8 +1774,11 @@
         autoSelectLatestAccidentLog = true;
         selectedAccidentLogFilename = accidentLogs.length > 0 ? accidentLogs[0].filename : null;
         penaltyDecisionAccidentLogFilename = selectedAccidentLogFilename;
+        const alreadyOpen = isAccidentLogsDialogOpen();
         accidentLogsModal.show();
-        renderAccidentLogs();
+        if (alreadyOpen) {
+          renderAccidentLogs({ forceDetail: true });
+        }
         updateAccidentLogsButton();
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
@@ -3113,9 +3163,12 @@
           if (message.penalty_decision && message.penalty_decision.active && !penaltyDecisionActive) {
             openAccidentLogsForManualDecision();
           } else if (message.penalty_decision && !message.penalty_decision.active) {
+            const wasPenaltyDecisionActive = penaltyDecisionActive;
             penaltyDecisionActive = false;
             penaltyDecisionAccidentLogFilename = null;
-            renderAccidentLogs();
+            if (wasPenaltyDecisionActive) {
+              renderAccidentLogs({ forceDetail: true });
+            }
           }
         } else if (message.event === "telemetry") {
           updateTelemetry(message.vehicles);
@@ -3123,9 +3176,12 @@
           if (message.active) {
             openAccidentLogsForManualDecision();
           } else {
+            const wasPenaltyDecisionActive = penaltyDecisionActive;
             penaltyDecisionActive = false;
             penaltyDecisionAccidentLogFilename = null;
-            renderAccidentLogs();
+            if (wasPenaltyDecisionActive) {
+              renderAccidentLogs({ forceDetail: true });
+            }
           }
         } else if (message.event === "race-result") {
           updateRaceResult(message);
@@ -3706,6 +3762,7 @@
         });
       });
       accidentLogsDialog.addEventListener("show.bs.modal", () => {
+        renderAccidentLogs({ forceDetail: true });
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
         });

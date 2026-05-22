@@ -1224,8 +1224,10 @@ class RaceControlTower:
             return web.json_response({"error": "memo must be a string"}, status=400)
         no_decision = bool(body.get("no_decision", False))
         penalty_vehicle_id = body.get("penalty_vehicle_id")
+        fault_vehicle_id = body.get("fault_vehicle_id", penalty_vehicle_id)
         if no_decision:
             penalty_vehicle_id = None
+            fault_vehicle_id = None
         elif penalty_vehicle_id is not None:
             try:
                 penalty_vehicle_id = int(penalty_vehicle_id)
@@ -1233,11 +1235,30 @@ class RaceControlTower:
                 return web.json_response({"error": "penalty_vehicle_id must be an integer"}, status=400)
             if penalty_vehicle_id not in {1, 2}:
                 return web.json_response({"error": "penalty_vehicle_id must be 1 or 2"}, status=400)
+        if fault_vehicle_id is not None:
+            try:
+                fault_vehicle_id = int(fault_vehicle_id)
+            except (TypeError, ValueError):
+                return web.json_response({"error": "fault_vehicle_id must be an integer"}, status=400)
+            if fault_vehicle_id not in {1, 2}:
+                return web.json_response({"error": "fault_vehicle_id must be 1 or 2"}, status=400)
+
+        penalty = None
+        if penalty_vehicle_id is not None:
+            delay_seconds = float(self.state.penalty_rule_settings()["restart_delay_seconds"])
+            penalty = {
+                "type": "late_start_delay",
+                "vehicle_id": penalty_vehicle_id,
+                "delay_seconds": delay_seconds,
+                "label": f"{delay_seconds:g}s late start delay",
+            }
 
         try:
             record = await asyncio.to_thread(
                 save_decision_record,
                 path,
+                fault_vehicle_id=fault_vehicle_id,
+                penalty=penalty,
                 penalty_vehicle_id=penalty_vehicle_id,
                 no_decision=no_decision,
                 decision_package_ids=package_ids,
@@ -1585,10 +1606,7 @@ class RaceControlTower:
             devkit.awaiting_initial_bridge = not await self.send_cached_incoming_bridge(devkit)
         await self.publish_simulator_telemetry(payload, "Bridge")
         if collision_triggers:
-            vehicle_id, count = collision_triggers[0]
-            if len(collision_triggers) >= 2:
-                await self.start_manual_penalty_decision(collision_triggers)
-            self.start_accident_record_save(vehicle_id, count, pre_accident_seconds)
+            await self.handle_collision_triggers(collision_triggers, pre_accident_seconds)
         await self.emit_control_cache_to_simulator()
 
     async def send_cached_incoming_bridge(self, devkit: DevKitConnection) -> bool:
@@ -1795,6 +1813,32 @@ class RaceControlTower:
                 if self.settings.debug_bridge_flow:
                     LOGGER.info("%s", color_arrow(f"COLLISION DETECTED [V{vehicle_id}]", ANSI_RED))
         return triggers
+
+    async def handle_collision_triggers(
+        self,
+        collision_triggers: list[tuple[int, int]],
+        pre_accident_seconds: float,
+    ) -> None:
+        if self.state.penalty_decision().get("active"):
+            return
+
+        vehicle_id, count = collision_triggers[0]
+        records = self.accident_recorder.snapshot(pre_accident_seconds=pre_accident_seconds)
+        if len(collision_triggers) >= 2:
+            await self.start_manual_penalty_decision(collision_triggers)
+            self.start_accident_record_save(
+                vehicle_id,
+                count,
+                records,
+            )
+            return
+
+        self.start_accident_record_save(
+            vehicle_id,
+            count,
+            records,
+            auto_fault_vehicle_id=vehicle_id,
+        )
 
     async def start_manual_penalty_decision(self, collision_triggers: list[tuple[int, int]]) -> None:
         collision_vehicle_ids = sorted({vehicle_id for vehicle_id, _count in collision_triggers})
@@ -2041,11 +2085,17 @@ class RaceControlTower:
         self,
         trigger_vehicle_id: int,
         collision_count: int,
-        pre_accident_seconds: float,
+        records: list[Any],
+        *,
+        auto_fault_vehicle_id: int | None = None,
     ) -> None:
-        records = self.accident_recorder.snapshot(pre_accident_seconds=pre_accident_seconds)
         task = asyncio.create_task(
-            self.save_accident_record(trigger_vehicle_id, collision_count, records),
+            self.save_accident_record(
+                trigger_vehicle_id,
+                collision_count,
+                records,
+                auto_fault_vehicle_id=auto_fault_vehicle_id,
+            ),
         )
         task.add_done_callback(self._log_accident_record_save_failure)
 
@@ -2054,6 +2104,8 @@ class RaceControlTower:
         trigger_vehicle_id: int,
         collision_count: int,
         records: list[Any],
+        *,
+        auto_fault_vehicle_id: int | None = None,
     ) -> None:
         try:
             accident_log = await asyncio.to_thread(
@@ -2072,6 +2124,24 @@ class RaceControlTower:
             size_bytes=accident_log.size_bytes,
         )
         self.state.add_accident_log(monitor_log)
+        if auto_fault_vehicle_id is not None:
+            sw_analysis = self.state.penalty_rule_settings().get("sw_analysis", {})
+            decision_package_ids = [
+                package_id
+                for package_id, enabled in sw_analysis.items()
+                if enabled and get_decision_package(package_id) is not None
+            ]
+            await asyncio.to_thread(
+                save_decision_record,
+                Path(accident_log.path),
+                fault_vehicle_id=auto_fault_vehicle_id,
+                penalty=None,
+                penalty_vehicle_id=None,
+                no_decision=False,
+                decision_package_ids=decision_package_ids,
+                memo="Automatically recorded: single-vehicle collision.",
+                git_revision=current_git_revision(Path(__file__).resolve().parent.parent),
+            )
         await self.publish_status()
 
     def _log_accident_record_save_failure(self, task: asyncio.Task[None]) -> None:
