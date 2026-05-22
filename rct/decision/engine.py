@@ -14,6 +14,7 @@ from .common import DecisionAnalysis, DecisionPackage, DecisionRecord, samples_f
 
 
 PACKAGE_IDS = (
+    "single_vehicle_collision",
     "rear_end_collision",
     "unsafe_lateral_movement",
     "late_braking_divebomb",

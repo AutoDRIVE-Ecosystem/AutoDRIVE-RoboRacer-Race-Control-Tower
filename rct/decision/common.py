@@ -75,6 +75,7 @@ def point_from_frame(frame: dict[str, Any], vehicle_id: int) -> dict[str, Any] |
         "x": x,
         "y": y,
         "speed": numeric(telemetry.get("speed")),
+        "collision_count": numeric(telemetry.get("collision_count")),
         "heading_yaw": numeric(telemetry.get("heading_yaw")),
         "linear_velocity": linear_velocity if isinstance(linear_velocity, dict) else None,
     }

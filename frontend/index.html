@@ -650,6 +650,12 @@
                   <div class="row row-cols-1 row-cols-md-2 g-2">
                     <div class="col">
                       <div class="form-check">
+                        <input id="swAnalysisSingleVehicleCollision" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="single_vehicle_collision" data-analysis-label="Single vehicle collision" checked>
+                        <label class="form-check-label" for="swAnalysisSingleVehicleCollision">Single vehicle collision</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
                         <input id="swAnalysisRearEndCollision" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="rear_end_collision" data-analysis-label="Rear-end collision" checked>
                         <label class="form-check-label" for="swAnalysisRearEndCollision">Rear-end collision</label>
                       </div>
@@ -1753,9 +1759,12 @@
           container.append(pane);
           return;
         }
-        const packageIds = Array.isArray(record.decision_package_ids) && record.decision_package_ids.length > 0
+        let packageIds = Array.isArray(record.decision_package_ids) && record.decision_package_ids.length > 0
           ? record.decision_package_ids
           : (faultVehicleId && !penalty ? selectedPenaltySwAnalysisOptions().map((option) => option.id) : []);
+        if (faultVehicleId && !penalty && !packageIds.includes("single_vehicle_collision")) {
+          packageIds = ["single_vehicle_collision", ...packageIds];
+        }
         const options = packageIds.map((id) => ({ id, label: id.replace(/_/g, " ") }));
         options.forEach((option, index) => {
           const result = document.createElement("div");
