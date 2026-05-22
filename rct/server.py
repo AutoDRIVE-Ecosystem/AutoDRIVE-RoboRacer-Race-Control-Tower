@@ -2562,6 +2562,20 @@ class RaceControlTower:
                     vehicles = extract_monitor_telemetry(bridge_payload)
                     if not vehicles:
                         continue
+                    lidar_vehicle_ids = set(vehicles) | set(self.settings.devkit_vehicle_ids) | {1, 2}
+                    lidar_positions = {
+                        vehicle_id: {"ips": values["ips"]}
+                        for vehicle_id, values in vehicles.items()
+                        if isinstance(values.get("ips"), dict)
+                    }
+                    lidar_scans: dict[int, Any] = {
+                        vehicle_id: {"ranges": ranges}
+                        for vehicle_id, ranges in extract_lidar_range_arrays(bridge_payload, lidar_vehicle_ids).items()
+                    }
+                    for vehicle_id, points in extract_lidar_scans(bridge_payload, lidar_vehicle_ids, lidar_positions).items():
+                        lidar_scans.setdefault(vehicle_id, points)
+                    for vehicle_id, points in lidar_scans.items():
+                        vehicles.setdefault(vehicle_id, {})["lidar_scan"] = points
 
                     frames.append(
                         {

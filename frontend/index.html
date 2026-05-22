@@ -1462,7 +1462,7 @@
           canvas,
           view: accidentReplayView,
           historyLimit: Number.MAX_SAFE_INTEGER,
-          showLidar: false,
+          showLidar: true,
         });
         const replayControls = { replayTime, slider, recenterButton, playPauseButton };
         accidentReplayCanvas.enableWheelZoom(() => {
@@ -2894,7 +2894,10 @@
               continue;
             }
             for (const [vehicleIdText, telemetry] of Object.entries(frame.vehicles)) {
-              this.appendTelemetry(Number(vehicleIdText), telemetry);
+              const frameTelemetry = this.showLidar && index < lastIndex && telemetry && typeof telemetry === "object"
+                ? { ...telemetry, lidar_scan: undefined }
+                : telemetry;
+              this.appendTelemetry(Number(vehicleIdText), frameTelemetry);
             }
           }
           this.draw();
@@ -3011,6 +3014,17 @@
           if (typeof scan === "string") {
             scan = this.numericValuesFromText(scan);
           }
+          if (scan && typeof scan === "object" && !Array.isArray(scan)) {
+            if (Object.prototype.hasOwnProperty.call(scan, "ranges")) {
+              return this.lidarLocalPointsFromRanges(scan.ranges);
+            }
+            if (Object.prototype.hasOwnProperty.call(scan, "scan")) {
+              return this.lidarLocalPointsFromScan(scan.scan);
+            }
+            if (Object.prototype.hasOwnProperty.call(scan, "points")) {
+              return this.lidarLocalPointsFromScan(scan.points);
+            }
+          }
           if (!Array.isArray(scan)) {
             return [];
           }
@@ -3029,6 +3043,18 @@
             return points;
           }
 
+          const points = [];
+          return this.lidarLocalPointsFromRanges(numbers);
+        }
+
+        lidarLocalPointsFromRanges(ranges) {
+          if (typeof ranges === "string") {
+            ranges = this.numericValuesFromText(ranges);
+          }
+          if (!Array.isArray(ranges)) {
+            return [];
+          }
+          const numbers = ranges.map(Number).filter(Number.isFinite);
           const points = [];
           for (let index = 0; index < numbers.length; index += 1) {
             const radians = lidarAngleMin + lidarAngleIncrement * index;
@@ -3294,14 +3320,22 @@
           if (!this.showLidar) {
             return;
           }
-          this.context.fillStyle = "#dc2626";
-          for (const telemetry of Object.values(this.telemetry)) {
+          for (const [vehicleId, telemetry] of Object.entries(this.telemetry)) {
+            if (!telemetry.ips || telemetry.lidarDots.length === 0) {
+              continue;
+            }
+            const origin = this.worldToCanvas(telemetry.ips, width, height, scale);
+            this.context.strokeStyle = vehicleId === "2"
+              ? "rgba(249, 115, 22, 0.45)"
+              : "rgba(34, 197, 94, 0.45)";
+            this.context.lineWidth = 1;
+            this.context.beginPath();
             for (const point of telemetry.lidarDots) {
               const canvasPoint = this.worldToCanvas(point, width, height, scale);
-              this.context.beginPath();
-              this.context.arc(canvasPoint.x, canvasPoint.y, 0.5, 0, Math.PI * 2);
-              this.context.fill();
+              this.context.moveTo(origin.x, origin.y);
+              this.context.lineTo(canvasPoint.x, canvasPoint.y);
             }
+            this.context.stroke();
           }
         }
 
