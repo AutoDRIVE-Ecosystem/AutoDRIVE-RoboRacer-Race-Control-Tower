@@ -3170,10 +3170,6 @@
           if (message.race_result && !message.race_result.active) {
             updateRaceResult(message.race_result);
           }
-          if (Array.isArray(message.accident_logs)) {
-            setAccidentLogs(message.accident_logs);
-            updateAccidentLogsButton();
-          }
           if (message.penalty_decision && message.penalty_decision.active && !penaltyDecisionActive) {
             openAccidentLogsForManualDecision();
           } else if (message.penalty_decision && !message.penalty_decision.active) {
@@ -3186,6 +3182,11 @@
           }
         } else if (message.event === "telemetry") {
           updateTelemetry(message.vehicles);
+        } else if (message.event === "accident-logs") {
+          if (Array.isArray(message.accident_logs)) {
+            setAccidentLogs(message.accident_logs);
+            updateAccidentLogsButton();
+          }
         } else if (message.event === "penalty-decision") {
           if (message.active) {
             openAccidentLogsForManualDecision();

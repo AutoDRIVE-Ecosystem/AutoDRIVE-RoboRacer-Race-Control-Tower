@@ -1291,6 +1291,7 @@ class RaceControlTower:
                     decision_path.unlink()
                 deleted += 1
         self.refresh_accident_logs_from_disk()
+        await self.publish_accident_logs()
         await self.publish_status()
         return web.json_response(
             {
@@ -2145,6 +2146,7 @@ class RaceControlTower:
                 memo="Automatically recorded: single-vehicle collision.",
                 git_revision=current_git_revision(Path(__file__).resolve().parent.parent),
             )
+        await self.publish_accident_logs()
         await self.publish_status()
 
     def _log_accident_record_save_failure(self, task: asyncio.Task[None]) -> None:
@@ -2377,6 +2379,13 @@ class RaceControlTower:
     def status_message(self) -> str:
         return envelope("status", **self.status_payload())
 
+    def accident_logs_message(self) -> str:
+        return envelope(
+            "accident-logs",
+            source="rct",
+            accident_logs=self.state.accident_logs(),
+        )
+
     def cached_telemetry_message(self) -> str | None:
         if not self.monitor_vehicle_telemetry:
             return None
@@ -2404,6 +2413,9 @@ class RaceControlTower:
     async def publish_status(self) -> None:
         await self.broadcast_monitor(self.status_message())
 
+    async def publish_accident_logs(self) -> None:
+        await self.broadcast_monitor(self.accident_logs_message())
+
     def refresh_bridge_rates(self, now: float | None = None) -> bool:
         current_snapshot = {
             devkit_snapshot["name"]: (devkit_snapshot["bridge_hz"], devkit_snapshot["bridge_per_minute"])
@@ -2427,6 +2439,7 @@ class RaceControlTower:
         self.refresh_bridge_rates()
         snapshot = self.state.snapshot()
         snapshot.pop("topic_selections", None)
+        snapshot.pop("accident_logs", None)
         return {
             "monitor_protocol": {
                 "name": "autodrive-rct-monitor",
