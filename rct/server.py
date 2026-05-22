@@ -773,11 +773,19 @@ class RaceControlTower:
             self.handle_monitor_accident_log_ros2_mcap_get,
         )
         app.router.add_get(
+            "/monitor/REST/{version}/accident-logs/{filename}",
+            self.handle_monitor_accident_log_ros2_mcap_file_get,
+        )
+        app.router.add_get(
             "/monitor/REST/{version}/accident-logs/{filename}/ros2.mcap",
             self.handle_monitor_accident_log_ros2_mcap_file_get,
         )
         app.router.add_options(
             "/monitor/REST/{version}/accident-logs/ros2-mcap",
+            self.handle_monitor_accident_log_ros2_mcap_options,
+        )
+        app.router.add_options(
+            "/monitor/REST/{version}/accident-logs/{filename}",
             self.handle_monitor_accident_log_ros2_mcap_options,
         )
         app.router.add_options(

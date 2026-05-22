@@ -380,8 +380,8 @@
 
       .rct-foxglove-logo {
         display: block;
-        height: 1.05rem;
-        width: 1.05rem;
+        height: 1.15rem;
+        width: 1.15rem;
       }
 
       .rct-accident-replay-canvas-frame {
@@ -1328,8 +1328,7 @@
         const titleText = document.createElement("span");
         titleText.className = "rct-accident-replay-title-text";
         titleText.textContent = `${displayAccidentLogTitle(accidentLog.filename)} (${formatBytes(accidentLog.size_bytes)})`;
-        const ros2McapPath = `/accident-logs/ros2-mcap?path=${encodeURIComponent(accidentLog.path || "")}`;
-        const foxgloveMcapPath = `/accident-logs/${encodeURIComponent(accidentLog.filename || "")}/ros2.mcap`;
+        const ros2McapPath = `/accident-logs/${encodeURIComponent(accidentLog.filename || "")}`;
         const logActions = document.createElement("div");
         logActions.className = "rct-accident-log-actions";
         const downloadLink = document.createElement("a");
@@ -1340,12 +1339,12 @@
         downloadLink.innerHTML = '<i class="bi bi-download" aria-hidden="true"></i>';
         const foxgloveLink = document.createElement("a");
         foxgloveLink.className = "btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center rct-accident-log-action";
-        foxgloveLink.href = foxgloveRemoteFileUrl(monitorRestAbsoluteUrl(foxgloveMcapPath));
+        foxgloveLink.href = foxgloveRemoteFileUrl(monitorRestAbsoluteUrl(ros2McapPath));
         foxgloveLink.target = "_blank";
         foxgloveLink.rel = "noopener";
         foxgloveLink.title = "Open ROS2 MCAP in Foxglove";
         foxgloveLink.setAttribute("aria-label", "Open ROS2 MCAP in Foxglove");
-        foxgloveLink.innerHTML = '<svg class="rct-foxglove-logo" viewBox="0 0 32 32" role="img" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="#581c87"/><path d="M16 5.5c2.1 3.2 3.2 5.8 3.2 7.9 0 1.8-1.4 3.2-3.2 3.2s-3.2-1.4-3.2-3.2c0-2.1 1.1-4.7 3.2-7.9Z" fill="#f0abfc"/><path d="M6.5 14.4c3.8-.2 6.6.3 8.4 1.4 1.5.9 2 2.9 1.1 4.4-.9 1.5-2.9 2-4.4 1.1-1.8-1.1-3.5-3.4-5.1-6.9Z" fill="#c084fc"/><path d="M25.5 14.4c-3.8-.2-6.6.3-8.4 1.4-1.5.9-2 2.9-1.1 4.4.9 1.5 2.9 2 4.4 1.1 1.8-1.1 3.5-3.4 5.1-6.9Z" fill="#e879f9"/><circle cx="16" cy="18" r="3" fill="#ffffff"/></svg>';
+        foxgloveLink.innerHTML = '<img class="rct-foxglove-logo" src="assets/foxglove-apple-touch-icon.png" alt="" aria-hidden="true">';
         logActions.append(downloadLink, foxgloveLink);
         title.append(titleText, logActions);
         const canvasFrame = document.createElement("div");
