@@ -511,6 +511,11 @@
         white-space: nowrap;
       }
 
+      .rct-manual-decision-memo {
+        min-height: 2.25rem;
+        resize: vertical;
+      }
+
       .rct-accident-logs-detail dl {
         margin-bottom: 0;
       }
@@ -1942,12 +1947,12 @@
           swAnalysisResults.append(result);
         });
         const memoInput = document.createElement("textarea");
-        memoInput.className = "form-control";
-        memoInput.rows = 3;
+        memoInput.className = "form-control rct-manual-decision-memo";
+        memoInput.rows = 1;
         memoInput.placeholder = "Decision memo";
         const manualDecisionTitle = document.createElement("div");
         manualDecisionTitle.className = "rct-manual-decision-title";
-        manualDecisionTitle.textContent = `${selectedSwAnalysisOptions.length + 1}. Final decision`;
+        manualDecisionTitle.textContent = "Final decision";
         const manualDecisionActions = document.createElement("div");
         manualDecisionActions.className = "rct-manual-decision-actions";
         const vehicleAButton = document.createElement("button");
@@ -1966,10 +1971,12 @@
         vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(accidentLog, memoInput, 2));
         noDecisionButton.addEventListener("click", () => submitManualNoDecision(accidentLog, memoInput));
         manualDecisionActions.append(vehicleAButton, vehicleBButton, noDecisionButton);
+        manualDecision.append(manualDecisionTitle, manualDecisionActions, memoInput);
         if (selectedSwAnalysisOptions.length > 0) {
-          manualDecision.append(swAnalysisResults);
+          const divider = document.createElement("hr");
+          divider.className = "my-1";
+          manualDecision.append(divider, swAnalysisResults);
         }
-        manualDecision.append(manualDecisionTitle, memoInput, manualDecisionActions);
         return manualDecision;
       }
 
@@ -2027,6 +2034,11 @@
           const pack = window.RCTDecisionPacks.get(id);
           return { id, label: pack ? pack.info.label : id.replace(/_/g, " ") };
         });
+        if (options.length > 0) {
+          const divider = document.createElement("hr");
+          divider.className = "my-1";
+          pane.append(divider);
+        }
         options.forEach((option, index) => {
           const result = document.createElement("div");
           result.className = "rct-sw-analysis-result";
