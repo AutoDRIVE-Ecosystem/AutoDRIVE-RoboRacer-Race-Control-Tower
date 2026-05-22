@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import gzip
 import inspect
 import json
 import logging
+import os
+import socket
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -395,6 +399,62 @@ def ros2_mcap_download_filename(filename: str) -> str:
     return f"{filename}_ros2.mcap"
 
 
+def find_available_analysis_port(host: str, start_port: int) -> int:
+    bind_host = host if host and host != "0.0.0.0" else ""
+    port = start_port
+    while port <= 65535:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            try:
+                probe.bind((bind_host, port))
+            except OSError:
+                port += 1
+                continue
+        return port
+    raise RuntimeError(f"no available analysis port found at or above {start_port}")
+
+
+async def start_analysis_server_process(settings: Settings, port: int) -> asyncio.subprocess.Process:
+    env = os.environ.copy()
+    env["RCT_ANALYSIS_HOST"] = settings.host
+    env["RCT_ANALYSIS_PORT"] = str(port)
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "rct.analysis_server",
+        env=env,
+    )
+    LOGGER.info("started RCT analysis server process pid=%s port=%s", process.pid, port)
+    return process
+
+
+async def start_available_analysis_server_process(
+    settings: Settings,
+) -> tuple[int, asyncio.subprocess.Process]:
+    port = settings.port + 1
+    while port <= 65535:
+        port = find_available_analysis_port(settings.host, port)
+        process = await start_analysis_server_process(settings, port)
+        await asyncio.sleep(0.2)
+        if process.returncode is None:
+            return port, process
+        LOGGER.warning("RCT analysis server failed to start on port %s; trying next port", port)
+        port += 1
+    raise RuntimeError(f"no available analysis port found at or above {settings.port + 1}")
+
+
+async def stop_analysis_server_process(process: asyncio.subprocess.Process | None) -> None:
+    if process is None or process.returncode is not None:
+        return
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=5.0)
+    except asyncio.TimeoutError:
+        LOGGER.warning("RCT analysis server did not exit after terminate; killing pid=%s", process.pid)
+        process.kill()
+        with contextlib.suppress(ProcessLookupError):
+            await process.wait()
+
+
 @dataclass
 class DevKitConnection:
     name: str
@@ -580,8 +640,9 @@ class DevKitConnection:
 
 
 class RaceControlTower:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, analysis_port: int | None = None):
         self.settings = settings
+        self.analysis_port = analysis_port
         self.state = RaceControlState()
         self.simulator_sids: set[str] = set()
         self.monitor_hub = MonitorEventHub()
@@ -730,34 +791,35 @@ class RaceControlTower:
             "/monitor/REST/{version}/racing-rule",
             self.handle_monitor_racing_rule_post,
         )
-        app.router.add_get(
-            "/monitor/REST/{version}/accident-logs",
-            self.handle_monitor_accident_logs_get,
-        )
-        app.router.add_get(
-            "/monitor/REST/{version}/accident-logs/ros2-mcap",
-            self.handle_monitor_accident_log_ros2_mcap_get,
-        )
-        app.router.add_get(
-            "/monitor/REST/{version}/accident-logs/{filename}/summary",
-            self.handle_monitor_accident_log_summary_get,
-        )
-        app.router.add_get(
-            "/monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{decision_id}/html",
-            self.handle_monitor_accident_log_decision_html_get,
-        )
-        app.router.add_get(
-            "/monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{decision_id}/plot.svg",
-            self.handle_monitor_accident_log_decision_plot_get,
-        )
-        app.router.add_post(
-            "/monitor/REST/{version}/accident-logs/{filename}/decision-record",
-            self.handle_monitor_accident_log_decision_record_post,
-        )
-        app.router.add_delete(
-            "/monitor/REST/{version}/accident-logs",
-            self.handle_monitor_accident_logs_delete,
-        )
+        if self.analysis_port is None:
+            app.router.add_get(
+                "/monitor/REST/{version}/accident-logs",
+                self.handle_monitor_accident_logs_get,
+            )
+            app.router.add_get(
+                "/monitor/REST/{version}/accident-logs/ros2-mcap",
+                self.handle_monitor_accident_log_ros2_mcap_get,
+            )
+            app.router.add_get(
+                "/monitor/REST/{version}/accident-logs/{filename}/summary",
+                self.handle_monitor_accident_log_summary_get,
+            )
+            app.router.add_get(
+                "/monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{decision_id}/html",
+                self.handle_monitor_accident_log_decision_html_get,
+            )
+            app.router.add_get(
+                "/monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{decision_id}/plot.svg",
+                self.handle_monitor_accident_log_decision_plot_get,
+            )
+            app.router.add_post(
+                "/monitor/REST/{version}/accident-logs/{filename}/decision-record",
+                self.handle_monitor_accident_log_decision_record_post,
+            )
+            app.router.add_delete(
+                "/monitor/REST/{version}/accident-logs",
+                self.handle_monitor_accident_logs_delete,
+            )
         app.router.add_post(
             "/monitor/REST/{version}/devkits/{vehicle_id}/endpoint",
             self.handle_monitor_devkit_endpoint_command,
@@ -2445,6 +2507,10 @@ class RaceControlTower:
                 "name": "autodrive-rct-monitor",
                 "version": MONITOR_PROTOCOL_VERSION,
             },
+            "analysis_server": {
+                "port": self.analysis_port,
+                "rest_base_path": f"/monitor/{MONITOR_REST_TRANSPORT}/{MONITOR_PROTOCOL_LATEST}",
+            },
             "simulator_socketio_path": f"/{SOCKETIO_PATH}/",
             "trace_lidar_vehicle_ids": sorted(self.trace_lidar_vehicle_ids),
             **snapshot,
@@ -2673,8 +2739,12 @@ async def async_main() -> None:
     )
     settings = load_settings()
     configure_socketio_logging(settings)
-    tower = RaceControlTower(settings)
-    await tower.start()
+    analysis_port, analysis_process = await start_available_analysis_server_process(settings)
+    try:
+        tower = RaceControlTower(settings, analysis_port=analysis_port)
+        await tower.start()
+    finally:
+        await stop_analysis_server_process(analysis_process)
 
 
 def main() -> None:

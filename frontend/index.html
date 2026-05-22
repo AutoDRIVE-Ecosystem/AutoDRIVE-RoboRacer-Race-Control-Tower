@@ -1042,6 +1042,7 @@
       let penaltyDecisionActive = false;
       let penaltyDecisionAccidentLogFilename = null;
       let manualDecisionSubmitInProgress = false;
+      let analysisRestBaseUrl = null;
       const accidentLogSummaryCache = new Map();
       let accidentReplayCanvas = null;
       let accidentReplayFrames = [];
@@ -1069,6 +1070,25 @@
 
       function monitorRestUrl(path) {
         return `/monitor/REST/latest${path}`;
+      }
+
+      function analysisRestUrl(path) {
+        return `${analysisRestBaseUrl || "/monitor/REST/latest"}${path}`;
+      }
+
+      function updateAnalysisServerFromState(state) {
+        const analysisServer = state && state.analysis_server;
+        const port = Number(analysisServer && analysisServer.port);
+        const restBasePath = analysisServer && analysisServer.rest_base_path
+          ? String(analysisServer.rest_base_path)
+          : "/monitor/REST/latest";
+        if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+          analysisRestBaseUrl = null;
+          return;
+        }
+        const analysisUrl = new URL(restBasePath, window.location.origin || "http://localhost");
+        analysisUrl.port = String(port);
+        analysisRestBaseUrl = analysisUrl.toString().replace(/\/$/, "");
       }
 
       function displayRoboracerLabel(vehicleId) {
@@ -1237,7 +1257,7 @@
         titleText.textContent = `${accidentLog.filename || "-"} (${formatBytes(accidentLog.size_bytes)})`;
         const downloadLink = document.createElement("a");
         downloadLink.className = "btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center rct-accident-log-download";
-        downloadLink.href = monitorRestUrl(`/accident-logs/ros2-mcap?path=${encodeURIComponent(accidentLog.path || "")}`);
+        downloadLink.href = analysisRestUrl(`/accident-logs/ros2-mcap?path=${encodeURIComponent(accidentLog.path || "")}`);
         downloadLink.title = "Download ROS2 MCAP";
         downloadLink.setAttribute("aria-label", "Download ROS2 MCAP");
         downloadLink.innerHTML = '<i class="bi bi-download" aria-hidden="true"></i>';
@@ -1560,7 +1580,7 @@
           return accidentLogSummaryCache.get(filename);
         }
         const response = await fetch(
-          monitorRestUrl(`/accident-logs/${encodeURIComponent(filename)}/summary?ts=${Date.now()}`),
+          analysisRestUrl(`/accident-logs/${encodeURIComponent(filename)}/summary?ts=${Date.now()}`),
           { cache: "no-store" },
         );
         if (!response.ok) {
@@ -1574,7 +1594,7 @@
       }
 
       async function loadAccidentLogs() {
-        const response = await fetch(monitorRestUrl(`/accident-logs?ts=${Date.now()}`), {
+        const response = await fetch(analysisRestUrl(`/accident-logs?ts=${Date.now()}`), {
           cache: "no-store",
         });
         if (!response.ok) {
@@ -1590,7 +1610,7 @@
           ? penaltyDecisionAccidentLogFilename
           : "";
         const keepQuery = keepFilename ? `&keep=${encodeURIComponent(keepFilename)}` : "";
-        const response = await fetch(monitorRestUrl(`/accident-logs?ts=${Date.now()}${keepQuery}`), {
+        const response = await fetch(analysisRestUrl(`/accident-logs?ts=${Date.now()}${keepQuery}`), {
           method: "DELETE",
           cache: "no-store",
         });
@@ -1641,7 +1661,7 @@
         }
         const selectedSwAnalysisOptions = selectedPenaltySwAnalysisOptions();
         const response = await fetch(
-          monitorRestUrl(`/accident-logs/${encodeURIComponent(accidentLog.filename)}/decision-record`),
+          analysisRestUrl(`/accident-logs/${encodeURIComponent(accidentLog.filename)}/decision-record`),
           {
             method: "POST",
             cache: "no-store",
@@ -1649,6 +1669,7 @@
             body: JSON.stringify({
               fault_vehicle_id: command.penalty_vehicle_id || null,
               penalty_vehicle_id: command.penalty_vehicle_id || null,
+              penalty_delay_seconds: appliedPenaltyRestartDelaySeconds,
               no_decision: command.command === "manual-no-decision",
               decision_package_ids: selectedSwAnalysisOptions.map((option) => option.id),
               memo,
@@ -1683,7 +1704,7 @@
         const controller = new AbortController();
         accidentDecisionAnalysisControllers.add(controller);
         fetch(
-          monitorRestUrl(`/accident-logs/${encodeURIComponent(accidentLog.filename)}/decision-analyses/${encodeURIComponent(option.id)}/html?ts=${Date.now()}`),
+          analysisRestUrl(`/accident-logs/${encodeURIComponent(accidentLog.filename)}/decision-analyses/${encodeURIComponent(option.id)}/html?ts=${Date.now()}`),
           { cache: "no-store", signal: controller.signal },
         )
           .then((response) => {
@@ -2041,6 +2062,16 @@
         appliedIncludeCamera = Boolean(settings.include_camera);
         includeCameraCheckbox.checked = appliedIncludeCamera;
         updateSettingsApplyState();
+      }
+
+      async function loadMonitorState() {
+        const response = await fetch(monitorRestUrl(""));
+        if (!response.ok) {
+          throw new Error(`Failed to load monitor state: ${response.status} ${response.statusText}`);
+        }
+        const payload = await response.json();
+        updateAnalysisServerFromState(payload.state || {});
+        return payload.state || {};
       }
 
       async function loadPenaltyRuleSettings() {
@@ -3186,6 +3217,7 @@
         }
 
         if (message.event === "status") {
+          updateAnalysisServerFromState(message);
           setSimulatorStatus(Number(message.simulator_clients || 0) > 0);
           updateRoboracerStatusFromState(message.devkits);
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
@@ -3848,6 +3880,9 @@
         renderTopicOptions(fallbackTopicOptions, {});
         renderAccidentLogs();
         updateAccidentLogsButton();
+        await loadMonitorState().catch((error) => {
+          console.warn("Failed to load monitor state:", error);
+        });
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to load accident logs:", error);
         });
