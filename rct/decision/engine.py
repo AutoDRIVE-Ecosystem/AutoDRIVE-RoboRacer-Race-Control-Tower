@@ -84,7 +84,7 @@ def render_decision_plot_svg(package_id: str, summary: dict[str, Any]) -> bytes:
         for key in keys:
             values = [row.get(key) for row in rows]
             if any(value is not None for value in values):
-                axis.plot(times, values, label=key.replace("_", " "))
+                axis.plot(times, values, color=plot_line_color(key), label=key.replace("_", " "))
         axis.axvline(0.0, color="#6c757d", linewidth=0.8, linestyle="--")
         axis.set_xlabel("time to collision (s)")
         axis.grid(True, color="#dee2e6", linewidth=0.7)
@@ -97,6 +97,20 @@ def render_decision_plot_svg(package_id: str, summary: dict[str, Any]) -> bytes:
     figure.tight_layout()
     figure.savefig(output, format="svg")
     return output.getvalue()
+
+
+def plot_line_color(key: str) -> str:
+    if key.startswith("a_"):
+        return "#2e7d32"
+    if key.startswith("b_"):
+        return "#ef6c00"
+    if key in {"distance", "ab_distance"}:
+        return "#1565c0"
+    if key == "lateral_gap":
+        return "#6a1b9a"
+    if key == "shared_score":
+        return "#00838f"
+    return "#455a64"
 
 
 def decision_record_path(mcap_path: Path) -> Path:
