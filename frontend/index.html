@@ -1033,13 +1033,11 @@
       let accidentReplayCanvas = null;
       let accidentReplayFrames = [];
       let accidentReplayFrameIndex = 0;
-      let decisionAnalysisRenderers = [];
       let accidentReplayTimer = null;
       let accidentReplayStartedAt = 0;
       let accidentReplayStartOffset = 0;
       let accidentReplayPlaying = false;
       let accidentReplayRepeat = true;
-      const loadedDecisionPacks = new Map();
       const accidentReplayView = {
         zoom: 1,
         rotation: 90,
@@ -1181,7 +1179,6 @@
           accidentLogDetail.textContent = "Select an accident log";
           accidentReplayCanvas = null;
           accidentReplayFrames = [];
-          decisionAnalysisRenderers = [];
           accidentReplayPlaying = false;
           return;
         }
@@ -1259,11 +1256,13 @@
         replayTime.className = "rct-accident-replay-time";
         replayTime.textContent = "Loading replay...";
         controls.append(actions, replayTime);
+        const decisionContainer = document.createElement("div");
 
         shell.append(title, canvasFrame, slider, controls);
-        decisionAnalysisRenderers = [];
         if (shouldShowManualDecisionPane(accidentLog)) {
-          shell.append(createManualDecisionPane());
+          shell.append(createManualDecisionPane(accidentLog));
+        } else {
+          shell.append(decisionContainer);
         }
         accidentLogDetail.appendChild(shell);
 
@@ -1296,7 +1295,9 @@
               return;
             }
             accidentReplayFrames = Array.isArray(summary.frames) ? summary.frames : [];
-            renderDecisionAnalyses(accidentReplayFrames);
+            if (!shouldShowManualDecisionPane(accidentLog)) {
+              renderSavedDecisionPane(decisionContainer, accidentLog, summary);
+            }
             const lastIndex = Math.max(0, accidentReplayFrames.length - 1);
             slider.max = String(lastIndex);
             slider.disabled = accidentReplayFrames.length === 0;
@@ -1313,7 +1314,6 @@
           .catch((error) => {
             console.warn("Failed to load accident log summary:", error);
             replayTime.textContent = "Replay unavailable";
-            renderDecisionAnalyses([]);
             playPauseButton.disabled = true;
             stopButton.disabled = true;
           });
@@ -1546,26 +1546,56 @@
         updateAccidentLogsButton();
       }
 
-      function submitManualPenaltyDecision(penaltyVehicleId) {
-        submitManualDecision({
+      function submitManualPenaltyDecision(accidentLog, memoInput, penaltyVehicleId) {
+        void submitManualDecision(accidentLog, memoInput, {
           command: "manual-penalty-decision",
           penalty_vehicle_id: penaltyVehicleId,
         });
       }
 
-      function submitManualNoDecision() {
-        submitManualDecision({ command: "manual-no-decision" });
+      function submitManualNoDecision(accidentLog, memoInput) {
+        void submitManualDecision(accidentLog, memoInput, { command: "manual-no-decision" });
       }
 
-      function submitManualDecision(command) {
+      async function submitManualDecision(accidentLog, memoInput, command) {
         if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
           console.warn("Cannot submit final decision while RCT WebSocket is disconnected");
+          return;
+        }
+        try {
+          await saveDecisionRecord(accidentLog, command, memoInput ? memoInput.value : "");
+        } catch (error) {
+          console.warn("Failed to save decision record:", error);
           return;
         }
         rctSocket.send(JSON.stringify(command));
         penaltyDecisionActive = false;
         penaltyDecisionAccidentLogFilename = null;
         accidentLogsModal.hide();
+      }
+
+      async function saveDecisionRecord(accidentLog, command, memo) {
+        if (!accidentLog || !accidentLog.filename) {
+          return;
+        }
+        const selectedSwAnalysisOptions = selectedPenaltySwAnalysisOptions();
+        const response = await fetch(
+          monitorRestUrl(`/accident-logs/${encodeURIComponent(accidentLog.filename)}/decision-record`),
+          {
+            method: "POST",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              penalty_vehicle_id: command.penalty_vehicle_id || null,
+              no_decision: command.command === "manual-no-decision",
+              decision_package_ids: selectedSwAnalysisOptions.map((option) => option.id),
+              memo,
+            }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to save decision record: ${response.status} ${response.statusText}`);
+        }
       }
 
       function shouldShowManualDecisionPane(accidentLog) {
@@ -1577,118 +1607,33 @@
         );
       }
 
-      function renderDecisionAnalyses(frames) {
-        for (const renderer of decisionAnalysisRenderers) {
-          try {
-            renderer(frames);
-          } catch (error) {
-            console.warn("Decision analysis render failed:", error);
-          }
-        }
-      }
-
-      function decisionPackSlug(optionId) {
-        return String(optionId || "").replace(/_/g, "-");
-      }
-
-      function loadDecisionPack(optionId) {
-        if (loadedDecisionPacks.has(optionId)) {
-          return loadedDecisionPacks.get(optionId);
-        }
-
-        const slug = decisionPackSlug(optionId);
-        const loaded = fetch(`decision/${slug}.html`, { cache: "no-store" })
+      function createDecisionAnalysisPane(accidentLog, option) {
+        const pane = document.createElement("div");
+        pane.className = "rct-decision-pack";
+        pane.textContent = "Loading analysis...";
+        fetch(
+          monitorRestUrl(`/accident-logs/${encodeURIComponent(accidentLog.filename)}/decision-analyses/${encodeURIComponent(option.id)}/html?ts=${Date.now()}`),
+          { cache: "no-store" },
+        )
           .then((response) => {
-            if (response.status === 404) {
-              return null;
-            }
             if (!response.ok) {
-              throw new Error(`Failed to load decision HTML: ${response.status}`);
+              throw new Error(`Failed to load decision analysis: ${response.status}`);
             }
             return response.text();
           })
           .then((html) => {
-            if (html === null) {
-              return null;
-            }
-
-            if (!document.querySelector(`link[data-decision-pack="${slug}"]`)) {
-              const link = document.createElement("link");
-              link.rel = "stylesheet";
-              link.href = `decision/${slug}.css`;
-              link.dataset.decisionPack = slug;
-              document.head.append(link);
-            }
-
-            return loadDecisionScript(slug).then(() => {
-              const module = window.RctDecisionModules && window.RctDecisionModules[slug];
-              if (!module || typeof module.mount !== "function") {
-                throw new Error(`Decision module ${slug} did not register a mount function`);
-              }
-              return { html, module };
-            });
-          });
-        loadedDecisionPacks.set(optionId, loaded);
-        return loaded;
-      }
-
-      function loadDecisionScript(slug) {
-        if (window.RctDecisionModules && window.RctDecisionModules[slug]) {
-          return Promise.resolve();
-        }
-        return new Promise((resolve, reject) => {
-          const existingScript = document.querySelector(`script[data-decision-pack="${slug}"]`);
-          if (existingScript) {
-            existingScript.addEventListener("load", resolve, { once: true });
-            existingScript.addEventListener("error", reject, { once: true });
-            return;
-          }
-          const script = document.createElement("script");
-          script.src = `decision/${slug}.js`;
-          script.defer = true;
-          script.dataset.decisionPack = slug;
-          script.addEventListener("load", resolve, { once: true });
-          script.addEventListener("error", reject, { once: true });
-          document.body.append(script);
-        });
-      }
-
-      function createDecisionPackPane(option, resultOpinion) {
-        const pane = document.createElement("div");
-        pane.className = "rct-decision-pack";
-        pane.textContent = "Loading analysis...";
-        loadDecisionPack(option.id)
-          .then((pack) => {
-            if (!pack) {
-              pane.remove();
-              return;
-            }
-            pane.innerHTML = pack.html;
-            const renderer = pack.module.mount(pane, {
-              initialFrames: accidentReplayFrames,
-              setOpinion(text) {
-                resultOpinion.textContent = text;
-              },
-              formatNumber,
-              displayRoboracerLabel,
-            });
-            if (typeof renderer === "function") {
-              decisionAnalysisRenderers.push(renderer);
-              renderer(accidentReplayFrames);
-            }
+            pane.innerHTML = html;
           })
           .catch((error) => {
-            console.warn(`Failed to load decision pack ${option.id}:`, error);
-            resultOpinion.textContent = "Opinion: Analysis module unavailable";
+            console.warn(`Failed to load decision analysis ${option.id}:`, error);
             pane.textContent = "Analysis module unavailable";
           });
         return pane;
       }
 
-      function createManualDecisionPane() {
+      function createManualDecisionPane(accidentLog) {
         const manualDecision = document.createElement("div");
         manualDecision.className = "rct-manual-decision";
-        decisionAnalysisRenderers = [];
         const selectedSwAnalysisOptions = selectedPenaltySwAnalysisOptions();
         const swAnalysisResults = document.createElement("div");
         swAnalysisResults.className = "rct-sw-analysis-results";
@@ -1698,13 +1643,13 @@
           const resultTitle = document.createElement("div");
           resultTitle.className = "rct-sw-analysis-result-title";
           resultTitle.textContent = `${index + 1}. ${option.label}`;
-          const resultOpinion = document.createElement("div");
-          resultOpinion.className = "rct-sw-analysis-result-opinion";
-          resultOpinion.textContent = "Opinion: To be added";
-          result.append(resultTitle, resultOpinion);
-          result.append(createDecisionPackPane(option, resultOpinion));
+          result.append(resultTitle, createDecisionAnalysisPane(accidentLog, option));
           swAnalysisResults.append(result);
         });
+        const memoInput = document.createElement("textarea");
+        memoInput.className = "form-control";
+        memoInput.rows = 3;
+        memoInput.placeholder = "Decision memo";
         const manualDecisionTitle = document.createElement("div");
         manualDecisionTitle.className = "rct-manual-decision-title";
         manualDecisionTitle.textContent = `${selectedSwAnalysisOptions.length + 1}. Final decision`;
@@ -1722,15 +1667,59 @@
         noDecisionButton.className = "btn btn-outline-secondary";
         noDecisionButton.type = "button";
         noDecisionButton.textContent = "No Decision";
-        vehicleAButton.addEventListener("click", () => submitManualPenaltyDecision(1));
-        vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(2));
-        noDecisionButton.addEventListener("click", submitManualNoDecision);
+        vehicleAButton.addEventListener("click", () => submitManualPenaltyDecision(accidentLog, memoInput, 1));
+        vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(accidentLog, memoInput, 2));
+        noDecisionButton.addEventListener("click", () => submitManualNoDecision(accidentLog, memoInput));
         manualDecisionActions.append(vehicleAButton, vehicleBButton, noDecisionButton);
         if (selectedSwAnalysisOptions.length > 0) {
           manualDecision.append(swAnalysisResults);
         }
-        manualDecision.append(manualDecisionTitle, manualDecisionActions);
+        manualDecision.append(manualDecisionTitle, memoInput, manualDecisionActions);
         return manualDecision;
+      }
+
+      function renderSavedDecisionPane(container, accidentLog, summary) {
+        container.innerHTML = "";
+        const record = summary && summary.decision_record;
+        if (!record) {
+          return;
+        }
+        const currentRevision = summary.current_rct_git_revision || null;
+        const recordRevision = record.rct_git_revision || null;
+        const pane = document.createElement("div");
+        pane.className = "rct-manual-decision";
+        const title = document.createElement("div");
+        title.className = "rct-manual-decision-title";
+        const decisionText = record.no_decision
+          ? "Final decision: No Decision"
+          : `Final decision: Vehicle ${displayRoboracerLabel(record.penalty_vehicle_id)}`;
+        title.textContent = decisionText;
+        pane.append(title);
+        if (record.memo) {
+          const memo = document.createElement("div");
+          memo.className = "rct-sw-analysis-result-opinion";
+          memo.textContent = `Memo: ${record.memo}`;
+          pane.append(memo);
+        }
+        if (recordRevision && currentRevision && recordRevision !== currentRevision) {
+          const warning = document.createElement("div");
+          warning.className = "alert alert-warning mb-0";
+          warning.textContent = `Telemetry analysis is hidden because this decision was recorded with RCT git revision ${recordRevision}. Current revision is ${currentRevision}.`;
+          pane.append(warning);
+          container.append(pane);
+          return;
+        }
+        const options = (record.decision_package_ids || []).map((id) => ({ id, label: id.replace(/_/g, " ") }));
+        options.forEach((option, index) => {
+          const result = document.createElement("div");
+          result.className = "rct-sw-analysis-result";
+          const resultTitle = document.createElement("div");
+          resultTitle.className = "rct-sw-analysis-result-title";
+          resultTitle.textContent = `${index + 1}. ${option.label}`;
+          result.append(resultTitle, createDecisionAnalysisPane(accidentLog, option));
+          pane.append(result);
+        });
+        container.append(pane);
       }
 
       function openAccidentLogsForManualDecision() {

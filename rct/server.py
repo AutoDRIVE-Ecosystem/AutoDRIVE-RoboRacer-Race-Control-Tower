@@ -30,6 +30,14 @@ from .bridge import (
     extract_monitor_telemetry,
 )
 from .config import Settings, load_settings
+from .decision import (
+    current_git_revision,
+    get_decision_package,
+    load_decision_record,
+    render_decision_html,
+    render_decision_plot_svg,
+    save_decision_record,
+)
 from .monitor import MonitorEventHub, safe_send
 from .monitor_protocol import (
     MONITOR_PROTOCOL_LATEST,
@@ -131,6 +139,16 @@ TOPICS_IGNORED_FOR_DEVKIT_BRIDGE = frozenset(
         "/tf",
     }
 )
+
+
+def monitor_decision_plot_url(version: str, filename: str, decision_id: str) -> str:
+    timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    return (
+        f"/monitor/REST/{version}/accident-logs/"
+        f"{quote(filename)}/decision-analyses/{quote(decision_id)}/plot.svg?ts={timestamp_ms}"
+    )
+
+
 ZERO_LIDAR_RANGE_ARRAY_BASE64 = base64.b64encode(
     gzip.compress("\n".join(["0.0"] * 1080).encode("utf-8"))
 ).decode("ascii")
@@ -724,6 +742,18 @@ class RaceControlTower:
             "/monitor/REST/{version}/accident-logs/{filename}/summary",
             self.handle_monitor_accident_log_summary_get,
         )
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{decision_id}/html",
+            self.handle_monitor_accident_log_decision_html_get,
+        )
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{decision_id}/plot.svg",
+            self.handle_monitor_accident_log_decision_plot_get,
+        )
+        app.router.add_post(
+            "/monitor/REST/{version}/accident-logs/{filename}/decision-record",
+            self.handle_monitor_accident_log_decision_record_post,
+        )
         app.router.add_delete(
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_delete,
@@ -1122,13 +1152,11 @@ class RaceControlTower:
         if not is_monitor_rest_path(version_path):
             return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
 
-        filename = request.match_info["filename"]
-        if Path(filename).name != filename:
-            return web.json_response({"error": "invalid accident log filename"}, status=400)
-
-        path = self.accident_recorder.output_dir / filename
-        if not path.is_file():
-            return web.json_response({"error": "accident log not found"}, status=404)
+        try:
+            path = self.accident_log_path_from_filename(request.match_info["filename"])
+        except ValueError as exc:
+            status = 404 if str(exc) == "accident log not found" else 400
+            return web.json_response({"error": str(exc)}, status=status)
 
         try:
             summary = await asyncio.to_thread(self.accident_log_summary_from_mcap, path)
@@ -1144,6 +1172,84 @@ class RaceControlTower:
             }
         )
 
+    async def handle_monitor_accident_log_decision_html_get(self, request: web.Request) -> web.Response:
+        path, error_response = self.decision_request_path_and_package_response(request)
+        if error_response is not None:
+            return error_response
+        assert path is not None
+        decision_id = request.match_info["decision_id"]
+        image_url = monitor_decision_plot_url(request.match_info["version"], path.name, decision_id)
+        try:
+            summary = await asyncio.to_thread(self.accident_log_summary_from_mcap, path)
+            body = await asyncio.to_thread(render_decision_html, decision_id, summary, image_url)
+        except Exception:
+            LOGGER.exception("failed to render decision analysis %s for %s", decision_id, path)
+            return web.json_response({"error": "failed to render decision analysis"}, status=500)
+        return web.Response(text=body, content_type="text/html")
+
+    async def handle_monitor_accident_log_decision_plot_get(self, request: web.Request) -> web.Response:
+        path, error_response = self.decision_request_path_and_package_response(request)
+        if error_response is not None:
+            return error_response
+        assert path is not None
+        decision_id = request.match_info["decision_id"]
+        try:
+            summary = await asyncio.to_thread(self.accident_log_summary_from_mcap, path)
+            body = await asyncio.to_thread(render_decision_plot_svg, decision_id, summary)
+        except Exception:
+            LOGGER.exception("failed to render decision plot %s for %s", decision_id, path)
+            return web.json_response({"error": "failed to render decision plot"}, status=500)
+        return web.Response(body=body, content_type="image/svg+xml")
+
+    async def handle_monitor_accident_log_decision_record_post(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        try:
+            path = self.accident_log_path_from_filename(request.match_info["filename"])
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return web.json_response({"error": "request body must be JSON"}, status=400)
+
+        package_ids = body.get("decision_package_ids", [])
+        if not isinstance(package_ids, list) or not all(isinstance(item, str) and get_decision_package(item) for item in package_ids):
+            return web.json_response({"error": "decision_package_ids must be known decision rule ids"}, status=400)
+        memo = body.get("memo", "")
+        if not isinstance(memo, str):
+            return web.json_response({"error": "memo must be a string"}, status=400)
+        no_decision = bool(body.get("no_decision", False))
+        penalty_vehicle_id = body.get("penalty_vehicle_id")
+        if no_decision:
+            penalty_vehicle_id = None
+        elif penalty_vehicle_id is not None:
+            try:
+                penalty_vehicle_id = int(penalty_vehicle_id)
+            except (TypeError, ValueError):
+                return web.json_response({"error": "penalty_vehicle_id must be an integer"}, status=400)
+            if penalty_vehicle_id not in {1, 2}:
+                return web.json_response({"error": "penalty_vehicle_id must be 1 or 2"}, status=400)
+
+        try:
+            record = await asyncio.to_thread(
+                save_decision_record,
+                path,
+                penalty_vehicle_id=penalty_vehicle_id,
+                no_decision=no_decision,
+                decision_package_ids=package_ids,
+                memo=memo,
+                git_revision=current_git_revision(Path(__file__).resolve().parent.parent),
+            )
+        except Exception:
+            LOGGER.exception("failed to save decision record for %s", path)
+            return web.json_response({"error": "failed to save decision record"}, status=500)
+
+        return web.json_response({"ok": True, "decision_record": record})
+
     async def handle_monitor_accident_logs_delete(self, request: web.Request) -> web.Response:
         version_path = f"/monitor/REST/{request.match_info['version']}"
         if not is_monitor_rest_path(version_path):
@@ -1156,6 +1262,9 @@ class RaceControlTower:
                 if not path.is_file():
                     continue
                 path.unlink()
+                decision_path = path.with_suffix(".json")
+                if decision_path.is_file():
+                    decision_path.unlink()
                 deleted += 1
         self.refresh_accident_logs_from_disk()
         await self.publish_status()
@@ -2266,6 +2375,30 @@ class RaceControlTower:
             for accident_log in list_accident_logs(self.accident_recorder.output_dir)
         )
 
+    def accident_log_path_from_filename(self, filename: str) -> Path:
+        if Path(filename).name != filename:
+            raise ValueError("invalid accident log filename")
+        path = self.accident_recorder.output_dir / filename
+        if path.suffix != ".mcap":
+            raise ValueError("accident log filename must point to an .mcap file")
+        if not path.is_file():
+            raise ValueError("accident log not found")
+        return path
+
+    def decision_request_path_and_package_response(self, request: web.Request) -> tuple[Path | None, web.Response | None]:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return None, web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+        decision_id = request.match_info["decision_id"]
+        if get_decision_package(decision_id) is None:
+            return None, web.json_response({"error": "unknown decision rule id"}, status=404)
+        try:
+            path = self.accident_log_path_from_filename(request.match_info["filename"])
+        except ValueError as exc:
+            status = 404 if str(exc) == "accident log not found" else 400
+            return None, web.json_response({"error": str(exc)}, status=status)
+        return path, None
+
     def resolve_accident_log_path(self, path_param: str) -> Path:
         output_dir = self.accident_recorder.output_dir.resolve()
         path = Path(path_param)
@@ -2339,6 +2472,8 @@ class RaceControlTower:
             "duration_seconds": duration_seconds,
             "complete": complete,
             "metadata": metadata,
+            "decision_record": load_decision_record(path),
+            "current_rct_git_revision": current_git_revision(Path(__file__).resolve().parent.parent),
             "frames": frames,
         }
 
