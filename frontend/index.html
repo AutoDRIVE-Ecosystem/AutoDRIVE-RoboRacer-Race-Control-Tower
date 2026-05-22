@@ -1264,6 +1264,12 @@
         return `${(value / (1024 * 1024)).toFixed(1)} MB`;
       }
 
+      function displayAccidentLogTitle(filename) {
+        return String(filename || "-")
+          .replace(/^autodrive\s+/i, "")
+          .replace(/\.mcap$/i, "");
+      }
+
       function renderAccidentLogDetail(accidentLog) {
         stopAccidentReplayTimer();
         abortAccidentDecisionAnalysisRequests();
@@ -1285,7 +1291,7 @@
         title.className = "rct-accident-replay-title";
         const titleText = document.createElement("span");
         titleText.className = "rct-accident-replay-title-text";
-        titleText.textContent = `${accidentLog.filename || "-"} (${formatBytes(accidentLog.size_bytes)})`;
+        titleText.textContent = `${displayAccidentLogTitle(accidentLog.filename)} (${formatBytes(accidentLog.size_bytes)})`;
         const downloadLink = document.createElement("a");
         downloadLink.className = "btn btn-sm btn-outline-secondary d-inline-flex align-items-center justify-content-center rct-accident-log-download";
         downloadLink.href = monitorRestUrl(`/accident-logs/ros2-mcap?path=${encodeURIComponent(accidentLog.path || "")}`);
