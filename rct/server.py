@@ -1278,9 +1278,12 @@ class RaceControlTower:
 
         deleted = 0
         output_dir = self.accident_recorder.output_dir
+        keep_filename = request.query.get("keep", "")
         if output_dir.exists():
             for path in output_dir.glob("autodrive *.mcap"):
                 if not path.is_file():
+                    continue
+                if keep_filename and path.name == keep_filename:
                     continue
                 path.unlink()
                 decision_path = path.with_suffix(".json")

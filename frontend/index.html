@@ -650,14 +650,14 @@
                   <div class="row row-cols-1 row-cols-md-2 g-2">
                     <div class="col">
                       <div class="form-check">
-                        <input id="swAnalysisSingleVehicleCollision" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="single_vehicle_collision" data-analysis-label="Single vehicle collision" checked>
-                        <label class="form-check-label" for="swAnalysisSingleVehicleCollision">Single vehicle collision</label>
+                        <input id="swAnalysisRearEndCollision" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="rear_end_collision" data-analysis-label="Rear-end collision" checked>
+                        <label class="form-check-label" for="swAnalysisRearEndCollision">Rear-end collision</label>
                       </div>
                     </div>
                     <div class="col">
                       <div class="form-check">
-                        <input id="swAnalysisRearEndCollision" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="rear_end_collision" data-analysis-label="Rear-end collision" checked>
-                        <label class="form-check-label" for="swAnalysisRearEndCollision">Rear-end collision</label>
+                        <input id="swAnalysisSingleVehicleCollision" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="single_vehicle_collision" data-analysis-label="Single vehicle collision" checked>
+                        <label class="form-check-label" for="swAnalysisSingleVehicleCollision">Single vehicle collision</label>
                       </div>
                     </div>
                     <div class="col">
@@ -1035,6 +1035,7 @@
       let accidentLogs = [];
       let selectedAccidentLogFilename = null;
       let renderedAccidentLogDetailKey = null;
+      let accidentLogsDialogVisible = false;
       let autoSelectLatestAccidentLog = false;
       let penaltyDecisionActive = false;
       let penaltyDecisionAccidentLogFilename = null;
@@ -1187,7 +1188,7 @@
       }
 
       function isAccidentLogsDialogOpen() {
-        return accidentLogsDialog.classList.contains("show");
+        return accidentLogsDialogVisible || accidentLogsDialog.classList.contains("show");
       }
 
       function formatBytes(bytes) {
@@ -1567,7 +1568,11 @@
       }
 
       async function clearAccidentLogs() {
-        const response = await fetch(monitorRestUrl(`/accident-logs?ts=${Date.now()}`), {
+        const keepFilename = penaltyDecisionActive && penaltyDecisionAccidentLogFilename
+          ? penaltyDecisionAccidentLogFilename
+          : "";
+        const keepQuery = keepFilename ? `&keep=${encodeURIComponent(keepFilename)}` : "";
+        const response = await fetch(monitorRestUrl(`/accident-logs?ts=${Date.now()}${keepQuery}`), {
           method: "DELETE",
           cache: "no-store",
         });
@@ -3771,10 +3776,18 @@
         });
       });
       accidentLogsDialog.addEventListener("show.bs.modal", () => {
+        accidentLogsDialogVisible = true;
         renderAccidentLogs({ forceDetail: true });
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
         });
+      });
+      accidentLogsDialog.addEventListener("shown.bs.modal", () => {
+        accidentLogsDialogVisible = true;
+        renderAccidentLogs({ forceDetail: true });
+      });
+      accidentLogsDialog.addEventListener("hidden.bs.modal", () => {
+        accidentLogsDialogVisible = false;
       });
       clearAccidentLogsButton.addEventListener("click", () => {
         void clearAccidentLogs().catch((error) => {

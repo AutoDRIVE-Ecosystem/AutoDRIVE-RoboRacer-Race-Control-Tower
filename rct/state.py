@@ -7,8 +7,8 @@ from threading import RLock
 from typing import Any, Iterable, Mapping
 
 DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS: dict[str, bool] = {
-    "single_vehicle_collision": True,
     "rear_end_collision": True,
+    "single_vehicle_collision": True,
     "unsafe_lateral_movement": True,
     "late_braking_divebomb": True,
     "squeeze_at_corner_exit": True,
