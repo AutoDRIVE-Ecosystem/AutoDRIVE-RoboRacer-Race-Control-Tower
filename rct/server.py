@@ -384,6 +384,51 @@ def ros2_mcap_download_filename(filename: str) -> str:
     return f"{filename}_ros2.mcap"
 
 
+def remote_mcap_cors_headers() -> dict[str, str]:
+    return {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "Accept, Content-Type, Range",
+        "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range",
+        "Accept-Ranges": "bytes",
+    }
+
+
+def mcap_range_response(body: bytes, request: web.Request, headers: dict[str, str]) -> web.Response | None:
+    range_header = request.headers.get("Range")
+    if not range_header:
+        return None
+    if not range_header.startswith("bytes="):
+        return web.Response(status=416, headers={**headers, "Content-Range": f"bytes */{len(body)}"})
+    range_spec = range_header.removeprefix("bytes=").split(",", 1)[0].strip()
+    start_text, separator, end_text = range_spec.partition("-")
+    if separator != "-":
+        return web.Response(status=416, headers={**headers, "Content-Range": f"bytes */{len(body)}"})
+    try:
+        if start_text:
+            start = int(start_text)
+            end = int(end_text) if end_text else len(body) - 1
+        else:
+            suffix_length = int(end_text)
+            start = max(0, len(body) - suffix_length)
+            end = len(body) - 1
+    except ValueError:
+        return web.Response(status=416, headers={**headers, "Content-Range": f"bytes */{len(body)}"})
+    if start < 0 or end < start or start >= len(body):
+        return web.Response(status=416, headers={**headers, "Content-Range": f"bytes */{len(body)}"})
+    end = min(end, len(body) - 1)
+    partial = body[start : end + 1]
+    return web.Response(
+        body=partial,
+        status=206,
+        headers={
+            **headers,
+            "Content-Length": str(len(partial)),
+            "Content-Range": f"bytes {start}-{end}/{len(body)}",
+        },
+    )
+
+
 @dataclass
 class DevKitConnection:
     name: str
@@ -726,6 +771,18 @@ class RaceControlTower:
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs/ros2-mcap",
             self.handle_monitor_accident_log_ros2_mcap_get,
+        )
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-logs/{filename}/ros2.mcap",
+            self.handle_monitor_accident_log_ros2_mcap_file_get,
+        )
+        app.router.add_options(
+            "/monitor/REST/{version}/accident-logs/ros2-mcap",
+            self.handle_monitor_accident_log_ros2_mcap_options,
+        )
+        app.router.add_options(
+            "/monitor/REST/{version}/accident-logs/{filename}/ros2.mcap",
+            self.handle_monitor_accident_log_ros2_mcap_options,
         )
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs/{filename}/summary",
@@ -1112,6 +1169,22 @@ class RaceControlTower:
         if not path.is_file():
             return web.json_response({"error": "accident log not found"}, status=404)
 
+        return await self.ros2_mcap_response_for_path(path, request)
+
+    async def handle_monitor_accident_log_ros2_mcap_file_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        try:
+            path = self.accident_log_path_from_filename(request.match_info["filename"])
+        except ValueError as exc:
+            status = 404 if str(exc) == "accident log not found" else 400
+            return web.json_response({"error": str(exc)}, status=status)
+
+        return await self.ros2_mcap_response_for_path(path, request)
+
+    async def ros2_mcap_response_for_path(self, path: Path, request: web.Request) -> web.Response:
         try:
             body = await asyncio.to_thread(convert_accident_mcap_to_ros2_mcap, path)
         except Exception:
@@ -1120,13 +1193,24 @@ class RaceControlTower:
 
         filename = ros2_mcap_download_filename(path.name)
         quoted_filename = quote(filename)
+        headers = {
+            **remote_mcap_cors_headers(),
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quoted_filename}",
+        }
+        range_response = mcap_range_response(body, request, headers)
+        if range_response is not None:
+            return range_response
         return web.Response(
             body=body,
-            headers={
-                "Content-Type": "application/octet-stream",
-                "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quoted_filename}",
-            },
+            headers={**headers, "Content-Length": str(len(body))},
         )
+
+    async def handle_monitor_accident_log_ros2_mcap_options(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+        return web.Response(status=204, headers=remote_mcap_cors_headers())
 
     async def handle_monitor_accident_log_summary_get(self, request: web.Request) -> web.Response:
         version_path = f"/monitor/REST/{request.match_info['version']}"
