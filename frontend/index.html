@@ -1036,9 +1036,12 @@
       let selectedAccidentLogFilename = null;
       let renderedAccidentLogDetailKey = null;
       let accidentLogsDialogVisible = false;
+      let accidentLogDetailRenderToken = 0;
+      const accidentDecisionAnalysisControllers = new Set();
       let autoSelectLatestAccidentLog = false;
       let penaltyDecisionActive = false;
       let penaltyDecisionAccidentLogFilename = null;
+      let manualDecisionSubmitInProgress = false;
       const accidentLogSummaryCache = new Map();
       let accidentReplayCanvas = null;
       let accidentReplayFrames = [];
@@ -1138,7 +1141,9 @@
           emptyItem.className = "list-group-item text-body-secondary";
           emptyItem.textContent = "No accident logs";
           accidentLogsList.appendChild(emptyItem);
-          renderAccidentLogDetail(null);
+          if (isAccidentLogsDialogOpen()) {
+            renderAccidentLogDetail(null);
+          }
           return;
         }
         const selectedAccidentLog = accidentLogs.find((accidentLog) => accidentLog.filename === selectedAccidentLogFilename) || accidentLogs[0];
@@ -1163,7 +1168,7 @@
           accidentLogsList.appendChild(item);
         }
         const detailKey = accidentLogDetailKey(selectedAccidentLog);
-        if (!forceDetail && !isAccidentLogsDialogOpen()) {
+        if (!isAccidentLogsDialogOpen()) {
           return;
         }
         if (forceDetail || detailKey !== renderedAccidentLogDetailKey) {
@@ -1173,6 +1178,10 @@
       }
 
       function selectAccidentLog(filename) {
+        if (!isAccidentLogsDialogOpen()) {
+          selectedAccidentLogFilename = filename;
+          return;
+        }
         if (selectedAccidentLogFilename === filename && renderedAccidentLogDetailKey === accidentLogDetailKey(accidentLogs.find((accidentLog) => accidentLog.filename === filename))) {
           return;
         }
@@ -1207,6 +1216,8 @@
 
       function renderAccidentLogDetail(accidentLog) {
         stopAccidentReplayTimer();
+        abortAccidentDecisionAnalysisRequests();
+        const renderToken = ++accidentLogDetailRenderToken;
         if (!accidentLog) {
           accidentLogDetail.classList.add("text-body-secondary");
           accidentLogDetail.textContent = "Select an accident log";
@@ -1293,7 +1304,7 @@
 
         shell.append(title, canvasFrame, slider, controls);
         if (shouldShowManualDecisionPane(accidentLog)) {
-          shell.append(createManualDecisionPane(accidentLog));
+          shell.append(createManualDecisionPane(accidentLog, renderToken));
         } else {
           shell.append(decisionContainer);
         }
@@ -1324,12 +1335,12 @@
         updateAccidentReplayRecenterButton(recenterButton);
         loadAccidentLogSummary(accidentLog.filename)
           .then((summary) => {
-            if (selectedAccidentLogFilename !== accidentLog.filename) {
+            if (renderToken !== accidentLogDetailRenderToken || !isAccidentLogsDialogOpen() || selectedAccidentLogFilename !== accidentLog.filename) {
               return;
             }
             accidentReplayFrames = Array.isArray(summary.frames) ? summary.frames : [];
             if (!shouldShowManualDecisionPane(accidentLog)) {
-              renderSavedDecisionPane(decisionContainer, accidentLog, summary);
+              renderSavedDecisionPane(decisionContainer, accidentLog, summary, renderToken);
             }
             const lastIndex = Math.max(0, accidentReplayFrames.length - 1);
             slider.max = String(lastIndex);
@@ -1444,6 +1455,13 @@
           accidentReplayTimer = null;
         }
         accidentReplayPlaying = false;
+      }
+
+      function abortAccidentDecisionAnalysisRequests() {
+        for (const controller of accidentDecisionAnalysisControllers) {
+          controller.abort();
+        }
+        accidentDecisionAnalysisControllers.clear();
       }
 
       function accidentReplayFrameOffset(frameIndex) {
@@ -1600,9 +1618,14 @@
           console.warn("Cannot submit final decision while RCT WebSocket is disconnected");
           return;
         }
+        accidentLogDetailRenderToken += 1;
+        abortAccidentDecisionAnalysisRequests();
+        stopAccidentReplayTimer();
+        manualDecisionSubmitInProgress = true;
         try {
           await saveDecisionRecord(accidentLog, command, memoInput ? memoInput.value : "");
         } catch (error) {
+          manualDecisionSubmitInProgress = false;
           console.warn("Failed to save decision record:", error);
           return;
         }
@@ -1649,13 +1672,19 @@
         );
       }
 
-      function createDecisionAnalysisPane(accidentLog, option) {
+      function createDecisionAnalysisPane(accidentLog, option, renderToken) {
         const pane = document.createElement("div");
         pane.className = "rct-decision-pack";
+        if (!isAccidentLogsDialogOpen()) {
+          pane.textContent = "Analysis paused";
+          return pane;
+        }
         pane.textContent = "Loading analysis...";
+        const controller = new AbortController();
+        accidentDecisionAnalysisControllers.add(controller);
         fetch(
           monitorRestUrl(`/accident-logs/${encodeURIComponent(accidentLog.filename)}/decision-analyses/${encodeURIComponent(option.id)}/html?ts=${Date.now()}`),
-          { cache: "no-store" },
+          { cache: "no-store", signal: controller.signal },
         )
           .then((response) => {
             if (!response.ok) {
@@ -1664,16 +1693,25 @@
             return response.text();
           })
           .then((html) => {
+            if (renderToken !== accidentLogDetailRenderToken || !isAccidentLogsDialogOpen()) {
+              return;
+            }
             pane.innerHTML = html;
           })
           .catch((error) => {
+            if (error && error.name === "AbortError") {
+              return;
+            }
             console.warn(`Failed to load decision analysis ${option.id}:`, error);
             pane.textContent = "Analysis module unavailable";
+          })
+          .finally(() => {
+            accidentDecisionAnalysisControllers.delete(controller);
           });
         return pane;
       }
 
-      function createManualDecisionPane(accidentLog) {
+      function createManualDecisionPane(accidentLog, renderToken) {
         const manualDecision = document.createElement("div");
         manualDecision.className = "rct-manual-decision";
         const selectedSwAnalysisOptions = selectedPenaltySwAnalysisOptions();
@@ -1685,7 +1723,7 @@
           const resultTitle = document.createElement("div");
           resultTitle.className = "rct-sw-analysis-result-title";
           resultTitle.textContent = `${index + 1}. ${option.label}`;
-          result.append(resultTitle, createDecisionAnalysisPane(accidentLog, option));
+          result.append(resultTitle, createDecisionAnalysisPane(accidentLog, option, renderToken));
           swAnalysisResults.append(result);
         });
         const memoInput = document.createElement("textarea");
@@ -1720,7 +1758,7 @@
         return manualDecision;
       }
 
-      function renderSavedDecisionPane(container, accidentLog, summary) {
+      function renderSavedDecisionPane(container, accidentLog, summary, renderToken) {
         container.innerHTML = "";
         const record = summary && summary.decision_record;
         if (!record) {
@@ -1777,13 +1815,16 @@
           const resultTitle = document.createElement("div");
           resultTitle.className = "rct-sw-analysis-result-title";
           resultTitle.textContent = `${index + 1}. ${option.label}`;
-          result.append(resultTitle, createDecisionAnalysisPane(accidentLog, option));
+          result.append(resultTitle, createDecisionAnalysisPane(accidentLog, option, renderToken));
           pane.append(result);
         });
         container.append(pane);
       }
 
       function openAccidentLogsForManualDecision() {
+        if (manualDecisionSubmitInProgress) {
+          return;
+        }
         penaltyDecisionActive = true;
         autoSelectLatestAccidentLog = true;
         selectedAccidentLogFilename = accidentLogs.length > 0 ? accidentLogs[0].filename : null;
@@ -3170,13 +3211,14 @@
           if (message.race_result && !message.race_result.active) {
             updateRaceResult(message.race_result);
           }
-          if (message.penalty_decision && message.penalty_decision.active && !penaltyDecisionActive) {
+          if (message.penalty_decision && message.penalty_decision.active && !penaltyDecisionActive && !manualDecisionSubmitInProgress) {
             openAccidentLogsForManualDecision();
           } else if (message.penalty_decision && !message.penalty_decision.active) {
             const wasPenaltyDecisionActive = penaltyDecisionActive;
             penaltyDecisionActive = false;
             penaltyDecisionAccidentLogFilename = null;
-            if (wasPenaltyDecisionActive) {
+            manualDecisionSubmitInProgress = false;
+            if (wasPenaltyDecisionActive && isAccidentLogsDialogOpen()) {
               renderAccidentLogs({ forceDetail: true });
             }
           }
@@ -3188,13 +3230,16 @@
             updateAccidentLogsButton();
           }
         } else if (message.event === "penalty-decision") {
-          if (message.active) {
+          if (message.active && !manualDecisionSubmitInProgress) {
             openAccidentLogsForManualDecision();
           } else {
             const wasPenaltyDecisionActive = penaltyDecisionActive;
             penaltyDecisionActive = false;
             penaltyDecisionAccidentLogFilename = null;
-            if (wasPenaltyDecisionActive) {
+            if (!message.active) {
+              manualDecisionSubmitInProgress = false;
+            }
+            if (wasPenaltyDecisionActive && isAccidentLogsDialogOpen()) {
               renderAccidentLogs({ forceDetail: true });
             }
           }
@@ -3789,6 +3834,9 @@
       });
       accidentLogsDialog.addEventListener("hidden.bs.modal", () => {
         accidentLogsDialogVisible = false;
+        accidentLogDetailRenderToken += 1;
+        abortAccidentDecisionAnalysisRequests();
+        stopAccidentReplayTimer();
       });
       clearAccidentLogsButton.addEventListener("click", () => {
         void clearAccidentLogs().catch((error) => {
