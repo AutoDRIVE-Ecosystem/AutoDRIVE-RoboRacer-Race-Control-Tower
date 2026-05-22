@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autodrive-rct.local/schemas/decision-record-0.1.schema.json",
+  "title": "AutoDRIVE RCT Decision Record",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "decision_io_version",
+    "filename",
+    "created_at",
+    "fault_vehicle_id",
+    "penalty",
+    "penalty_vehicle_id",
+    "no_decision",
+    "decision_package_ids",
+    "decision_results",
+    "memo"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1"
+    },
+    "decision_io_version": {
+      "const": "0.1"
+    },
+    "filename": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "fault_vehicle_id": {
+      "type": ["integer", "null"],
+      "enum": [1, 2, null]
+    },
+    "penalty": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "penalty_vehicle_id": {
+      "type": ["integer", "null"],
+      "enum": [1, 2, null]
+    },
+    "no_decision": {
+      "type": "boolean"
+    },
+    "decision_package_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "decision_results": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "input_version", "output_version", "opinion", "confidence", "penalty_vehicle_id"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "input_version": {
+            "const": "0.1"
+          },
+          "output_version": {
+            "const": "0.1"
+          },
+          "opinion": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "penalty_vehicle_id": {
+            "type": ["integer", "null"],
+            "enum": [1, 2, null]
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "memo": {
+      "type": "string"
+    }
+  }
+}

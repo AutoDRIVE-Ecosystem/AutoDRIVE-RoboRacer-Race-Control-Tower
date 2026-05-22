@@ -1,104 +1,43 @@
-# Backend Decision Packages
+# Decision Packages
 
-Decision packages are server-side analysis modules. Each package has:
+Decision packages are now frontend-side JavaScript modules. RCT serves MCAP-derived summary JSON and stores the human steward's final decision record; the browser owns rule analysis and Plotly rendering.
 
-- a stable id in `PACKAGE_IDS` in `engine.py`
-- Python analysis logic in `{id}.py`
-- a Jinja2 HTML template fragment in `templates/{id}.html`
-- a Matplotlib SVG plot rendered through the decision plot REST API
+## Frontend Contract
 
-Frontend code should call the REST APIs and render returned HTML. It should not own penalty analysis logic.
+Decision logic lives under `frontend/decision/`:
 
-## File Layout
+- `common.js`: shared telemetry normalization and scoring helpers
+- `packs.js`: decision pack registry and per-pack `analyze()` functions
 
-For a decision package with id `example_rule`, add:
+Each pack has a stable id matching the `sw_analysis` keys in RCT state. `window.RCTDecisionPacks.analyze(id, summary)` returns:
 
-- `rct/decision/example_rule.py`
-- `rct/decision/templates/example_rule.html`
-
-Then add `example_rule` to `PACKAGE_IDS` in `rct/decision/engine.py`.
-
-The package id must be a valid Python module name because the engine imports it with `import_module`.
-
-## Python Module Contract
-
-Each `{id}.py` module must expose:
-
-```python
-from typing import Any
-
-from .common import DecisionAnalysis, DecisionPackage
-
-PACKAGE = DecisionPackage("example_rule", "Example rule")
-
-
-def analyze(samples: list[dict[str, Any]]) -> DecisionAnalysis:
-    ...
-```
-
-`samples` are normalized A/B telemetry rows from the accident MCAP summary. Each sample has:
-
-```python
-{
-    "time": -0.42,
-    "vehicles": {
-        1: {"x": 1.0, "y": 2.0, "velocity": {"x": 0.1, "y": 0.0}, "calculated_speed": 0.1},
-        2: {"x": 1.4, "y": 2.1, "velocity": {"x": 0.0, "y": 0.0}, "calculated_speed": 0.0},
-    },
-}
-```
-
-Return `DecisionAnalysis` with:
-
+- `input_version`: currently `0.1`
+- `output_version`: currently `0.1`
 - `opinion`: short human-readable steward hint
 - `confidence`: `0.0` to `1.0`
-- `penalty_vehicle_id`: `1`, `2`, or `None`
-- `metrics`: small JSON-like dictionary shown in the template
-- `series`: chart rows for Matplotlib; include a `time` field and numeric fields to plot
+- `penalty_vehicle_id`: `1`, `2`, or `null`
+- `metrics`: small JSON-like dictionary
+- `series`: Plotly chart rows with a `time` field and numeric fields
 
-Use helpers from `common.py` for repeated telemetry math, but keep rule-specific scoring and wording inside the package module.
+Vehicle A series use green and Vehicle B series use orange. Shared/distance/other pack-specific lines use package-neutral colors in the frontend renderer.
 
-## HTML Template Contract
+## Server Contract
 
-`templates/{id}.html` is rendered by Jinja2 with:
+RCT keeps only MCAP and decision-record REST responsibilities:
 
-- `package`
-- `analysis`
-- `image_url`
-
-Most packages can include the shared fragment:
-
-```jinja2
-{% include "analysis.html" %}
-```
-
-For custom presentation, keep CSS inside the template. Do not add frontend JS/CSS files for decision rules.
-
-## REST Flow
-
-The frontend calls:
-
-- `GET /monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{id}/html`
-- `GET /monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{id}/plot.svg`
+- `GET /monitor/REST/{version}/accident-logs`
+- `GET /monitor/REST/{version}/accident-logs/{filename}/summary`
+- `GET /monitor/REST/{version}/accident-logs/ros2-mcap`
 - `POST /monitor/REST/{version}/accident-logs/{filename}/decision-record`
+- `DELETE /monitor/REST/{version}/accident-logs`
 
-The decision record is saved next to the MCAP as `{same-name}.json` and includes selected package ids, steward memo, final decision, penalty, and RCT git revision when available.
+Server-side HTML/SVG decision analysis endpoints are intentionally not used.
 
-`fault_vehicle_id` and `penalty` are separate:
+## Record Compatibility
 
-- single-vehicle collisions are auto-recorded with `fault_vehicle_id` set and `penalty` set to `null`
-- steward decisions set `fault_vehicle_id` to the selected fault vehicle and record the applied late-start delay in `penalty`
+Saved decision records use `schemas/decision-record-0.1.schema.json`. Compatibility is checked with manual versions rather than git revision:
 
-Example:
+- decision record `schema_version`: `0.1`
+- decision module input/output version: `0.1`
 
-```json
-{
-  "fault_vehicle_id": 2,
-  "penalty": {
-    "type": "late_start_delay",
-    "vehicle_id": 2,
-    "delay_seconds": 2.0,
-    "label": "2s late start delay"
-  }
-}
-```
+If a future frontend changes decision module inputs or outputs incompatibly, bump the decision I/O version and preserve old-record display behavior explicitly.

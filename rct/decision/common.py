@@ -26,13 +26,15 @@ class DecisionAnalysis:
 class DecisionRecord:
     filename: str
     created_at: str
+    schema_version: str
+    decision_io_version: str
     fault_vehicle_id: int | None
     penalty: dict[str, Any] | None
     penalty_vehicle_id: int | None
     no_decision: bool
     decision_package_ids: list[str]
+    decision_results: dict[str, Any]
     memo: str
-    rct_git_revision: str | None
 
 
 def samples_from_frames(frames: list[Any]) -> list[dict[str, Any]]:

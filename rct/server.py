@@ -4,14 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import contextlib
 import gzip
 import inspect
 import json
 import logging
-import os
-import socket
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,11 +31,7 @@ from .bridge import (
 )
 from .config import Settings, load_settings
 from .decision import (
-    current_git_revision,
-    get_decision_package,
     load_decision_record,
-    render_decision_html,
-    render_decision_plot_svg,
     save_decision_record,
 )
 from .monitor import MonitorEventHub, safe_send
@@ -143,14 +135,7 @@ TOPICS_IGNORED_FOR_DEVKIT_BRIDGE = frozenset(
         "/tf",
     }
 )
-
-
-def monitor_decision_plot_url(version: str, filename: str, decision_id: str) -> str:
-    timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    return (
-        f"/monitor/REST/{version}/accident-logs/"
-        f"{quote(filename)}/decision-analyses/{quote(decision_id)}/plot.svg?ts={timestamp_ms}"
-    )
+KNOWN_DECISION_PACKAGE_IDS = frozenset(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS)
 
 
 ZERO_LIDAR_RANGE_ARRAY_BASE64 = base64.b64encode(
@@ -399,62 +384,6 @@ def ros2_mcap_download_filename(filename: str) -> str:
     return f"{filename}_ros2.mcap"
 
 
-def find_available_analysis_port(host: str, start_port: int) -> int:
-    bind_host = host if host and host != "0.0.0.0" else ""
-    port = start_port
-    while port <= 65535:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            try:
-                probe.bind((bind_host, port))
-            except OSError:
-                port += 1
-                continue
-        return port
-    raise RuntimeError(f"no available analysis port found at or above {start_port}")
-
-
-async def start_analysis_server_process(settings: Settings, port: int) -> asyncio.subprocess.Process:
-    env = os.environ.copy()
-    env["RCT_ANALYSIS_HOST"] = settings.host
-    env["RCT_ANALYSIS_PORT"] = str(port)
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "rct.analysis_server",
-        env=env,
-    )
-    LOGGER.info("started RCT analysis server process pid=%s port=%s", process.pid, port)
-    return process
-
-
-async def start_available_analysis_server_process(
-    settings: Settings,
-) -> tuple[int, asyncio.subprocess.Process]:
-    port = settings.port + 1
-    while port <= 65535:
-        port = find_available_analysis_port(settings.host, port)
-        process = await start_analysis_server_process(settings, port)
-        await asyncio.sleep(0.2)
-        if process.returncode is None:
-            return port, process
-        LOGGER.warning("RCT analysis server failed to start on port %s; trying next port", port)
-        port += 1
-    raise RuntimeError(f"no available analysis port found at or above {settings.port + 1}")
-
-
-async def stop_analysis_server_process(process: asyncio.subprocess.Process | None) -> None:
-    if process is None or process.returncode is not None:
-        return
-    process.terminate()
-    try:
-        await asyncio.wait_for(process.wait(), timeout=5.0)
-    except asyncio.TimeoutError:
-        LOGGER.warning("RCT analysis server did not exit after terminate; killing pid=%s", process.pid)
-        process.kill()
-        with contextlib.suppress(ProcessLookupError):
-            await process.wait()
-
-
 @dataclass
 class DevKitConnection:
     name: str
@@ -640,9 +569,8 @@ class DevKitConnection:
 
 
 class RaceControlTower:
-    def __init__(self, settings: Settings, analysis_port: int | None = None):
+    def __init__(self, settings: Settings):
         self.settings = settings
-        self.analysis_port = analysis_port
         self.state = RaceControlState()
         self.simulator_sids: set[str] = set()
         self.monitor_hub = MonitorEventHub()
@@ -791,35 +719,26 @@ class RaceControlTower:
             "/monitor/REST/{version}/racing-rule",
             self.handle_monitor_racing_rule_post,
         )
-        if self.analysis_port is None:
-            app.router.add_get(
-                "/monitor/REST/{version}/accident-logs",
-                self.handle_monitor_accident_logs_get,
-            )
-            app.router.add_get(
-                "/monitor/REST/{version}/accident-logs/ros2-mcap",
-                self.handle_monitor_accident_log_ros2_mcap_get,
-            )
-            app.router.add_get(
-                "/monitor/REST/{version}/accident-logs/{filename}/summary",
-                self.handle_monitor_accident_log_summary_get,
-            )
-            app.router.add_get(
-                "/monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{decision_id}/html",
-                self.handle_monitor_accident_log_decision_html_get,
-            )
-            app.router.add_get(
-                "/monitor/REST/{version}/accident-logs/{filename}/decision-analyses/{decision_id}/plot.svg",
-                self.handle_monitor_accident_log_decision_plot_get,
-            )
-            app.router.add_post(
-                "/monitor/REST/{version}/accident-logs/{filename}/decision-record",
-                self.handle_monitor_accident_log_decision_record_post,
-            )
-            app.router.add_delete(
-                "/monitor/REST/{version}/accident-logs",
-                self.handle_monitor_accident_logs_delete,
-            )
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-logs",
+            self.handle_monitor_accident_logs_get,
+        )
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-logs/ros2-mcap",
+            self.handle_monitor_accident_log_ros2_mcap_get,
+        )
+        app.router.add_get(
+            "/monitor/REST/{version}/accident-logs/{filename}/summary",
+            self.handle_monitor_accident_log_summary_get,
+        )
+        app.router.add_post(
+            "/monitor/REST/{version}/accident-logs/{filename}/decision-record",
+            self.handle_monitor_accident_log_decision_record_post,
+        )
+        app.router.add_delete(
+            "/monitor/REST/{version}/accident-logs",
+            self.handle_monitor_accident_logs_delete,
+        )
         app.router.add_post(
             "/monitor/REST/{version}/devkits/{vehicle_id}/endpoint",
             self.handle_monitor_devkit_endpoint_command,
@@ -1234,35 +1153,6 @@ class RaceControlTower:
             }
         )
 
-    async def handle_monitor_accident_log_decision_html_get(self, request: web.Request) -> web.Response:
-        path, error_response = self.decision_request_path_and_package_response(request)
-        if error_response is not None:
-            return error_response
-        assert path is not None
-        decision_id = request.match_info["decision_id"]
-        image_url = monitor_decision_plot_url(request.match_info["version"], path.name, decision_id)
-        try:
-            summary = await asyncio.to_thread(self.accident_log_summary_from_mcap, path)
-            body = await asyncio.to_thread(render_decision_html, decision_id, summary, image_url)
-        except Exception:
-            LOGGER.exception("failed to render decision analysis %s for %s", decision_id, path)
-            return web.json_response({"error": "failed to render decision analysis"}, status=500)
-        return web.Response(text=body, content_type="text/html")
-
-    async def handle_monitor_accident_log_decision_plot_get(self, request: web.Request) -> web.Response:
-        path, error_response = self.decision_request_path_and_package_response(request)
-        if error_response is not None:
-            return error_response
-        assert path is not None
-        decision_id = request.match_info["decision_id"]
-        try:
-            summary = await asyncio.to_thread(self.accident_log_summary_from_mcap, path)
-            body = await asyncio.to_thread(render_decision_plot_svg, decision_id, summary)
-        except Exception:
-            LOGGER.exception("failed to render decision plot %s for %s", decision_id, path)
-            return web.json_response({"error": "failed to render decision plot"}, status=500)
-        return web.Response(body=body, content_type="image/svg+xml")
-
     async def handle_monitor_accident_log_decision_record_post(self, request: web.Request) -> web.Response:
         version_path = f"/monitor/REST/{request.match_info['version']}"
         if not is_monitor_rest_path(version_path):
@@ -1279,8 +1169,14 @@ class RaceControlTower:
             return web.json_response({"error": "request body must be JSON"}, status=400)
 
         package_ids = body.get("decision_package_ids", [])
-        if not isinstance(package_ids, list) or not all(isinstance(item, str) and get_decision_package(item) for item in package_ids):
+        if not isinstance(package_ids, list) or not all(isinstance(item, str) and item in KNOWN_DECISION_PACKAGE_IDS for item in package_ids):
             return web.json_response({"error": "decision_package_ids must be known decision rule ids"}, status=400)
+        decision_results = body.get("decision_results", {})
+        if not isinstance(decision_results, dict):
+            return web.json_response({"error": "decision_results must be an object"}, status=400)
+        decision_io_version = body.get("decision_io_version", "0.1")
+        if decision_io_version != "0.1":
+            return web.json_response({"error": "unsupported decision_io_version"}, status=400)
         memo = body.get("memo", "")
         if not isinstance(memo, str):
             return web.json_response({"error": "memo must be a string"}, status=400)
@@ -1324,8 +1220,9 @@ class RaceControlTower:
                 penalty_vehicle_id=penalty_vehicle_id,
                 no_decision=no_decision,
                 decision_package_ids=package_ids,
+                decision_results=decision_results,
                 memo=memo,
-                git_revision=current_git_revision(Path(__file__).resolve().parent.parent),
+                decision_io_version=decision_io_version,
             )
         except Exception:
             LOGGER.exception("failed to save decision record for %s", path)
@@ -2195,7 +2092,7 @@ class RaceControlTower:
             decision_package_ids = [
                 package_id
                 for package_id, enabled in sw_analysis.items()
-                if enabled and get_decision_package(package_id) is not None
+                if enabled and package_id in KNOWN_DECISION_PACKAGE_IDS
             ]
             await asyncio.to_thread(
                 save_decision_record,
@@ -2205,8 +2102,8 @@ class RaceControlTower:
                 penalty_vehicle_id=None,
                 no_decision=False,
                 decision_package_ids=decision_package_ids,
+                decision_results={},
                 memo="Automatically recorded: single-vehicle collision.",
-                git_revision=current_git_revision(Path(__file__).resolve().parent.parent),
             )
         await self.publish_accident_logs()
         await self.publish_status()
@@ -2507,10 +2404,6 @@ class RaceControlTower:
                 "name": "autodrive-rct-monitor",
                 "version": MONITOR_PROTOCOL_VERSION,
             },
-            "analysis_server": {
-                "port": self.analysis_port,
-                "rest_base_path": f"/monitor/{MONITOR_REST_TRANSPORT}/{MONITOR_PROTOCOL_LATEST}",
-            },
             "simulator_socketio_path": f"/{SOCKETIO_PATH}/",
             "trace_lidar_vehicle_ids": sorted(self.trace_lidar_vehicle_ids),
             **snapshot,
@@ -2536,20 +2429,6 @@ class RaceControlTower:
         if not path.is_file():
             raise ValueError("accident log not found")
         return path
-
-    def decision_request_path_and_package_response(self, request: web.Request) -> tuple[Path | None, web.Response | None]:
-        version_path = f"/monitor/REST/{request.match_info['version']}"
-        if not is_monitor_rest_path(version_path):
-            return None, web.json_response({"error": "unsupported monitor protocol version"}, status=404)
-        decision_id = request.match_info["decision_id"]
-        if get_decision_package(decision_id) is None:
-            return None, web.json_response({"error": "unknown decision rule id"}, status=404)
-        try:
-            path = self.accident_log_path_from_filename(request.match_info["filename"])
-        except ValueError as exc:
-            status = 404 if str(exc) == "accident log not found" else 400
-            return None, web.json_response({"error": str(exc)}, status=status)
-        return path, None
 
     def resolve_accident_log_path(self, path_param: str) -> Path:
         output_dir = self.accident_recorder.output_dir.resolve()
@@ -2625,7 +2504,6 @@ class RaceControlTower:
             "complete": complete,
             "metadata": metadata,
             "decision_record": load_decision_record(path),
-            "current_rct_git_revision": current_git_revision(Path(__file__).resolve().parent.parent),
             "frames": frames,
         }
 
@@ -2739,12 +2617,8 @@ async def async_main() -> None:
     )
     settings = load_settings()
     configure_socketio_logging(settings)
-    analysis_port, analysis_process = await start_available_analysis_server_process(settings)
-    try:
-        tower = RaceControlTower(settings, analysis_port=analysis_port)
-        await tower.start()
-    finally:
-        await stop_analysis_server_process(analysis_process)
+    tower = RaceControlTower(settings)
+    await tower.start()
 
 
 def main() -> None:

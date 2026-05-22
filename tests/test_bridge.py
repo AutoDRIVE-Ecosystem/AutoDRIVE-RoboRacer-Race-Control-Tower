@@ -21,6 +21,7 @@ from rct.bridge import (
     extract_monitor_telemetry,
 )
 from rct.config import load_settings
+from rct.decision import save_decision_record
 from rct.ros2_mcap import bridge_payload_to_ros2_messages, convert_accident_mcap_to_ros2_mcap, vehicle_tf_transforms
 from rct.server import RaceControlTower, ros2_mcap_download_filename
 
@@ -332,6 +333,37 @@ class AccidentRecorderTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 tower.resolve_accident_log_path("../outside.mcap")
+
+    def test_decision_record_uses_schema_and_decision_io_versions(self):
+        with TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "autodrive 2026-05-19 01:02:03:456.mcap"
+            path.write_bytes(b"")
+
+            record = save_decision_record(
+                path,
+                fault_vehicle_id=1,
+                penalty=None,
+                penalty_vehicle_id=None,
+                no_decision=False,
+                decision_package_ids=["rear_end_collision"],
+                decision_results={
+                    "rear_end_collision": {
+                        "id": "rear_end_collision",
+                        "input_version": "0.1",
+                        "output_version": "0.1",
+                        "opinion": "Opinion",
+                        "confidence": 0.5,
+                        "penalty_vehicle_id": 1,
+                        "metrics": {},
+                    }
+                },
+                memo="memo",
+            )
+
+            self.assertEqual(record["schema_version"], "0.1")
+            self.assertEqual(record["decision_io_version"], "0.1")
+            self.assertIn("decision_results", record)
+            self.assertNotIn("rct_git_revision", record)
 
 
 class MonitorTelemetryTests(unittest.TestCase):
