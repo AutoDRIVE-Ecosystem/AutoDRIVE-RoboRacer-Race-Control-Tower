@@ -81,6 +81,14 @@ def point_from_frame(frame: dict[str, Any], vehicle_id: int) -> dict[str, Any] |
     }
 
 
+def collision_count(sample: dict[str, Any], vehicle_id: int) -> int | None:
+    value = sample["vehicles"][vehicle_id].get("collision_count")
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def velocity_at(samples: list[dict[str, Any]], index: int, vehicle_id: int) -> dict[str, float] | None:
     point = samples[index]["vehicles"][vehicle_id]
     linear_velocity = point.get("linear_velocity")
@@ -129,14 +137,46 @@ def basis(vehicle: dict[str, Any], target: dict[str, Any]) -> tuple[dict[str, fl
     if heading is None and velocity and vector_length(velocity) > 0.05:
         heading = math.atan2(velocity["y"], velocity["x"])
     if heading is None:
-        heading = math.atan2(target["y"] - vehicle["y"], target["x"] - vehicle["x"])
+        heading = math.atan2(vehicle["y"] - target["y"], vehicle["x"] - target["x"])
     forward = {"x": math.cos(heading), "y": math.sin(heading)}
     return forward, {"x": -forward["y"], "y": forward["x"]}
 
 
-def closest_window_sample(samples: list[dict[str, Any]], seconds: float) -> dict[str, Any]:
+def basis_from_samples(samples: list[dict[str, Any]], index: int, vehicle_id: int, other_id: int) -> tuple[dict[str, float], dict[str, float]]:
+    import math
+
+    vehicle = samples[index]["vehicles"][vehicle_id]
+    other = samples[index]["vehicles"][other_id]
+    for cursor in range(max(0, index - 40), index):
+        previous = samples[cursor]["vehicles"][vehicle_id]
+        dx = vehicle["x"] - previous["x"]
+        dy = vehicle["y"] - previous["y"]
+        length = (dx * dx + dy * dy) ** 0.5
+        if 0.05 <= length <= 4.0:
+            forward = {"x": dx / length, "y": dy / length}
+            return forward, {"x": -forward["y"], "y": forward["x"]}
+    return basis(vehicle, other)
+
+
+def sample_has_position_jump(samples: list[dict[str, Any]], index: int) -> bool:
+    if index <= 0:
+        return False
+    previous = samples[index - 1]
+    current = samples[index]
+    dt = current["time"] - previous["time"]
+    for vehicle_id in (1, 2):
+        jump = distance(previous["vehicles"][vehicle_id], current["vehicles"][vehicle_id])
+        if jump > 0.75 and (dt <= 0.05 or jump > 2.0):
+            return True
+    return False
+
+
+def recent_samples(samples: list[dict[str, Any]], seconds: float) -> list[dict[str, Any]]:
+    if not samples:
+        return []
     last_time = samples[-1]["time"]
-    return next((sample for sample in samples if sample["time"] >= last_time - seconds), samples[0])
+    selected = [sample for sample in samples if sample["time"] >= last_time - seconds]
+    return selected if len(selected) >= 2 else samples[-min(len(samples), 12):]
 
 
 def clip_score(value: float) -> float:
@@ -150,10 +190,24 @@ def empty_analysis(package: DecisionPackage, opinion: str) -> DecisionAnalysis:
 def rear_end_candidate(samples: list[dict[str, Any]], attacker_id: int, target_id: int) -> dict[str, Any] | None:
     if len(samples) < 2:
         return None
-    last = samples[-1]
-    attacker = last["vehicles"][attacker_id]
-    target = last["vehicles"][target_id]
-    forward, right = basis(attacker, target)
+    window = recent_samples(samples, 0.75)
+    start_index = len(samples) - len(window)
+    candidates = [
+        rear_end_candidate_at(samples, index, attacker_id, target_id)
+        for index in range(start_index, len(samples))
+        if not sample_has_position_jump(samples, index)
+    ]
+    candidates = [candidate for candidate in candidates if candidate is not None]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item["score"], -item["distance"], item["time"]))
+
+
+def rear_end_candidate_at(samples: list[dict[str, Any]], index: int, attacker_id: int, target_id: int) -> dict[str, Any] | None:
+    sample = samples[index]
+    attacker = sample["vehicles"][attacker_id]
+    target = sample["vehicles"][target_id]
+    forward, right = basis_from_samples(samples, index, target_id, attacker_id)
     dx = target["x"] - attacker["x"]
     dy = target["y"] - attacker["y"]
     longitudinal = dx * forward["x"] + dy * forward["y"]
@@ -165,11 +219,11 @@ def rear_end_candidate(samples: list[dict[str, Any]], attacker_id: int, target_i
         closing = (av["x"] - tv["x"]) * forward["x"] + (av["y"] - tv["y"]) * forward["y"]
     else:
         closing = float(attacker.get("calculated_speed") or 0.0) - float(target.get("calculated_speed") or 0.0)
-    first = closest_window_sample(samples, 2.0)
+    first_index = max(0, index - 40)
+    first = samples[first_index]
     approach = distance(first["vehicles"][attacker_id], first["vehicles"][target_id]) - final_distance
-    score = 0.0
-    score += 0.34 if longitudinal > 0.15 else 0.0
-    score += 0.2 if lateral <= 1.2 else (0.1 if lateral <= 1.8 else 0.0)
+    score = 0.34 * clip_score(longitudinal / 0.6)
+    score += 0.2 * clip_score(1.0 - (lateral / 1.2))
     score += 0.25 if closing > 0.2 else (0.12 if closing > 0.05 else 0.0)
     score += 0.14 if approach > 0.25 else (0.07 if approach > 0.05 else 0.0)
     score += 0.07 if final_distance <= 2.0 else 0.0
@@ -181,24 +235,41 @@ def rear_end_candidate(samples: list[dict[str, Any]], attacker_id: int, target_i
         "lateral_gap": lateral,
         "distance": final_distance,
         "approach": approach,
+        "longitudinal_gap": longitudinal,
+        "time": sample["time"],
     }
 
 
 def lateral_candidate(samples: list[dict[str, Any]], vehicle_id: int, other_id: int) -> dict[str, Any] | None:
     if len(samples) < 2:
         return None
-    last = samples[-1]
-    vehicle = last["vehicles"][vehicle_id]
-    other = last["vehicles"][other_id]
-    _forward, right = basis(vehicle, other)
+    window = recent_samples(samples, 0.75)
+    start_index = len(samples) - len(window)
+    candidates = [
+        lateral_candidate_at(samples, index, vehicle_id, other_id)
+        for index in range(start_index, len(samples))
+        if not sample_has_position_jump(samples, index)
+    ]
+    candidates = [candidate for candidate in candidates if candidate is not None]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item["score"], -item["distance"], item["time"]))
+
+
+def lateral_candidate_at(samples: list[dict[str, Any]], index: int, vehicle_id: int, other_id: int) -> dict[str, Any] | None:
+    sample = samples[index]
+    vehicle = sample["vehicles"][vehicle_id]
+    other = sample["vehicles"][other_id]
+    _forward, right = basis_from_samples(samples, index, vehicle_id, other_id)
     lateral = (other["x"] - vehicle["x"]) * right["x"] + (other["y"] - vehicle["y"]) * right["y"]
     lateral_gap = abs(lateral)
     velocity = vehicle.get("velocity") or {"x": 0.0, "y": 0.0}
     toward = 0.0 if lateral == 0 else (velocity["x"] * right["x"] + velocity["y"] * right["y"]) * (1 if lateral > 0 else -1)
-    first = closest_window_sample(samples, 2.0)
+    first_index = max(0, index - 40)
+    first = samples[first_index]
     first_vehicle = first["vehicles"][vehicle_id]
     first_other = first["vehicles"][other_id]
-    _ff, first_right = basis(first_vehicle, first_other)
+    _ff, first_right = basis_from_samples(samples, first_index, vehicle_id, other_id)
     first_gap = abs((first_other["x"] - first_vehicle["x"]) * first_right["x"] + (first_other["y"] - first_vehicle["y"]) * first_right["y"])
     gap_closed = first_gap - lateral_gap
     final_distance = distance(vehicle, other)
@@ -215,6 +286,7 @@ def lateral_candidate(samples: list[dict[str, Any]], vehicle_id: int, other_id: 
         "toward": toward,
         "gap_closed": gap_closed,
         "distance": final_distance,
+        "time": sample["time"],
     }
 
 
@@ -266,7 +338,7 @@ def metrics_from_candidates(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     metrics = {f"vehicle_{item['vehicle_id']}_score": round(item["score"], 3) for item in candidates}
     if candidates:
         best = candidates[0]
-        for key in ("closing", "lateral_gap", "distance", "approach", "toward", "gap_closed"):
+        for key in ("closing", "longitudinal_gap", "lateral_gap", "distance", "approach", "toward", "gap_closed"):
             if key in best:
                 metrics[key] = round(float(best[key]), 3)
     return metrics

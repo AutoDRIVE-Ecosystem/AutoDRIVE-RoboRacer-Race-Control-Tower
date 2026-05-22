@@ -29,5 +29,6 @@ def analyze(samples: list[dict[str, Any]]) -> DecisionAnalysis:
     elif best["score"] >= 0.5:
         decision = "Rear-end possible"
         penalty = best["vehicle_id"]
-    opinion = f"Opinion: {decision}; {'primary penalty Vehicle ' + label if penalty and best['score'] >= 0.7 else ('possible penalty Vehicle ' + label if penalty else 'no clear penalty')}. Confidence {best['score'] * 100:.0f}%. Vehicle {label} was behind Vehicle {other}; closing {best['closing']:.2f}m/s."
+    speed_note = f"closing {best['closing']:.2f}m/s" if best["closing"] > 0.05 else f"directional gap {best['longitudinal_gap']:.2f}m"
+    opinion = f"Opinion: {decision}; {'primary penalty Vehicle ' + label if penalty and best['score'] >= 0.7 else ('possible penalty Vehicle ' + label if penalty else 'no clear penalty')}. Confidence {best['score'] * 100:.0f}%. Vehicle {label} was behind Vehicle {other}; {speed_note}."
     return DecisionAnalysis(PACKAGE, opinion, best["score"], penalty, metrics_from_candidates(candidates), rear_end_series(samples))
