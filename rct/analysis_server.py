@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -19,13 +20,14 @@ from .decision import (
     get_decision_package,
     load_decision_record,
     render_decision_html,
-    render_decision_plot_svg,
     save_decision_record,
 )
 from .monitor_protocol import MONITOR_PROTOCOL_VERSION, is_monitor_rest_path
 from .ros2_mcap import convert_accident_mcap_to_ros2_mcap
 
 LOGGER = logging.getLogger("rct.analysis")
+DEFAULT_PLOT_RENDER_TIMEOUT_SECONDS = 10.0
+DEFAULT_PLOT_RENDER_CONCURRENCY = 2
 
 
 def ros2_mcap_download_filename(filename: str) -> str:
@@ -55,6 +57,12 @@ async def cors_middleware(request: web.Request, handler: web.RequestHandler) -> 
 class AnalysisServer:
     def __init__(self, accident_log_dir: Path | str = "accident_logs") -> None:
         self.accident_recorder = AccidentRecorder(accident_log_dir)
+        self.plot_render_timeout_seconds = float(
+            os.getenv("RCT_ANALYSIS_PLOT_RENDER_TIMEOUT_SECONDS", DEFAULT_PLOT_RENDER_TIMEOUT_SECONDS)
+        )
+        self.plot_render_semaphore = asyncio.Semaphore(
+            int(os.getenv("RCT_ANALYSIS_PLOT_RENDER_CONCURRENCY", DEFAULT_PLOT_RENDER_CONCURRENCY))
+        )
 
     def create_app(self) -> web.Application:
         app = web.Application(middlewares=[cors_middleware])
@@ -178,7 +186,15 @@ class AnalysisServer:
         decision_id = request.match_info["decision_id"]
         try:
             summary = await asyncio.to_thread(self.accident_log_summary_from_mcap, path)
-            body = await asyncio.to_thread(render_decision_plot_svg, decision_id, summary)
+            async with self.plot_render_semaphore:
+                body = await render_decision_plot_svg_subprocess(
+                    decision_id,
+                    summary,
+                    timeout_seconds=self.plot_render_timeout_seconds,
+                )
+        except TimeoutError:
+            LOGGER.exception("timed out rendering decision plot %s for %s", decision_id, path)
+            return web.json_response({"error": "timed out rendering decision plot"}, status=504)
         except Exception:
             LOGGER.exception("failed to render decision plot %s for %s", decision_id, path)
             return web.json_response({"error": "failed to render decision plot"}, status=500)
@@ -391,6 +407,48 @@ class AnalysisServer:
             "current_rct_git_revision": current_git_revision(Path(__file__).resolve().parent.parent),
             "frames": frames,
         }
+
+
+async def render_decision_plot_svg_subprocess(
+    decision_id: str,
+    summary: dict[str, Any],
+    *,
+    timeout_seconds: float,
+) -> bytes:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "rct.decision_plot_worker",
+        decision_id,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    request_body = json.dumps(summary, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(request_body), timeout=timeout_seconds)
+    except asyncio.CancelledError:
+        await stop_subprocess(process)
+        raise
+    except asyncio.TimeoutError as exc:
+        await stop_subprocess(process)
+        raise TimeoutError("decision plot render timed out") from exc
+
+    if process.returncode != 0:
+        stderr_text = stderr.decode("utf-8", errors="replace")[:2000]
+        raise RuntimeError(f"decision plot worker exited with {process.returncode}: {stderr_text}")
+    return stdout
+
+
+async def stop_subprocess(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=2.0)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
 
 
 async def async_main() -> None:
