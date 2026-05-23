@@ -213,6 +213,34 @@
         white-space: nowrap;
       }
 
+      .rct-vehicle-status-area {
+        border-radius: 0.25rem;
+        color: #ffffff;
+        font-size: 0.875rem;
+        font-weight: 600;
+        line-height: 1.2;
+        min-height: 1.9375rem;
+        padding: 0.4375rem 0.5rem;
+        text-align: center;
+        width: 100%;
+      }
+
+      .rct-vehicle-status-area[hidden] {
+        display: none;
+      }
+
+      .rct-vehicle-status-waiting {
+        background-color: #f59e0b;
+      }
+
+      .rct-vehicle-status-released {
+        background-color: #16a34a;
+      }
+
+      .rct-vehicle-status-penalty {
+        background-color: #dc2626;
+      }
+
       html,
       body {
         height: 100%;
@@ -907,6 +935,7 @@
                   <dd id="roboracer1Ips" class="mb-0">0, 0</dd>
                 </div>
               </dl>
+              <div id="roboracer1DecisionStatus" class="rct-vehicle-status-area mt-2" hidden></div>
               <div id="roboracer1Trophy" class="rct-trophy">
                 <img src="assets/trophy.png" alt="Winner trophy">
               </div>
@@ -968,6 +997,7 @@
                   <dd id="roboracer2Ips" class="mb-0">0, 0</dd>
                 </div>
               </dl>
+              <div id="roboracer2DecisionStatus" class="rct-vehicle-status-area mt-2" hidden></div>
               <div id="roboracer2Trophy" class="rct-trophy">
                 <img src="assets/trophy.png" alt="Winner trophy">
               </div>
@@ -1036,6 +1066,7 @@
           lapCount: document.getElementById("roboracer1LapCount"),
           bridgeHz: document.getElementById("roboracer1BridgeHz"),
           ips: document.getElementById("roboracer1Ips"),
+          decisionStatus: document.getElementById("roboracer1DecisionStatus"),
           collisions: document.getElementById("roboracer1Collisions"),
           penalties: document.getElementById("roboracer1Penalties"),
           trophy: document.getElementById("roboracer1Trophy"),
@@ -1052,6 +1083,7 @@
           lapCount: document.getElementById("roboracer2LapCount"),
           bridgeHz: document.getElementById("roboracer2BridgeHz"),
           ips: document.getElementById("roboracer2Ips"),
+          decisionStatus: document.getElementById("roboracer2DecisionStatus"),
           collisions: document.getElementById("roboracer2Collisions"),
           penalties: document.getElementById("roboracer2Penalties"),
           trophy: document.getElementById("roboracer2Trophy"),
@@ -1144,6 +1176,12 @@
       let penaltyDecisionActive = false;
       let penaltyDecisionAccidentLogFilename = null;
       let manualDecisionSubmitInProgress = false;
+      let activePenaltyStatusSignature = null;
+      let decisionStatusTimer = null;
+      const vehicleDecisionStatus = {
+        1: { mode: "hidden", until: 0, countdownUntil: 0 },
+        2: { mode: "hidden", until: 0, countdownUntil: 0 },
+      };
       let currentAccidentLogSummary = null;
       const accidentLogSummaryCache = new Map();
       const accidentLogSummaryInflight = new Map();
@@ -2706,6 +2744,9 @@
         if (connected && !wasConnected) {
           resetVehicleTraces();
         }
+        if (!connected) {
+          hideAllVehicleDecisionStatuses();
+        }
         setCanvasInteractionEnabled(connected);
         drawMainCanvas();
       }
@@ -3551,6 +3592,165 @@
         mainTrajectoryCanvas.draw();
       }
 
+      function showVehicleDecisionStatus(vehicleId, mode, options = {}) {
+        const status = vehicleDecisionStatus[vehicleId];
+        if (!status) {
+          return;
+        }
+        status.mode = mode;
+        status.until = Number(options.until) || 0;
+        status.countdownUntil = Number(options.countdownUntil) || 0;
+        renderVehicleDecisionStatuses();
+      }
+
+      function hideVehicleDecisionStatus(vehicleId) {
+        const status = vehicleDecisionStatus[vehicleId];
+        if (!status) {
+          return;
+        }
+        status.mode = "hidden";
+        status.until = 0;
+        status.countdownUntil = 0;
+        renderVehicleDecisionStatuses();
+      }
+
+      function hideAllVehicleDecisionStatuses() {
+        activePenaltyStatusSignature = null;
+        for (const vehicleId of Object.keys(vehicleDecisionStatus)) {
+          vehicleDecisionStatus[vehicleId].mode = "hidden";
+          vehicleDecisionStatus[vehicleId].until = 0;
+          vehicleDecisionStatus[vehicleId].countdownUntil = 0;
+        }
+        renderVehicleDecisionStatuses();
+      }
+
+      function renderVehicleDecisionStatuses() {
+        const now = Date.now();
+        let needsTick = false;
+        for (const [vehicleId, status] of Object.entries(vehicleDecisionStatus)) {
+          const roboracer = roboracers[vehicleId];
+          const area = roboracer && roboracer.decisionStatus;
+          if (!area) {
+            continue;
+          }
+
+          if (status.mode !== "hidden" && status.until > 0 && now >= status.until) {
+            if (status.mode === "penalty") {
+              status.mode = "released";
+              status.until = now + 1000;
+              status.countdownUntil = 0;
+            } else {
+              status.mode = "hidden";
+              status.until = 0;
+              status.countdownUntil = 0;
+            }
+          }
+
+          area.classList.remove(
+            "rct-vehicle-status-waiting",
+            "rct-vehicle-status-released",
+            "rct-vehicle-status-penalty",
+          );
+
+          if (status.mode === "waiting") {
+            area.hidden = false;
+            area.textContent = "Waiting for decision";
+            area.classList.add("rct-vehicle-status-waiting");
+          } else if (status.mode === "released") {
+            area.hidden = false;
+            area.textContent = "Released";
+            area.classList.add("rct-vehicle-status-released");
+            needsTick = true;
+          } else if (status.mode === "penalty") {
+            const remaining = Math.max(1, Math.ceil((status.countdownUntil - now) / 1000));
+            area.hidden = false;
+            area.textContent = `Penalty hold ${remaining}s`;
+            area.classList.add("rct-vehicle-status-penalty");
+            needsTick = true;
+          } else {
+            area.hidden = true;
+            area.textContent = "";
+          }
+        }
+
+        if (needsTick && decisionStatusTimer === null) {
+          decisionStatusTimer = window.setInterval(renderVehicleDecisionStatuses, 250);
+        } else if (!needsTick && decisionStatusTimer !== null) {
+          window.clearInterval(decisionStatusTimer);
+          decisionStatusTimer = null;
+        }
+      }
+
+      function setWaitingDecisionStatus() {
+        activePenaltyStatusSignature = null;
+        for (const vehicleId of Object.keys(vehicleDecisionStatus)) {
+          showVehicleDecisionStatus(vehicleId, "waiting");
+        }
+      }
+
+      function setPenaltyReleasedStatus(penaltyDecision) {
+        const penaltyVehicleId = Number(penaltyDecision.penalty_vehicle_id);
+        const victimVehicleId = Number(penaltyDecision.victim_vehicle_id);
+        const filteredVehicleIds = Array.isArray(penaltyDecision.filtered_vehicle_ids)
+          ? penaltyDecision.filtered_vehicle_ids.map((vehicleId) => Number(vehicleId))
+          : [];
+        const releaseDelaySeconds = Number(penaltyDecision.release_delay_seconds);
+        const now = Date.now();
+        const delayMs = Math.max(0, Number.isFinite(releaseDelaySeconds) ? releaseDelaySeconds * 1000 : 0);
+        const signature = [
+          penaltyVehicleId,
+          victimVehicleId,
+          filteredVehicleIds.join(","),
+          delayMs,
+        ].join(":");
+        if (signature === activePenaltyStatusSignature) {
+          return;
+        }
+        activePenaltyStatusSignature = signature;
+
+        for (const vehicleId of Object.keys(vehicleDecisionStatus).map((value) => Number(value))) {
+          if (vehicleId === penaltyVehicleId && filteredVehicleIds.includes(vehicleId) && delayMs > 0) {
+            showVehicleDecisionStatus(vehicleId, "penalty", {
+              until: now + delayMs,
+              countdownUntil: now + delayMs,
+            });
+          } else if (vehicleId === penaltyVehicleId && delayMs <= 0) {
+            showVehicleDecisionStatus(vehicleId, "released", { until: now + 1000 });
+          } else if (vehicleId === victimVehicleId || !filteredVehicleIds.includes(vehicleId)) {
+            showVehicleDecisionStatus(vehicleId, "released", { until: now + 1000 });
+          } else {
+            hideVehicleDecisionStatus(vehicleId);
+          }
+        }
+      }
+
+      function handlePenaltyDecisionStatus(penaltyDecision) {
+        if (!penaltyDecision) {
+          return;
+        }
+        if (!simulatorConnected) {
+          hideAllVehicleDecisionStatuses();
+          return;
+        }
+        if (penaltyDecision.active && penaltyDecision.penalty_vehicle_id) {
+          setPenaltyReleasedStatus(penaltyDecision);
+        } else if (penaltyDecision.active) {
+          setWaitingDecisionStatus();
+        } else {
+          const wasWaitingForDecision = Object.values(vehicleDecisionStatus)
+            .some((status) => status.mode === "waiting");
+          if (wasWaitingForDecision) {
+            activePenaltyStatusSignature = null;
+            const until = Date.now() + 1000;
+            for (const vehicleId of Object.keys(vehicleDecisionStatus)) {
+              showVehicleDecisionStatus(vehicleId, "released", { until });
+            }
+          } else {
+            hideAllVehicleDecisionStatuses();
+          }
+        }
+      }
+
       function updateVehiclePenalties(vehiclePenalties) {
         for (const [vehicleId, roboracer] of Object.entries(roboracers)) {
           const count = Number(vehiclePenalties && vehiclePenalties[vehicleId]);
@@ -3646,6 +3846,9 @@
               renderAccidentLogs({ forceDetail: true });
             }
           }
+          if (message.penalty_decision) {
+            handlePenaltyDecisionStatus(message.penalty_decision);
+          }
         } else if (message.event === "telemetry") {
           updateTelemetry(message.vehicles);
         } else if (message.event === "accident-logs") {
@@ -3654,6 +3857,7 @@
             updateAccidentLogsButton();
           }
         } else if (message.event === "penalty-decision") {
+          handlePenaltyDecisionStatus(message);
           if (message.active && !manualDecisionSubmitInProgress) {
             openAccidentLogsForManualDecision();
           } else {
