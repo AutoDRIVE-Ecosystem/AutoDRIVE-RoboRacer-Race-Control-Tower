@@ -1120,6 +1120,7 @@
       let manualDecisionSubmitInProgress = false;
       let currentAccidentLogSummary = null;
       const accidentLogSummaryCache = new Map();
+      const accidentLogSummaryInflight = new Map();
       const decisionAnalysisCache = new Map();
       let accidentReplayCanvas = null;
       let accidentReplayFrames = [];
@@ -1222,6 +1223,11 @@
         for (const filename of accidentLogSummaryCache.keys()) {
           if (!filenames.has(filename)) {
             accidentLogSummaryCache.delete(filename);
+          }
+        }
+        for (const filename of accidentLogSummaryInflight.keys()) {
+          if (!filenames.has(filename)) {
+            accidentLogSummaryInflight.delete(filename);
           }
         }
         for (const key of decisionAnalysisCache.keys()) {
@@ -1722,18 +1728,30 @@
         if (!forceReload && accidentLogSummaryCache.has(filename)) {
           return accidentLogSummaryCache.get(filename);
         }
-        const response = await fetch(
+        if (!forceReload && accidentLogSummaryInflight.has(filename)) {
+          return accidentLogSummaryInflight.get(filename);
+        }
+        const summaryPromise = fetch(
           monitorRestUrl(`/accident-logs/${encodeURIComponent(filename)}/summary?ts=${Date.now()}`),
           { cache: "no-store" },
-        );
-        if (!response.ok) {
-          throw new Error(`Failed to load accident log summary: ${response.status} ${response.statusText}`);
-        }
-        const summary = await response.json();
-        if (summary.complete !== false) {
-          accidentLogSummaryCache.set(filename, summary);
-        }
-        return summary;
+        )
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(`Failed to load accident log summary: ${response.status} ${response.statusText}`);
+            }
+            return response.json();
+          })
+          .then((summary) => {
+            if (summary.complete !== false) {
+              accidentLogSummaryCache.set(filename, summary);
+            }
+            return summary;
+          })
+          .finally(() => {
+            accidentLogSummaryInflight.delete(filename);
+          });
+        accidentLogSummaryInflight.set(filename, summaryPromise);
+        return summaryPromise;
       }
 
       async function loadAccidentLogs() {
@@ -1830,6 +1848,7 @@
         }
         const payload = await response.json();
         accidentLogSummaryCache.delete(accidentLog.filename);
+        accidentLogSummaryInflight.delete(accidentLog.filename);
         return payload.decision_record || null;
       }
 
@@ -3016,7 +3035,7 @@
           }
           if (scan && typeof scan === "object" && !Array.isArray(scan)) {
             if (Object.prototype.hasOwnProperty.call(scan, "ranges")) {
-              return this.lidarLocalPointsFromRanges(scan.ranges);
+              return this.lidarLocalPointsFromRanges(scan.ranges, scan);
             }
             if (Object.prototype.hasOwnProperty.call(scan, "scan")) {
               return this.lidarLocalPointsFromScan(scan.scan);
@@ -3047,7 +3066,7 @@
           return this.lidarLocalPointsFromRanges(numbers);
         }
 
-        lidarLocalPointsFromRanges(ranges) {
+        lidarLocalPointsFromRanges(ranges, options = {}) {
           if (typeof ranges === "string") {
             ranges = this.numericValuesFromText(ranges);
           }
@@ -3055,9 +3074,11 @@
             return [];
           }
           const numbers = ranges.map(Number).filter(Number.isFinite);
+          const angleMin = Number.isFinite(Number(options.angle_min)) ? Number(options.angle_min) : lidarAngleMin;
+          const angleIncrement = Number.isFinite(Number(options.angle_increment)) ? Number(options.angle_increment) : lidarAngleIncrement;
           const points = [];
           for (let index = 0; index < numbers.length; index += 1) {
-            const radians = lidarAngleMin + lidarAngleIncrement * index;
+            const radians = angleMin + angleIncrement * index;
             points.push({
               x: lidarOffset.x + numbers[index] * Math.cos(radians),
               y: lidarOffset.y + numbers[index] * Math.sin(radians),
@@ -4140,7 +4161,7 @@
       });
       accidentLogsDialog.addEventListener("shown.bs.modal", () => {
         accidentLogsDialogVisible = true;
-        renderAccidentLogs({ forceDetail: true });
+        renderAccidentLogs();
       });
       accidentLogsDialog.addEventListener("hidden.bs.modal", () => {
         accidentLogsDialogVisible = false;

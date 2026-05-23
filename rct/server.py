@@ -136,6 +136,9 @@ TOPICS_IGNORED_FOR_DEVKIT_BRIDGE = frozenset(
     }
 )
 KNOWN_DECISION_PACKAGE_IDS = frozenset(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS)
+LIDAR_REPLAY_ANGLE_MIN = -2.35619
+LIDAR_REPLAY_ANGLE_INCREMENT = 0.004363323
+LIDAR_REPLAY_MAX_RANGES = 270
 
 
 ZERO_LIDAR_RANGE_ARRAY_BASE64 = base64.b64encode(
@@ -427,6 +430,22 @@ def mcap_range_response(body: bytes, request: web.Request, headers: dict[str, st
             "Content-Range": f"bytes {start}-{end}/{len(body)}",
         },
     )
+
+
+def replay_lidar_ranges_payload(ranges: list[float]) -> dict[str, Any]:
+    if len(ranges) <= LIDAR_REPLAY_MAX_RANGES:
+        return {
+            "ranges": ranges,
+            "angle_min": LIDAR_REPLAY_ANGLE_MIN,
+            "angle_increment": LIDAR_REPLAY_ANGLE_INCREMENT,
+        }
+    step = max(1, round(len(ranges) / LIDAR_REPLAY_MAX_RANGES))
+    return {
+        "ranges": ranges[::step],
+        "angle_min": LIDAR_REPLAY_ANGLE_MIN,
+        "angle_increment": LIDAR_REPLAY_ANGLE_INCREMENT * step,
+        "sample_step": step,
+    }
 
 
 @dataclass
@@ -1702,7 +1721,10 @@ class RaceControlTower:
                 if isinstance(values.get("ips"), dict)
             },
         }
-        lidar_scans: dict[int, Any] = extract_lidar_range_arrays(payload, self.trace_lidar_vehicle_ids)
+        lidar_scans: dict[int, Any] = {
+            vehicle_id: replay_lidar_ranges_payload(ranges)
+            for vehicle_id, ranges in extract_lidar_range_arrays(payload, self.trace_lidar_vehicle_ids).items()
+        }
         for vehicle_id, points in extract_lidar_scans(payload, self.trace_lidar_vehicle_ids, lidar_positions).items():
             lidar_scans.setdefault(vehicle_id, points)
         for vehicle_id, points in lidar_scans.items():
@@ -2569,7 +2591,7 @@ class RaceControlTower:
                         if isinstance(values.get("ips"), dict)
                     }
                     lidar_scans: dict[int, Any] = {
-                        vehicle_id: {"ranges": ranges}
+                        vehicle_id: replay_lidar_ranges_payload(ranges)
                         for vehicle_id, ranges in extract_lidar_range_arrays(bridge_payload, lidar_vehicle_ids).items()
                     }
                     for vehicle_id, points in extract_lidar_scans(bridge_payload, lidar_vehicle_ids, lidar_positions).items():
