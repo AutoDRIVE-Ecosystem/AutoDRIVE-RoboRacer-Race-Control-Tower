@@ -150,6 +150,24 @@ class RaceControlStateTests(unittest.TestCase):
         state.start_race_time(now=30.0)
         self.assertEqual(state.race_time_seconds(now=31.25), 1.25)
 
+    def test_snapshot_tracks_review_time_across_multiple_decisions(self):
+        state = RaceControlState()
+
+        self.assertEqual(state.snapshot()["review_time_seconds"], 0.0)
+
+        state.start_race_time(now=1.0)
+        state.start_review_time(now=10.0)
+        self.assertEqual(state.review_time_seconds(now=12.5), 2.5)
+
+        state.stop_review_time(now=15.0)
+        self.assertEqual(state.review_time_seconds(now=20.0), 5.0)
+
+        state.start_review_time(now=30.0)
+        self.assertEqual(state.review_time_seconds(now=31.25), 6.25)
+
+        state.start_race_time(now=40.0)
+        self.assertEqual(state.review_time_seconds(now=45.0), 0.0)
+
     def test_snapshot_tracks_accident_logs(self):
         state = RaceControlState()
         state.add_accident_log(

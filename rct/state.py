@@ -86,6 +86,8 @@ class RaceControlState:
         }
         self._race_time_started_at: float | None = None
         self._race_time_elapsed_seconds = 0.0
+        self._review_time_started_at: float | None = None
+        self._review_time_elapsed_seconds = 0.0
 
     def configure_devkits(self, devkits: Iterable[DevKitMonitorState]) -> None:
         with self._lock:
@@ -104,6 +106,8 @@ class RaceControlState:
         with self._lock:
             self._race_time_elapsed_seconds = 0.0
             self._race_time_started_at = now
+            self._review_time_elapsed_seconds = 0.0
+            self._review_time_started_at = None
             self._revision += 1
 
     def stop_race_time(self, now: float | None = None) -> None:
@@ -121,6 +125,30 @@ class RaceControlState:
             if self._race_time_started_at is None:
                 return self._race_time_elapsed_seconds
             return self._race_time_elapsed_seconds + max(0.0, now - self._race_time_started_at)
+
+    def start_review_time(self, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            if self._review_time_started_at is not None:
+                return
+            self._review_time_started_at = now
+            self._revision += 1
+
+    def stop_review_time(self, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            if self._review_time_started_at is None:
+                return
+            self._review_time_elapsed_seconds += max(0.0, now - self._review_time_started_at)
+            self._review_time_started_at = None
+            self._revision += 1
+
+    def review_time_seconds(self, now: float | None = None) -> float:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            if self._review_time_started_at is None:
+                return self._review_time_elapsed_seconds
+            return self._review_time_elapsed_seconds + max(0.0, now - self._review_time_started_at)
 
     def set_monitor_clients(self, count: int) -> None:
         with self._lock:
@@ -389,4 +417,5 @@ class RaceControlState:
                 "vehicle_penalties": {str(vehicle_id): count for vehicle_id, count in sorted(self._vehicle_penalties.items())},
                 "race_result": dict(self._race_result),
                 "race_time_seconds": self.race_time_seconds(),
+                "review_time_seconds": self.review_time_seconds(),
             }

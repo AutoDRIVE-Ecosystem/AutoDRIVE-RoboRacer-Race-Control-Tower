@@ -637,6 +637,10 @@
         color: #6c757d;
       }
 
+      .rct-review-time-active {
+        color: #000000;
+      }
+
       .rct-main-canvas {
         cursor: grab;
         display: block;
@@ -949,6 +953,10 @@
                   <dt>Race Time:</dt>
                   <dd id="roboracer1RaceTime" class="mb-1">00:00</dd>
                 </div>
+                <div id="roboracer1ReviewTimeRow" class="d-flex justify-content-between rct-stat-secondary">
+                  <dt>Review Time:</dt>
+                  <dd id="roboracer1ReviewTime" class="mb-1">00:00</dd>
+                </div>
                 <div class="d-flex justify-content-between">
                   <dt>This Lap:</dt>
                   <dd id="roboracer1ThisLap" class="mb-1">00:00</dd>
@@ -1017,6 +1025,10 @@
                 <div class="d-flex justify-content-between">
                   <dt>Race Time:</dt>
                   <dd id="roboracer2RaceTime" class="mb-1">00:00</dd>
+                </div>
+                <div id="roboracer2ReviewTimeRow" class="d-flex justify-content-between rct-stat-secondary">
+                  <dt>Review Time:</dt>
+                  <dd id="roboracer2ReviewTime" class="mb-1">00:00</dd>
                 </div>
                 <div class="d-flex justify-content-between">
                   <dt>This Lap:</dt>
@@ -1114,6 +1126,8 @@
           collisions: document.getElementById("roboracer1Collisions"),
           penalties: document.getElementById("roboracer1Penalties"),
           raceTime: document.getElementById("roboracer1RaceTime"),
+          reviewTimeRow: document.getElementById("roboracer1ReviewTimeRow"),
+          reviewTime: document.getElementById("roboracer1ReviewTime"),
           trophy: document.getElementById("roboracer1Trophy"),
           thisLap: document.getElementById("roboracer1ThisLap"),
           lastLap: document.getElementById("roboracer1LastLap"),
@@ -1134,6 +1148,8 @@
           collisions: document.getElementById("roboracer2Collisions"),
           penalties: document.getElementById("roboracer2Penalties"),
           raceTime: document.getElementById("roboracer2RaceTime"),
+          reviewTimeRow: document.getElementById("roboracer2ReviewTimeRow"),
+          reviewTime: document.getElementById("roboracer2ReviewTime"),
           trophy: document.getElementById("roboracer2Trophy"),
           thisLap: document.getElementById("roboracer2ThisLap"),
           lastLap: document.getElementById("roboracer2LastLap"),
@@ -1226,6 +1242,7 @@
       let manualDecisionSubmitInProgress = false;
       let activePenaltyStatusSignature = null;
       let decisionStatusTimer = null;
+      let reviewTimeRunning = false;
       const vehicleDecisionStatus = {
         1: { mode: "hidden", until: 0, countdownUntil: 0 },
         2: { mode: "hidden", until: 0, countdownUntil: 0 },
@@ -2855,6 +2872,36 @@
         });
       }
 
+      function updateReviewTimeDisplay(reviewTimeSeconds, running = reviewTimeRunning) {
+        const label = formatElapsedTime(reviewTimeSeconds);
+        Object.values(roboracers).forEach((roboracer) => {
+          if (roboracer.reviewTimeRow) {
+            roboracer.reviewTimeRow.classList.toggle("rct-review-time-active", running);
+          }
+          if (roboracer.reviewTime) {
+            roboracer.reviewTime.textContent = label;
+          }
+        });
+      }
+
+      function isReviewTimeRunningFromPenaltyDecision(penaltyDecision) {
+        return Boolean(
+          penaltyDecision
+          && penaltyDecision.active
+          && !penaltyDecision.penalty_vehicle_id
+          && !penaltyDecision.no_decision
+        );
+      }
+
+      function updateReviewTimeRunning(penaltyDecision) {
+        reviewTimeRunning = isReviewTimeRunningFromPenaltyDecision(penaltyDecision);
+        Object.values(roboracers).forEach((roboracer) => {
+          if (roboracer.reviewTimeRow) {
+            roboracer.reviewTimeRow.classList.toggle("rct-review-time-active", reviewTimeRunning);
+          }
+        });
+      }
+
       function roboracerConfig(vehicleId) {
         const roboracer = roboracers[vehicleId];
         return {
@@ -3915,6 +3962,9 @@
           if (Object.prototype.hasOwnProperty.call(message, "race_time_seconds")) {
             updateRaceTimeDisplay(message.race_time_seconds);
           }
+          if (Object.prototype.hasOwnProperty.call(message, "review_time_seconds")) {
+            updateReviewTimeDisplay(message.review_time_seconds);
+          }
           updateRoboracerStatusFromState(message.devkits);
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
           updateVehiclePenalties(message.vehicle_penalties);
@@ -3976,10 +4026,14 @@
             }
           }
           if (message.penalty_decision) {
+            updateReviewTimeRunning(message.penalty_decision);
             handlePenaltyDecisionStatus(message.penalty_decision);
           }
         } else if (message.event === "telemetry") {
           updateRaceTimeDisplay(message.race_time_seconds);
+          if (Object.prototype.hasOwnProperty.call(message, "review_time_seconds")) {
+            updateReviewTimeDisplay(message.review_time_seconds);
+          }
           updateTelemetry(message.vehicles);
         } else if (message.event === "accident-logs") {
           if (Array.isArray(message.accident_logs)) {
@@ -3987,6 +4041,10 @@
             updateAccidentLogsButton();
           }
         } else if (message.event === "penalty-decision") {
+          updateReviewTimeRunning(message);
+          if (Object.prototype.hasOwnProperty.call(message, "review_time_seconds")) {
+            updateReviewTimeDisplay(message.review_time_seconds);
+          }
           handlePenaltyDecisionStatus(message);
           if (message.active && !manualDecisionSubmitInProgress) {
             openAccidentLogsForManualDecision();

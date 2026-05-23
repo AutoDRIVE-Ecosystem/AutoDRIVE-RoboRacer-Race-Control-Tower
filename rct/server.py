@@ -858,6 +858,7 @@ class RaceControlTower:
                         collision_vehicle_ids=[],
                         filtered_vehicle_ids=[],
                         reset_reason="simulator-connected",
+                        review_time_seconds=self.state.review_time_seconds(),
                         release_delay_seconds=float(
                             self.state.penalty_rule_settings()["restart_delay_seconds"]
                         ),
@@ -882,6 +883,7 @@ class RaceControlTower:
             LOGGER.info("simulator disconnected sid=%s reason=%s", sid, reason)
             if not self.simulator_sids:
                 self.state.stop_race_time()
+                self.state.stop_review_time()
                 await self.disconnect_all_devkits()
             await self.publish_status()
 
@@ -1530,6 +1532,7 @@ class RaceControlTower:
         self.filtered_control_vehicle_ids.clear()
         self.state.reset_vehicle_penalties()
         self.state.set_race_result(active=False)
+        self.state.stop_review_time()
         self.state.set_penalty_decision(
             active=False,
             collision_vehicle_ids=[],
@@ -1901,6 +1904,7 @@ class RaceControlTower:
             task.cancel()
         self._penalty_release_tasks.clear()
         self.filtered_control_vehicle_ids = set(collision_vehicle_ids)
+        self.state.start_review_time()
         self.state.set_penalty_decision(
             active=True,
             collision_vehicle_ids=collision_vehicle_ids,
@@ -1916,6 +1920,7 @@ class RaceControlTower:
                 active=True,
                 collision_vehicle_ids=collision_vehicle_ids,
                 filtered_vehicle_ids=sorted(self.filtered_control_vehicle_ids),
+                review_time_seconds=self.state.review_time_seconds(),
                 release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
             )
         )
@@ -1931,6 +1936,7 @@ class RaceControlTower:
         for task in self._penalty_release_tasks.values():
             task.cancel()
         self._penalty_release_tasks.clear()
+        self.state.stop_review_time()
 
         penalty_count = self.state.increment_vehicle_penalty(penalty_vehicle_id)
         await self.check_penalty_loss(penalty_vehicle_id, penalty_count)
@@ -1957,6 +1963,7 @@ class RaceControlTower:
                 filtered_vehicle_ids=sorted(self.filtered_control_vehicle_ids),
                 penalty_vehicle_id=penalty_vehicle_id,
                 victim_vehicle_id=victim_vehicle_id,
+                review_time_seconds=self.state.review_time_seconds(),
                 release_delay_seconds=release_delay_seconds,
             )
         )
@@ -1982,6 +1989,7 @@ class RaceControlTower:
         for task in self._penalty_release_tasks.values():
             task.cancel()
         self._penalty_release_tasks.clear()
+        self.state.stop_review_time()
 
         self.filtered_control_vehicle_ids.clear()
         self.state.set_penalty_decision(
@@ -2000,6 +2008,7 @@ class RaceControlTower:
                 collision_vehicle_ids=collision_vehicle_ids,
                 filtered_vehicle_ids=[],
                 no_decision=True,
+                review_time_seconds=self.state.review_time_seconds(),
                 release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
             )
         )
@@ -2033,6 +2042,7 @@ class RaceControlTower:
                 filtered_vehicle_ids=sorted(self.filtered_control_vehicle_ids),
                 penalty_vehicle_id=penalty_vehicle_id,
                 victim_vehicle_id=victim_vehicle_id,
+                review_time_seconds=self.state.review_time_seconds(),
                 release_delay_seconds=delay_seconds,
             )
         )
@@ -2084,6 +2094,7 @@ class RaceControlTower:
             task.cancel()
         self._penalty_release_tasks.clear()
         self.filtered_control_vehicle_ids.clear()
+        self.state.stop_review_time()
         self.state.set_penalty_decision(
             active=False,
             collision_vehicle_ids=[],
@@ -2487,6 +2498,7 @@ class RaceControlTower:
             source="rct-cache",
             socketio_event="cached",
             race_time_seconds=self.state.race_time_seconds(),
+            review_time_seconds=self.state.review_time_seconds(),
             vehicles=vehicles,
         )
 
