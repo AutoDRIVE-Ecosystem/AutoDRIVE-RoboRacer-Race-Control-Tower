@@ -7,4 +7,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
-
+accident_logs
+bin
+share
+lib
+**/.DS_Store
+pyvenv.cfg
