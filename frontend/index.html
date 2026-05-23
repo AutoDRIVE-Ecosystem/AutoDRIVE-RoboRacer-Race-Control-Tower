@@ -173,6 +173,14 @@
         font-size: 0.75rem;
       }
 
+      .rct-endpoint-display {
+        font-size: 0.875rem;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+        text-align: center;
+        white-space: normal;
+      }
+
       .rct-pre-accident-input {
         width: 6rem;
       }
@@ -916,10 +924,13 @@
           <div id="left-sidebar" class="col-sm-2 text-center h-100 rct-sidebar d-flex flex-column">
             <h2 class="h6 mt-3">Roboracer A</h2>
             <div class="px-2 text-start d-flex flex-column flex-grow-1">
-              <label for="roboracer1Ip" class="form-label small rct-endpoint-label mb-1">Hostname (IP)</label>
-              <input id="roboracer1Ip" class="form-control form-control-sm mb-2" type="text" value="127.0.0.1">
-              <label for="roboracer1Port" class="form-label small rct-endpoint-label mb-1">Port</label>
-              <input id="roboracer1Port" class="form-control form-control-sm mb-3" type="number" value="4568">
+              <div id="roboracer1EndpointInputs">
+                <label for="roboracer1Ip" class="form-label small rct-endpoint-label mb-1">Hostname (IP)</label>
+                <input id="roboracer1Ip" class="form-control form-control-sm mb-2" type="text" value="127.0.0.1">
+                <label for="roboracer1Port" class="form-label small rct-endpoint-label mb-1">Port</label>
+                <input id="roboracer1Port" class="form-control form-control-sm mb-3" type="number" value="4568">
+              </div>
+              <div id="roboracer1EndpointDisplay" class="rct-endpoint-display mb-3" hidden>(127.0.0.1 :4568)</div>
               <button id="roboracer1Status" class="btn btn-sm btn-outline-secondary w-100" type="button">Disconnected</button>
               <dl class="rct-stat-list mt-3 mb-0">
                 <div class="d-flex justify-content-between">
@@ -982,10 +993,13 @@
           <div id="right-sidebar" class="col-sm-2 text-center h-100 rct-sidebar d-flex flex-column">
             <h2 class="h6 mt-3">Roboracer B</h2>
             <div class="px-2 text-start d-flex flex-column flex-grow-1">
-              <label for="roboracer2Ip" class="form-label small rct-endpoint-label mb-1">Hostname (IP)</label>
-              <input id="roboracer2Ip" class="form-control form-control-sm mb-2" type="text" value="127.0.0.1">
-              <label for="roboracer2Port" class="form-label small rct-endpoint-label mb-1">Port</label>
-              <input id="roboracer2Port" class="form-control form-control-sm mb-3" type="number" value="4569">
+              <div id="roboracer2EndpointInputs">
+                <label for="roboracer2Ip" class="form-label small rct-endpoint-label mb-1">Hostname (IP)</label>
+                <input id="roboracer2Ip" class="form-control form-control-sm mb-2" type="text" value="127.0.0.1">
+                <label for="roboracer2Port" class="form-label small rct-endpoint-label mb-1">Port</label>
+                <input id="roboracer2Port" class="form-control form-control-sm mb-3" type="number" value="4569">
+              </div>
+              <div id="roboracer2EndpointDisplay" class="rct-endpoint-display mb-3" hidden>(127.0.0.1 :4569)</div>
               <button id="roboracer2Status" class="btn btn-sm btn-outline-secondary w-100" type="button">Disconnected</button>
               <dl class="rct-stat-list mt-3 mb-0">
                 <div class="d-flex justify-content-between">
@@ -1089,6 +1103,8 @@
         1: {
           hostInput: document.getElementById("roboracer1Ip"),
           portInput: document.getElementById("roboracer1Port"),
+          endpointInputs: document.getElementById("roboracer1EndpointInputs"),
+          endpointDisplay: document.getElementById("roboracer1EndpointDisplay"),
           endpointDirty: false,
           statusButton: document.getElementById("roboracer1Status"),
           lapCount: document.getElementById("roboracer1LapCount"),
@@ -1107,6 +1123,8 @@
         2: {
           hostInput: document.getElementById("roboracer2Ip"),
           portInput: document.getElementById("roboracer2Port"),
+          endpointInputs: document.getElementById("roboracer2EndpointInputs"),
+          endpointDisplay: document.getElementById("roboracer2EndpointDisplay"),
           endpointDirty: false,
           statusButton: document.getElementById("roboracer2Status"),
           lapCount: document.getElementById("roboracer2LapCount"),
@@ -2812,6 +2830,9 @@
 
         roboracer.hostInput.disabled = connected;
         roboracer.portInput.disabled = connected;
+        roboracer.endpointInputs.hidden = connected;
+        roboracer.endpointDisplay.hidden = !connected;
+        roboracer.endpointDisplay.textContent = `(${roboracer.hostInput.value.trim()} :${roboracer.portInput.value})`;
         roboracer.statusButton.dataset.connected = connected ? "true" : "false";
         roboracer.statusButton.textContent = connected ? "Connected" : "Disconnected";
         roboracer.statusButton.className = connected
@@ -2871,6 +2892,7 @@
 
         roboracer.hostInput.value = host;
         roboracer.portInput.value = String(port);
+        roboracer.endpointDisplay.textContent = `(${host} :${port})`;
         roboracer.endpointDirty = false;
       }
 
