@@ -3912,7 +3912,9 @@
 
         if (message.event === "status") {
           setSimulatorStatus(Number(message.simulator_clients || 0) > 0);
-          updateRaceTimeDisplay(message.race_time_seconds);
+          if (Object.prototype.hasOwnProperty.call(message, "race_time_seconds")) {
+            updateRaceTimeDisplay(message.race_time_seconds);
+          }
           updateRoboracerStatusFromState(message.devkits);
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
           updateVehiclePenalties(message.vehicle_penalties);

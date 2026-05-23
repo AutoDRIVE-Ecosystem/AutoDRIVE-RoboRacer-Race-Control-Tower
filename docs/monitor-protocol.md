@@ -367,7 +367,6 @@ Initial event:
     "maximum_penalty_count": 0,
     "celebration_with_confetti": true
   },
-  "accident_logs": [],
   "vehicle_penalties": {
     "1": 0,
     "2": 0
@@ -385,8 +384,7 @@ Initial event:
     "winner_vehicle_id": null,
     "loser_vehicle_id": null,
     "reason": null
-  },
-  "race_time_seconds": 42.0
+  }
 }
 ```
 
@@ -417,9 +415,9 @@ Simulator telemetry event:
 
 Live monitor event categories:
 
-- `status`: RCT server, simulator, monitor client, DevKit connection state, and RCT-managed `race_time_seconds`
+- `status`: RCT server, simulator, monitor client, and DevKit connection state. Initial monitor WebSocket status snapshots include static settings; periodic status updates omit static settings.
 - `telemetry`: filtered per-Roboracer simulator values for `best_lap_time`, `collision_count`, `ips`, `lap_count`, `last_lap_count`, and `speed`, plus RCT-managed `race_time_seconds`
-- `frame`: DevKit-to-simulator command observation event
+- `frame`: DevKit-to-simulator command observation event. Disabled by default; set `RCT_MONITOR_FRAME_EVENTS=true` to emit these events.
 - `penalty-decision`: accident penalty decision state transition event
 - `race-result`: race finish state transition event
 - `error`: monitor protocol or command error

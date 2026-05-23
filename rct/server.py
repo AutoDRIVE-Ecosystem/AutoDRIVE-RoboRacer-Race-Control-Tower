@@ -698,7 +698,7 @@ class RaceControlTower:
             await asyncio.sleep(self.monitor_ws_interval)
             if not self.monitor_hub.client_count:
                 continue
-            await self.send_monitor_now(self.status_message())
+            await self.send_monitor_now(self.status_message(full=False))
             telemetry_message = self.cached_telemetry_message()
             if telemetry_message is not None:
                 await self.send_monitor_now(telemetry_message)
@@ -991,7 +991,7 @@ class RaceControlTower:
                     "versioned": f"/monitor/{MONITOR_REST_TRANSPORT}/{MONITOR_PROTOCOL_VERSION}",
                     "events": f"/monitor/{MONITOR_WS_TRANSPORT}/{MONITOR_PROTOCOL_LATEST}",
                 },
-                "state": self.status_payload(),
+                "state": self.status_payload(full=True),
             }
         )
 
@@ -1029,7 +1029,7 @@ class RaceControlTower:
             return web.json_response({"error": str(exc)}, status=400)
 
         self.state.update_topic_selections(validated_topic_selections)
-        await self.publish_status()
+        await self.publish_full_status()
         return web.json_response(
             {
                 "ok": True,
@@ -1067,7 +1067,7 @@ class RaceControlTower:
             return web.json_response({"error": str(exc)}, status=400)
 
         self.state.set_accident_recorder_settings(**settings)
-        await self.publish_status()
+        await self.publish_full_status()
         return web.json_response(
             {
                 "ok": True,
@@ -1104,7 +1104,7 @@ class RaceControlTower:
             return web.json_response({"error": str(exc)}, status=400)
 
         self.state.set_penalty_rule_settings(**settings)
-        await self.publish_status()
+        await self.publish_full_status()
         return web.json_response(
             {
                 "ok": True,
@@ -1141,7 +1141,7 @@ class RaceControlTower:
             return web.json_response({"error": str(exc)}, status=400)
 
         self.state.set_racing_rule_settings(**settings)
-        await self.publish_status()
+        await self.publish_full_status()
         return web.json_response(
             {
                 "ok": True,
@@ -1378,7 +1378,7 @@ class RaceControlTower:
             return web.json_response({"error": f"unsupported devkit action {action!r}"}, status=404)
 
         await self.publish_status()
-        return web.json_response({"ok": True, "state": self.status_payload()})
+        return web.json_response({"ok": True, "state": self.status_payload(full=True)})
 
     async def handle_monitor_devkit_endpoint_command(self, request: web.Request) -> web.Response:
         version_path = f"/monitor/REST/{request.match_info['version']}"
@@ -1409,8 +1409,8 @@ class RaceControlTower:
             if enabled:
                 return web.json_response({"error": "endpoint update requires host and port"}, status=400)
             await self.disconnect_devkit(devkit)
-            await self.publish_status()
-            return web.json_response({"ok": True, "state": self.status_payload()})
+            await self.publish_full_status()
+            return web.json_response({"ok": True, "state": self.status_payload(full=True)})
 
         if not isinstance(host, str) or not host.strip():
             return web.json_response({"error": "devkit host must be a non-empty string"}, status=400)
@@ -1436,8 +1436,8 @@ class RaceControlTower:
             await self.broadcast_monitor(envelope("error", source="monitor", message=str(exc)))
             return web.json_response({"error": str(exc)}, status=400)
 
-        await self.publish_status()
-        return web.json_response({"ok": True, "state": self.status_payload()})
+        await self.publish_full_status()
+        return web.json_response({"ok": True, "state": self.status_payload(full=True)})
 
     async def handle_monitor_trace_lidar_command(self, request: web.Request) -> web.Response:
         version_path = f"/monitor/REST/{request.match_info['version']}"
@@ -1482,7 +1482,7 @@ class RaceControlTower:
         self.start_monitor_stream()
         peer = request.remote or "unknown"
         LOGGER.info("monitor connected from %s", peer)
-        await safe_send(ws, self.status_message())
+        await safe_send(ws, self.status_message(full=True))
 
         try:
             async for message in ws:
@@ -1737,15 +1737,12 @@ class RaceControlTower:
 
         rewritten_args = rewrite_args_for_simulator(args, devkit.vehicle_id)
         await self.emit_to_simulators(event, rewritten_args)
-        await self.broadcast_monitor(
-            envelope(
-                "frame",
-                source=devkit.name,
-                vehicle_id=devkit.vehicle_id,
-                target="simulator",
-                socketio_event=event,
-                args=[encode_socketio_arg(arg) for arg in rewritten_args],
-            )
+        await self.publish_monitor_frame(
+            source=devkit.name,
+            vehicle_id=devkit.vehicle_id,
+            target="simulator",
+            socketio_event=event,
+            args=rewritten_args,
         )
 
     async def handle_devkit_bridge_event(self, devkit: DevKitConnection, args: tuple[Any, ...]) -> None:
@@ -1772,15 +1769,12 @@ class RaceControlTower:
             origin_vehicle_id=devkit.vehicle_id,
             include_origin=self.settings.enable_origin,
         )
-        await self.broadcast_monitor(
-            envelope(
-                "frame",
-                source=devkit.name,
-                vehicle_id=devkit.vehicle_id,
-                target="simulator",
-                socketio_event="Bridge",
-                args=[encode_socketio_arg(arg) for arg in rewritten_args],
-            ),
+        await self.publish_monitor_frame(
+            source=devkit.name,
+            vehicle_id=devkit.vehicle_id,
+            target="simulator",
+            socketio_event="Bridge",
+            args=rewritten_args,
         )
         await self.send_next_bridge_after(devkit, received_at)
 
@@ -1793,14 +1787,11 @@ class RaceControlTower:
         outgoing_args = (outgoing_payload,)
         await self.emit_to_simulators("Bridge", outgoing_args)
         self.log_bridge_flow("rct-to-sim")
-        await self.broadcast_monitor(
-            envelope(
-                "frame",
-                source="rct-control-cache",
-                target="simulator",
-                socketio_event="Bridge",
-                args=[encode_socketio_arg(arg) for arg in outgoing_args],
-            ),
+        await self.publish_monitor_frame(
+            source="rct-control-cache",
+            target="simulator",
+            socketio_event="Bridge",
+            args=outgoing_args,
         )
 
     async def send_next_bridge_after(self, devkit: DevKitConnection, timestamp: float) -> None:
@@ -2310,6 +2301,8 @@ class RaceControlTower:
         if command_name is None:
             return False
 
+        publish_full_status = False
+        publish_light_status = False
         try:
             if command_name == "configure-devkits":
                 devkit_configs = command.get("devkits", [])
@@ -2318,12 +2311,15 @@ class RaceControlTower:
                 for devkit_config in devkit_configs:
                     devkit, host, port = self._devkit_endpoint_from_payload(devkit_config)
                     await self.configure_devkit(devkit, host, port, enabled=True)
+                publish_full_status = True
             elif command_name == "connect-devkit":
                 devkit, host, port = self._devkit_endpoint_from_payload(command, require_endpoint=False)
                 await self.connect_devkit(devkit, host, port)
+                publish_light_status = True
             elif command_name == "disconnect-devkit":
                 devkit = self._devkit_from_payload(command)
                 await self.disconnect_devkit(devkit)
+                publish_light_status = True
             elif command_name == "manual-penalty-decision":
                 penalty_vehicle_id = self._penalty_vehicle_id_from_payload(command)
                 await self.apply_manual_penalty_decision(penalty_vehicle_id)
@@ -2336,7 +2332,10 @@ class RaceControlTower:
             await self.broadcast_monitor(envelope("error", source="monitor", message=str(exc)))
             return True
 
-        await self.publish_status()
+        if publish_full_status:
+            await self.publish_full_status()
+        elif publish_light_status:
+            await self.publish_status()
         await self.broadcast_monitor(envelope("command", source="monitor", command=command_name))
         return True
 
@@ -2428,14 +2427,36 @@ class RaceControlTower:
     async def broadcast_monitor(self, message: str) -> None:
         await self.send_monitor_now(message)
 
+    async def publish_monitor_frame(
+        self,
+        *,
+        source: str,
+        target: str,
+        socketio_event: str,
+        args: tuple[Any, ...],
+        vehicle_id: int | None = None,
+    ) -> None:
+        if not self.settings.monitor_frame_events:
+            return
+
+        fields: dict[str, Any] = {
+            "source": source,
+            "target": target,
+            "socketio_event": socketio_event,
+            "args": [encode_socketio_arg(arg) for arg in args],
+        }
+        if vehicle_id is not None:
+            fields["vehicle_id"] = vehicle_id
+        await self.broadcast_monitor(envelope("frame", **fields))
+
     async def send_monitor_now(self, message: str) -> None:
         if message is None:
             return
         await self.monitor_hub.broadcast(message)
         self.state.set_monitor_clients(self.monitor_hub.client_count)
 
-    def status_message(self) -> str:
-        return envelope("status", **self.status_payload())
+    def status_message(self, *, full: bool = False) -> str:
+        return envelope("status", **self.status_payload(full=full))
 
     def accident_logs_message(self) -> str:
         return envelope(
@@ -2470,7 +2491,10 @@ class RaceControlTower:
         )
 
     async def publish_status(self) -> None:
-        await self.broadcast_monitor(self.status_message())
+        await self.broadcast_monitor(self.status_message(full=False))
+
+    async def publish_full_status(self) -> None:
+        await self.broadcast_monitor(self.status_message(full=True))
 
     async def publish_accident_logs(self) -> None:
         await self.broadcast_monitor(self.accident_logs_message())
@@ -2494,20 +2518,40 @@ class RaceControlTower:
             changed = True
         return changed
 
-    def status_payload(self) -> dict[str, Any]:
+    def status_payload(self, *, full: bool = False) -> dict[str, Any]:
         self.refresh_bridge_rates()
         snapshot = self.state.snapshot()
         snapshot.pop("topic_selections", None)
         snapshot.pop("accident_logs", None)
-        return {
+        snapshot.pop("race_time_seconds", None)
+
+        if not full:
+            snapshot.pop("accident_recorder", None)
+            snapshot.pop("penalty_rule", None)
+            snapshot.pop("racing_rule", None)
+            snapshot["devkits"] = [
+                {
+                    "name": devkit["name"],
+                    "vehicle_id": devkit["vehicle_id"],
+                    "connected": devkit["connected"],
+                    "queued_messages": devkit["queued_messages"],
+                    "bridge_hz": devkit["bridge_hz"],
+                    "bridge_per_minute": devkit["bridge_per_minute"],
+                }
+                for devkit in snapshot.get("devkits", [])
+            ]
+
+        payload = {
             "monitor_protocol": {
                 "name": "autodrive-rct-monitor",
                 "version": MONITOR_PROTOCOL_VERSION,
             },
-            "simulator_socketio_path": f"/{SOCKETIO_PATH}/",
             "trace_lidar_vehicle_ids": sorted(self.trace_lidar_vehicle_ids),
             **snapshot,
         }
+        if full:
+            payload["simulator_socketio_path"] = f"/{SOCKETIO_PATH}/"
+        return payload
 
     def refresh_accident_logs_from_disk(self) -> None:
         self.state.set_accident_logs(

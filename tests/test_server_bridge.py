@@ -48,6 +48,7 @@ def test_settings() -> Settings:
         ping_interval_seconds=20,
         ping_timeout_seconds=20,
         monitor_ws_hz=0.0,
+        monitor_frame_events=False,
         debug_engineio_messages=False,
         debug_engineio_max_chars=2000,
         debug_socketio_client=False,
@@ -820,6 +821,61 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"ips"', message)
         self.assertIn('"speed":5.5', message)
         self.assertIn('"2"', message)
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_monitor_frame_events_are_disabled_by_default(self):
+        tower = RaceControlTower(test_settings())
+        monitor_events = []
+
+        async def broadcast_monitor(message):
+            monitor_events.append(json.loads(message))
+
+        tower.broadcast_monitor = broadcast_monitor
+        await tower.publish_monitor_frame(
+            source="devkit:1",
+            vehicle_id=1,
+            target="simulator",
+            socketio_event="Bridge",
+            args=({"V1 Throttle": "0.1"},),
+        )
+
+        self.assertEqual(monitor_events, [])
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_monitor_frame_events_can_be_enabled(self):
+        tower = RaceControlTower(replace(test_settings(), monitor_frame_events=True))
+        monitor_events = []
+
+        async def broadcast_monitor(message):
+            monitor_events.append(json.loads(message))
+
+        tower.broadcast_monitor = broadcast_monitor
+        await tower.publish_monitor_frame(
+            source="devkit:1",
+            vehicle_id=1,
+            target="simulator",
+            socketio_event="Bridge",
+            args=({"V1 Throttle": "0.1"},),
+        )
+
+        self.assertEqual(monitor_events[0]["event"], "frame")
+        self.assertEqual(monitor_events[0]["vehicle_id"], 1)
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_lightweight_status_omits_static_settings_and_race_time(self):
+        tower = RaceControlTower(test_settings())
+
+        lightweight = tower.status_payload()
+        full = tower.status_payload(full=True)
+
+        self.assertNotIn("penalty_rule", lightweight)
+        self.assertNotIn("racing_rule", lightweight)
+        self.assertNotIn("accident_recorder", lightweight)
+        self.assertNotIn("race_time_seconds", lightweight)
+        self.assertNotIn("race_time_seconds", full)
+        self.assertIn("penalty_rule", full)
+        self.assertIn("racing_rule", full)
+        self.assertIn("accident_recorder", full)
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_event_before_connect_implicitly_connects_socketio_4_namespace(self):

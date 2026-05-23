@@ -32,6 +32,7 @@ def test_settings(**overrides) -> Settings:
         "ping_interval_seconds": 20,
         "ping_timeout_seconds": 20,
         "monitor_ws_hz": 0.0,
+        "monitor_frame_events": False,
         "debug_engineio_messages": False,
         "debug_engineio_max_chars": 2000,
         "debug_socketio_client": False,
