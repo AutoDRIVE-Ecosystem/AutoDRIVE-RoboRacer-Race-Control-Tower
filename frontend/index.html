@@ -1767,7 +1767,7 @@
       }
 
       async function clearAccidentLogs() {
-        const keepFilename = penaltyDecisionActive && penaltyDecisionAccidentLogFilename
+        const keepFilename = simulatorConnected && penaltyDecisionActive && penaltyDecisionAccidentLogFilename
           ? penaltyDecisionAccidentLogFilename
           : "";
         const keepQuery = keepFilename ? `&keep=${encodeURIComponent(keepFilename)}` : "";

@@ -31,7 +31,7 @@ Download and Foxglove use separate MCAP endpoints. The replay/decision summary i
 - `rct/server.py`
   MCAP listing, summary generation, ROS2 MCAP download/Foxglove endpoints, and decision-record save endpoint.
 
-The Python package under `rct/decision/` remains for shared record helpers and legacy/server-side analysis code. New steward-facing packs should be JavaScript unless there is a deliberate architecture change.
+The Python package under `rct/decision/` remains only for shared decision-record helpers. Steward-facing analysis packs live in JavaScript unless there is a deliberate architecture change.
 
 ## Summary Input
 
