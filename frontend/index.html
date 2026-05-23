@@ -1858,9 +1858,22 @@
         void submitManualDecision(accidentLog, memoInput, { command: "manual-no-decision" });
       }
 
+      function hasLoadedDecisionSummary(accidentLog) {
+        return Boolean(
+          accidentLog
+          && accidentLog.filename
+          && currentAccidentLogSummary
+          && currentAccidentLogSummary.filename === accidentLog.filename
+        );
+      }
+
       async function submitManualDecision(accidentLog, memoInput, command) {
         if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
           console.warn("Cannot submit final decision while RCT WebSocket is disconnected");
+          return;
+        }
+        if (!hasLoadedDecisionSummary(accidentLog)) {
+          console.warn("Cannot submit final decision before accident replay summary is loaded");
           return;
         }
         accidentLogDetailRenderToken += 1;
@@ -2145,6 +2158,7 @@
         const manualDecision = document.createElement("div");
         manualDecision.className = "rct-manual-decision";
         const selectedSwAnalysisOptions = selectedPenaltySwAnalysisOptions();
+        const decisionReady = hasLoadedDecisionSummary(accidentLog);
         const memoInput = document.createElement("textarea");
         memoInput.className = "form-control rct-manual-decision-memo";
         memoInput.rows = 1;
@@ -2158,14 +2172,17 @@
         vehicleAButton.className = "btn btn-outline-danger";
         vehicleAButton.type = "button";
         vehicleAButton.textContent = "Fault A";
+        vehicleAButton.disabled = !decisionReady;
         const vehicleBButton = document.createElement("button");
         vehicleBButton.className = "btn btn-outline-danger";
         vehicleBButton.type = "button";
         vehicleBButton.textContent = "Fault B";
+        vehicleBButton.disabled = !decisionReady;
         const noDecisionButton = document.createElement("button");
         noDecisionButton.className = "btn btn-outline-secondary";
         noDecisionButton.type = "button";
         noDecisionButton.textContent = "No Decision";
+        noDecisionButton.disabled = !decisionReady;
         vehicleAButton.addEventListener("click", () => submitManualPenaltyDecision(accidentLog, memoInput, 1));
         vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(accidentLog, memoInput, 2));
         noDecisionButton.addEventListener("click", () => submitManualNoDecision(accidentLog, memoInput));
