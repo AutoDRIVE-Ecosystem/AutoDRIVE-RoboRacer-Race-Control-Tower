@@ -478,6 +478,28 @@
         line-height: 1.25;
       }
 
+      .rct-sw-analysis-section-title {
+        font-size: 0.95rem;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+
+      .rct-sw-analysis-summary {
+        margin-bottom: 0;
+        padding-left: 1.25rem;
+      }
+
+      .rct-sw-analysis-summary a {
+        color: #495057;
+        text-decoration: none;
+      }
+
+      .rct-sw-analysis-summary a:hover,
+      .rct-sw-analysis-summary a:focus {
+        color: #0d6efd;
+        text-decoration: underline;
+      }
+
       .rct-sw-analysis-result-opinion {
         color: #495057;
         font-size: 0.9rem;
@@ -1907,6 +1929,64 @@
         }));
       }
 
+      function decisionAnalysisAnchorId(accidentLog, option) {
+        const filename = accidentLog && accidentLog.filename ? accidentLog.filename : "current";
+        return `telemetry-analysis-${slugify(`${filename}-${option.id}`)}`;
+      }
+
+      function slugify(value) {
+        return String(value || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]+/g, "-")
+          .replace(/^-+|-+$/g, "") || "item";
+      }
+
+      function createDecisionAnalysisSummary(accidentLog, options) {
+        const container = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "rct-sw-analysis-section-title";
+        title.textContent = "Telemetry Analysis Summary";
+        const list = document.createElement("ul");
+        list.className = "rct-sw-analysis-summary";
+        const summary = currentAccidentLogSummary;
+        options.forEach((option) => {
+          const item = document.createElement("li");
+          const link = document.createElement("a");
+          link.href = `#${decisionAnalysisAnchorId(accidentLog, option)}`;
+          link.textContent = `${option.label}: ${decisionSummaryText(summary, option)}`;
+          item.append(link);
+          list.append(item);
+        });
+        container.append(title, list);
+        return container;
+      }
+
+      function decisionSummaryText(summary, option) {
+        if (!summary) {
+          return "No opinion";
+        }
+        try {
+          const analysis = decisionAnalysisForOption(summary, option);
+          const confidence = Number(analysis.confidence);
+          const penaltyVehicleId = Number(analysis.penalty_vehicle_id);
+          const hasConfidence = Number.isFinite(confidence) && confidence > 0;
+          if (Number.isFinite(penaltyVehicleId) && penaltyVehicleId > 0) {
+            const label = displayRoboracerLabel(penaltyVehicleId);
+            if (confidence >= 0.7) {
+              return `Fault on ${label}${hasConfidence ? ` (${(confidence * 100).toFixed(0)}%)` : ""}`;
+            }
+            return `Possibly fault on ${label}${hasConfidence ? ` (${(confidence * 100).toFixed(0)}%)` : ""}`;
+          }
+          if (!hasConfidence || /waiting|cannot be evaluated|unavailable/i.test(String(analysis.opinion || ""))) {
+            return "No opinion";
+          }
+          return "N/A";
+        } catch (error) {
+          console.warn(`Failed to summarize decision analysis ${option.id}:`, error);
+          return "No opinion";
+        }
+      }
+
       function renderDecisionAnalysisPane(pane, option, summary) {
         pane.innerHTML = "";
         const analysis = decisionAnalysisForOption(summary, option);
@@ -1996,21 +2076,33 @@
         return "#455a64";
       }
 
+      function appendDecisionAnalysisSections(parent, accidentLog, options, renderToken) {
+        parent.append(createDecisionAnalysisSummary(accidentLog, options));
+        const divider = document.createElement("hr");
+        divider.className = "my-1";
+        parent.append(divider);
+        const detailTitle = document.createElement("div");
+        detailTitle.className = "rct-sw-analysis-section-title";
+        detailTitle.textContent = "Telemetry Analysis Detail";
+        parent.append(detailTitle);
+        options.forEach((option, index) => {
+          const result = document.createElement("div");
+          result.className = "rct-sw-analysis-result";
+          const anchor = document.createElement("a");
+          anchor.name = decisionAnalysisAnchorId(accidentLog, option);
+          anchor.id = anchor.name;
+          const resultTitle = document.createElement("div");
+          resultTitle.className = "rct-sw-analysis-result-title";
+          resultTitle.textContent = `${index + 1}. ${option.label}`;
+          result.append(anchor, resultTitle, createDecisionAnalysisPane(accidentLog, option, renderToken));
+          parent.append(result);
+        });
+      }
+
       function createManualDecisionPane(accidentLog, renderToken) {
         const manualDecision = document.createElement("div");
         manualDecision.className = "rct-manual-decision";
         const selectedSwAnalysisOptions = selectedPenaltySwAnalysisOptions();
-        const swAnalysisResults = document.createElement("div");
-        swAnalysisResults.className = "rct-sw-analysis-results";
-        selectedSwAnalysisOptions.forEach((option, index) => {
-          const result = document.createElement("div");
-          result.className = "rct-sw-analysis-result";
-          const resultTitle = document.createElement("div");
-          resultTitle.className = "rct-sw-analysis-result-title";
-          resultTitle.textContent = `${index + 1}. ${option.label}`;
-          result.append(resultTitle, createDecisionAnalysisPane(accidentLog, option, renderToken));
-          swAnalysisResults.append(result);
-        });
         const memoInput = document.createElement("textarea");
         memoInput.className = "form-control rct-manual-decision-memo";
         memoInput.rows = 1;
@@ -2040,6 +2132,9 @@
         if (selectedSwAnalysisOptions.length > 0) {
           const divider = document.createElement("hr");
           divider.className = "my-1";
+          const swAnalysisResults = document.createElement("div");
+          swAnalysisResults.className = "rct-sw-analysis-results";
+          appendDecisionAnalysisSections(swAnalysisResults, accidentLog, selectedSwAnalysisOptions, renderToken);
           manualDecision.append(divider, swAnalysisResults);
         }
         return manualDecision;
@@ -2102,17 +2197,11 @@
         if (options.length > 0) {
           const divider = document.createElement("hr");
           divider.className = "my-1";
-          pane.append(divider);
+          const swAnalysisResults = document.createElement("div");
+          swAnalysisResults.className = "rct-sw-analysis-results";
+          appendDecisionAnalysisSections(swAnalysisResults, accidentLog, options, renderToken);
+          pane.append(divider, swAnalysisResults);
         }
-        options.forEach((option, index) => {
-          const result = document.createElement("div");
-          result.className = "rct-sw-analysis-result";
-          const resultTitle = document.createElement("div");
-          resultTitle.className = "rct-sw-analysis-result-title";
-          resultTitle.textContent = `${index + 1}. ${option.label}`;
-          result.append(resultTitle, createDecisionAnalysisPane(accidentLog, option, renderToken));
-          pane.append(result);
-        });
         container.append(pane);
       }
 
