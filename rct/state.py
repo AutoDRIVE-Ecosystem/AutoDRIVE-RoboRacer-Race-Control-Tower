@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
 from threading import RLock
 from typing import Any, Iterable, Mapping
@@ -83,6 +84,8 @@ class RaceControlState:
             "loser_vehicle_id": None,
             "reason": None,
         }
+        self._race_time_started_at: float | None = None
+        self._race_time_elapsed_seconds = 0.0
 
     def configure_devkits(self, devkits: Iterable[DevKitMonitorState]) -> None:
         with self._lock:
@@ -95,6 +98,29 @@ class RaceControlState:
                 return
             self._simulator_clients = count
             self._revision += 1
+
+    def start_race_time(self, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            self._race_time_elapsed_seconds = 0.0
+            self._race_time_started_at = now
+            self._revision += 1
+
+    def stop_race_time(self, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            if self._race_time_started_at is None:
+                return
+            self._race_time_elapsed_seconds += max(0.0, now - self._race_time_started_at)
+            self._race_time_started_at = None
+            self._revision += 1
+
+    def race_time_seconds(self, now: float | None = None) -> float:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            if self._race_time_started_at is None:
+                return self._race_time_elapsed_seconds
+            return self._race_time_elapsed_seconds + max(0.0, now - self._race_time_started_at)
 
     def set_monitor_clients(self, count: int) -> None:
         with self._lock:
@@ -362,4 +388,5 @@ class RaceControlState:
                 "penalty_decision": asdict(self._penalty_decision),
                 "vehicle_penalties": {str(vehicle_id): count for vehicle_id, count in sorted(self._vehicle_penalties.items())},
                 "race_result": dict(self._race_result),
+                "race_time_seconds": self.race_time_seconds(),
             }

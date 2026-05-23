@@ -491,6 +491,11 @@
         line-height: 1.25;
       }
 
+      .rct-manual-decision-title-note {
+        color: #6c757d;
+        font-weight: 500;
+      }
+
       .rct-sw-analysis-results {
         display: flex;
         flex-direction: column;
@@ -915,6 +920,10 @@
                   <dd id="roboracer1Penalties" class="mb-1">0</dd>
                 </div>
                 <div class="d-flex justify-content-between">
+                  <dt>Race Time:</dt>
+                  <dd id="roboracer1RaceTime" class="mb-1">00:00</dd>
+                </div>
+                <div class="d-flex justify-content-between">
                   <dt>This Lap:</dt>
                   <dd id="roboracer1ThisLap" class="mb-1">00:00</dd>
                 </div>
@@ -975,6 +984,10 @@
                 <div class="d-flex justify-content-between">
                   <dt>Penalties:</dt>
                   <dd id="roboracer2Penalties" class="mb-1">0</dd>
+                </div>
+                <div class="d-flex justify-content-between">
+                  <dt>Race Time:</dt>
+                  <dd id="roboracer2RaceTime" class="mb-1">00:00</dd>
                 </div>
                 <div class="d-flex justify-content-between">
                   <dt>This Lap:</dt>
@@ -1069,6 +1082,7 @@
           decisionStatus: document.getElementById("roboracer1DecisionStatus"),
           collisions: document.getElementById("roboracer1Collisions"),
           penalties: document.getElementById("roboracer1Penalties"),
+          raceTime: document.getElementById("roboracer1RaceTime"),
           trophy: document.getElementById("roboracer1Trophy"),
           thisLap: document.getElementById("roboracer1ThisLap"),
           lastLap: document.getElementById("roboracer1LastLap"),
@@ -1086,6 +1100,7 @@
           decisionStatus: document.getElementById("roboracer2DecisionStatus"),
           collisions: document.getElementById("roboracer2Collisions"),
           penalties: document.getElementById("roboracer2Penalties"),
+          raceTime: document.getElementById("roboracer2RaceTime"),
           trophy: document.getElementById("roboracer2Trophy"),
           thisLap: document.getElementById("roboracer2ThisLap"),
           lastLap: document.getElementById("roboracer2LastLap"),
@@ -2166,6 +2181,12 @@
         const manualDecisionTitle = document.createElement("div");
         manualDecisionTitle.className = "rct-manual-decision-title";
         manualDecisionTitle.textContent = "Final decision";
+        if (!decisionReady) {
+          const titleNote = document.createElement("span");
+          titleNote.className = "rct-manual-decision-title-note";
+          titleNote.textContent = " (Analyzing telemetry...)";
+          manualDecisionTitle.appendChild(titleNote);
+        }
         const manualDecisionActions = document.createElement("div");
         manualDecisionActions.className = "rct-manual-decision-actions";
         const vehicleAButton = document.createElement("button");
@@ -2789,6 +2810,15 @@
         });
       }
 
+      function updateRaceTimeDisplay(raceTimeSeconds) {
+        const label = formatElapsedTime(raceTimeSeconds);
+        Object.values(roboracers).forEach((roboracer) => {
+          if (roboracer.raceTime) {
+            roboracer.raceTime.textContent = label;
+          }
+        });
+      }
+
       function roboracerConfig(vehicleId) {
         const roboracer = roboracers[vehicleId];
         return {
@@ -2973,6 +3003,15 @@
           return number.toFixed(0);
         }
         return number.toFixed(fractionDigits).replace(/(\.\d*?[1-9])0+$|\.0+$/, "$1");
+      }
+
+      function formatElapsedTime(value) {
+        const totalCentiseconds = Math.max(0, Math.floor((Number(value) || 0) * 100));
+        const totalSeconds = Math.floor(totalCentiseconds / 100);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        const centiseconds = totalCentiseconds % 100;
+        return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
       }
 
       function formatIps(ips) {
@@ -3585,7 +3624,7 @@
         if (Object.prototype.hasOwnProperty.call(telemetry, "collision_count")) {
           roboracer.collisions.textContent = formatNumber(telemetry.collision_count, 0);
         }
-        if (Object.prototype.hasOwnProperty.call(telemetry, "lap_time")) {
+        if (!raceResultActive && Object.prototype.hasOwnProperty.call(telemetry, "lap_time")) {
           roboracer.thisLap.textContent = formatNumber(telemetry.lap_time);
         }
         if (Object.prototype.hasOwnProperty.call(telemetry, "last_lap_time")) {
@@ -3828,6 +3867,7 @@
 
         if (message.event === "status") {
           setSimulatorStatus(Number(message.simulator_clients || 0) > 0);
+          updateRaceTimeDisplay(message.race_time_seconds);
           updateRoboracerStatusFromState(message.devkits);
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
           updateVehiclePenalties(message.vehicle_penalties);
@@ -3849,7 +3889,32 @@
             }
             updateSettingsApplyState();
           }
-          if (message.race_result && !message.race_result.active) {
+          if (message.racing_rule) {
+            const hasPendingRacingRuleChanges = racingRuleSettingsChanged();
+            const settings = message.racing_rule;
+            const totalLapCount = Number(settings.total_lap_count);
+            if (Number.isFinite(totalLapCount)) {
+              appliedTotalLapCount = totalLapCount;
+              if (!hasPendingRacingRuleChanges) {
+                totalLapCountInput.value = String(totalLapCount);
+              }
+            }
+            const maximumPenaltyCount = Number(settings.maximum_penalty_count);
+            if (Number.isFinite(maximumPenaltyCount)) {
+              appliedMaximumPenaltyCount = maximumPenaltyCount;
+              if (!hasPendingRacingRuleChanges) {
+                maximumPenaltyCountInput.value = String(maximumPenaltyCount);
+              }
+            }
+            if (Object.prototype.hasOwnProperty.call(settings, "celebration_with_confetti")) {
+              appliedCelebrationWithConfetti = Boolean(settings.celebration_with_confetti);
+              if (!hasPendingRacingRuleChanges) {
+                celebrationWithConfettiCheckbox.checked = appliedCelebrationWithConfetti;
+              }
+            }
+            updateSettingsApplyState();
+          }
+          if (message.race_result) {
             updateRaceResult(message.race_result);
           }
           if (message.penalty_decision && message.penalty_decision.active && !penaltyDecisionActive && !manualDecisionSubmitInProgress) {
@@ -3867,6 +3932,7 @@
             handlePenaltyDecisionStatus(message.penalty_decision);
           }
         } else if (message.event === "telemetry") {
+          updateRaceTimeDisplay(message.race_time_seconds);
           updateTelemetry(message.vehicles);
         } else if (message.event === "accident-logs") {
           if (Array.isArray(message.accident_logs)) {

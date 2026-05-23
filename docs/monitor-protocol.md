@@ -385,7 +385,8 @@ Initial event:
     "winner_vehicle_id": null,
     "loser_vehicle_id": null,
     "reason": null
-  }
+  },
+  "race_time_seconds": 42.0
 }
 ```
 
@@ -397,6 +398,7 @@ Simulator telemetry event:
   "timestamp": "2026-04-19T00:00:00+00:00",
   "source": "simulator",
   "socketio_event": "Bridge",
+  "race_time_seconds": 42.0,
   "vehicles": {
     "1": {
       "best_lap_time": "00:12.34",
@@ -415,8 +417,8 @@ Simulator telemetry event:
 
 Live monitor event categories:
 
-- `status`: RCT server, simulator, monitor client, and DevKit connection state
-- `telemetry`: filtered per-Roboracer simulator values for `best_lap_time`, `collision_count`, `ips`, `lap_count`, `last_lap_count`, and `speed`
+- `status`: RCT server, simulator, monitor client, DevKit connection state, and RCT-managed `race_time_seconds`
+- `telemetry`: filtered per-Roboracer simulator values for `best_lap_time`, `collision_count`, `ips`, `lap_count`, `last_lap_count`, and `speed`, plus RCT-managed `race_time_seconds`
 - `frame`: DevKit-to-simulator command observation event
 - `penalty-decision`: accident penalty decision state transition event
 - `race-result`: race finish state transition event
@@ -477,7 +479,7 @@ Race result event:
 }
 ```
 
-RCT emits `race-result` when the first vehicle reaches `racing_rule.total_lap_count` or when a vehicle reaches `racing_rule.maximum_penalty_count` while that setting is greater than `0`. `reason` is `total_lap_count` or `maximum_penalty_count`. Once a race result is active, RCT filters both vehicles' throttle and steering commands to `0.0` before merging into the outgoing control cache and before emitting the cache to the simulator. When a new simulator Socket.IO client connects, RCT clears the race result and emits `race-result` with `active: false` and `reset_reason: "simulator-connected"`.
+RCT emits `race-result` when the first vehicle reaches `racing_rule.total_lap_count` or when a vehicle reaches `racing_rule.maximum_penalty_count` while that setting is greater than `0`. `reason` is `total_lap_count` or `maximum_penalty_count`. Once a race result is active, RCT filters both vehicles' throttle and steering commands to `0.0` before merging into the outgoing control cache and before emitting the cache to the simulator. RCT starts `race_time_seconds` when the first simulator client connects, resets it for a new simulator session, and stops it when the race result becomes active or when the simulator disconnects. When a new simulator Socket.IO client connects, RCT clears the race result and emits `race-result` with `active: false` and `reset_reason: "simulator-connected"`.
 
 The bundled frontend opens the Accident Logs dialog when it receives an active `penalty-decision` event or a `status.penalty_decision.active` snapshot. It selects the newest accident log and starts replay loading through `GET /monitor/REST/0.1/accident-logs/{filename}/summary`.
 

@@ -135,6 +135,21 @@ class RaceControlStateTests(unittest.TestCase):
         self.assertEqual(state.snapshot()["racing_rule"]["maximum_penalty_count"], 2)
         self.assertFalse(state.snapshot()["racing_rule"]["celebration_with_confetti"])
 
+    def test_snapshot_tracks_race_time(self):
+        state = RaceControlState()
+
+        self.assertEqual(state.snapshot()["race_time_seconds"], 0.0)
+
+        state.start_race_time(now=10.0)
+        self.assertEqual(state.race_time_seconds(now=12.5), 2.5)
+        self.assertEqual(state.snapshot()["race_time_seconds"] >= 0.0, True)
+
+        state.stop_race_time(now=15.0)
+        self.assertEqual(state.race_time_seconds(now=20.0), 5.0)
+
+        state.start_race_time(now=30.0)
+        self.assertEqual(state.race_time_seconds(now=31.25), 1.25)
+
     def test_snapshot_tracks_accident_logs(self):
         state = RaceControlState()
         state.add_accident_log(

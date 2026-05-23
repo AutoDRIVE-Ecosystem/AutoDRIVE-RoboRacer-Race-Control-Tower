@@ -838,8 +838,11 @@ class RaceControlTower:
 
     def _register_socketio_handlers(self) -> None:
         async def connect(sid: str, environ: dict[str, Any], auth: Any = None) -> bool:
+            first_simulator = not self.simulator_sids
             self.simulator_sids.add(sid)
             self.state.set_simulator_clients(len(self.simulator_sids))
+            if first_simulator:
+                self.state.start_race_time()
             reset_penalty_decision = self.reset_penalty_decision_for_simulator_session()
             LOGGER.info("simulator connected via Socket.IO sid=%s", sid)
             if reset_penalty_decision:
@@ -878,6 +881,7 @@ class RaceControlTower:
             self.state.set_simulator_clients(len(self.simulator_sids))
             LOGGER.info("simulator disconnected sid=%s reason=%s", sid, reason)
             if not self.simulator_sids:
+                self.state.stop_race_time()
                 await self.disconnect_all_devkits()
             await self.publish_status()
 
@@ -2101,6 +2105,7 @@ class RaceControlTower:
             loser_vehicle_id=loser_vehicle_id,
             reason=reason,
         )
+        self.state.stop_race_time()
         LOGGER.info("race finished: winner=V%s loser=V%s reason=%s", winner_vehicle_id, loser_vehicle_id, reason)
         await self.publish_status()
         await self.emit_control_cache_to_simulator()
@@ -2460,6 +2465,7 @@ class RaceControlTower:
             "telemetry",
             source="rct-cache",
             socketio_event="cached",
+            race_time_seconds=self.state.race_time_seconds(),
             vehicles=vehicles,
         )
 
