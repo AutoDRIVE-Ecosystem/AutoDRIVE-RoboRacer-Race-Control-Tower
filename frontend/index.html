@@ -610,6 +610,21 @@
         font-size: 0.875rem;
       }
 
+      .rct-stat-list .d-flex {
+        gap: 0.375rem;
+      }
+
+      .rct-stat-list dd {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .rct-stat-list dt {
+        white-space: nowrap;
+      }
+
       .rct-stat-secondary {
         color: #6c757d;
       }
@@ -3005,13 +3020,21 @@
         return number.toFixed(fractionDigits).replace(/(\.\d*?[1-9])0+$|\.0+$/, "$1");
       }
 
+      function formatFixedNumber(value, fractionDigits = 2) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+          return value == null ? "-" : String(value);
+        }
+        return number.toFixed(fractionDigits);
+      }
+
       function formatElapsedTime(value) {
         const totalCentiseconds = Math.max(0, Math.floor((Number(value) || 0) * 100));
         const totalSeconds = Math.floor(totalCentiseconds / 100);
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
         const centiseconds = totalCentiseconds % 100;
-        return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
+        return `${minutes}:${String(seconds).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
       }
 
       function formatIps(ips) {
@@ -3625,13 +3648,13 @@
           roboracer.collisions.textContent = formatNumber(telemetry.collision_count, 0);
         }
         if (!raceResultActive && Object.prototype.hasOwnProperty.call(telemetry, "lap_time")) {
-          roboracer.thisLap.textContent = formatNumber(telemetry.lap_time);
+          roboracer.thisLap.textContent = formatFixedNumber(telemetry.lap_time);
         }
         if (Object.prototype.hasOwnProperty.call(telemetry, "last_lap_time")) {
-          roboracer.lastLap.textContent = formatNumber(telemetry.last_lap_time);
+          roboracer.lastLap.textContent = formatFixedNumber(telemetry.last_lap_time);
         }
         if (Object.prototype.hasOwnProperty.call(telemetry, "best_lap_time")) {
-          roboracer.bestLap.textContent = formatNumber(telemetry.best_lap_time);
+          roboracer.bestLap.textContent = formatFixedNumber(telemetry.best_lap_time);
         }
       }
 
