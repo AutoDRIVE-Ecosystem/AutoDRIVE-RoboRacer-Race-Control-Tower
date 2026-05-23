@@ -3091,8 +3091,11 @@
 
       function formatFixedNumber(value, fractionDigits = 2) {
         const number = Number(value);
+        if (value == null || value === "") {
+          return "-";
+        }
         if (!Number.isFinite(number)) {
-          return value == null ? "-" : String(value);
+          return "N/A";
         }
         return number.toFixed(fractionDigits);
       }
