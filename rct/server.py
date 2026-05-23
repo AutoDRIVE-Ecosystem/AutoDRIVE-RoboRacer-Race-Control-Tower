@@ -1242,13 +1242,15 @@ class RaceControlTower:
             LOGGER.exception("failed to read accident log summary from %s", path)
             return web.json_response({"error": "failed to read accident log summary"}, status=500)
 
-        return web.json_response(
+        response = web.json_response(
             {
                 "protocol": "autodrive-rct-monitor",
                 "version": MONITOR_PROTOCOL_VERSION,
                 **summary,
             }
         )
+        response.enable_compression()
+        return response
 
     async def handle_monitor_accident_log_decision_record_post(self, request: web.Request) -> web.Response:
         version_path = f"/monitor/REST/{request.match_info['version']}"

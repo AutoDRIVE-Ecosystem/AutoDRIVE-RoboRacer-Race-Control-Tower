@@ -433,8 +433,10 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
                     quoted_filename = quote(accident_log.filename)
                     response = await session.get(
                         f"http://127.0.0.1:{tower_port}/monitor/REST/latest/accident-logs/{quoted_filename}/summary?ts=123",
+                        headers={"Accept-Encoding": "gzip"},
                     )
                     self.assertEqual(response.status, 200)
+                    self.assertEqual(response.headers.get("Content-Encoding"), "gzip")
                     payload = await response.json()
             finally:
                 await tower_runner.cleanup()

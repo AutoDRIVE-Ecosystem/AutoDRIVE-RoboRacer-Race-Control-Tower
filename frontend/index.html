@@ -1237,6 +1237,9 @@
       let accidentLogDetailRenderToken = 0;
       const accidentDecisionAnalysisControllers = new Set();
       let autoSelectLatestAccidentLog = false;
+      let autoSelectLatestAccidentLogBaselineFilename = null;
+      let autoSelectLatestAccidentLogAttempts = 0;
+      let accidentLogsRefreshTimer = null;
       let penaltyDecisionActive = false;
       let penaltyDecisionAccidentLogFilename = null;
       let manualDecisionSubmitInProgress = false;
@@ -1338,16 +1341,38 @@
         });
       }
 
+      function selectLatestAccidentLogForDecisionIfReady(options = {}) {
+        if (!autoSelectLatestAccidentLog || accidentLogs.length === 0) {
+          return false;
+        }
+        const latestFilename = accidentLogs[0].filename;
+        const latestIsFresh = autoSelectLatestAccidentLogBaselineFilename === null
+          || latestFilename !== autoSelectLatestAccidentLogBaselineFilename;
+        if (!latestIsFresh && !options.force) {
+          return false;
+        }
+        selectedAccidentLogFilename = latestFilename;
+        penaltyDecisionAccidentLogFilename = latestFilename;
+        autoSelectLatestAccidentLog = false;
+        autoSelectLatestAccidentLogBaselineFilename = null;
+        autoSelectLatestAccidentLogAttempts = 0;
+        if (accidentLogsRefreshTimer !== null) {
+          window.clearTimeout(accidentLogsRefreshTimer);
+          accidentLogsRefreshTimer = null;
+        }
+        return true;
+      }
+
       function setAccidentLogs(nextAccidentLogs) {
         if (accidentLogsEqual(accidentLogs, nextAccidentLogs)) {
+          if (selectLatestAccidentLogForDecisionIfReady()) {
+            renderAccidentLogs({ forceDetail: true });
+            return true;
+          }
           return false;
         }
         accidentLogs = nextAccidentLogs;
-        if (autoSelectLatestAccidentLog && accidentLogs.length > 0) {
-          selectedAccidentLogFilename = accidentLogs[0].filename;
-          penaltyDecisionAccidentLogFilename = accidentLogs[0].filename;
-          autoSelectLatestAccidentLog = false;
-        }
+        const selectedLatestForDecision = selectLatestAccidentLogForDecisionIfReady();
         const filenames = new Set(accidentLogs.map((accidentLog) => accidentLog.filename));
         for (const filename of accidentLogSummaryCache.keys()) {
           if (!filenames.has(filename)) {
@@ -1365,7 +1390,7 @@
             decisionAnalysisCache.delete(key);
           }
         }
-        renderAccidentLogs();
+        renderAccidentLogs({ forceDetail: selectedLatestForDecision });
         return true;
       }
 
@@ -1384,8 +1409,15 @@
           }
           return;
         }
-        const selectedAccidentLog = accidentLogs.find((accidentLog) => accidentLog.filename === selectedAccidentLogFilename) || accidentLogs[0];
-        selectedAccidentLogFilename = selectedAccidentLog.filename;
+        const waitingForLatestDecisionLog = autoSelectLatestAccidentLog
+          && penaltyDecisionActive
+          && !penaltyDecisionAccidentLogFilename;
+        const selectedAccidentLog = waitingForLatestDecisionLog
+          ? null
+          : (accidentLogs.find((accidentLog) => accidentLog.filename === selectedAccidentLogFilename) || accidentLogs[0]);
+        if (selectedAccidentLog) {
+          selectedAccidentLogFilename = selectedAccidentLog.filename;
+        }
         for (const accidentLog of accidentLogs) {
           const item = document.createElement("button");
           const selected = accidentLog.filename === selectedAccidentLogFilename;
@@ -1419,6 +1451,10 @@
       }
 
       function selectAccidentLog(filename) {
+        if (penaltyDecisionActive && !penaltyDecisionAccidentLogFilename) {
+          stopAutoSelectingLatestAccidentLog();
+          penaltyDecisionAccidentLogFilename = filename;
+        }
         if (!isAccidentLogsDialogOpen()) {
           selectedAccidentLogFilename = filename;
           return;
@@ -1895,6 +1931,35 @@
         updateAccidentLogsButton();
       }
 
+      function refreshAccidentLogsUntilLatestDecisionLog() {
+        if (!autoSelectLatestAccidentLog || manualDecisionSubmitInProgress) {
+          return;
+        }
+        if (accidentLogsRefreshTimer !== null) {
+          window.clearTimeout(accidentLogsRefreshTimer);
+        }
+        accidentLogsRefreshTimer = window.setTimeout(() => {
+          accidentLogsRefreshTimer = null;
+          if (!autoSelectLatestAccidentLog || manualDecisionSubmitInProgress) {
+            return;
+          }
+          autoSelectLatestAccidentLogAttempts += 1;
+          void loadAccidentLogs()
+            .catch((error) => {
+              console.warn("Failed to refresh accident logs:", error);
+            })
+            .finally(() => {
+              if (!autoSelectLatestAccidentLog) {
+                return;
+              }
+              if (autoSelectLatestAccidentLogAttempts >= 20) {
+                return;
+              }
+              refreshAccidentLogsUntilLatestDecisionLog();
+            });
+        }, 500);
+      }
+
       async function clearAccidentLogs() {
         const keepFilename = simulatorConnected && penaltyDecisionActive && penaltyDecisionAccidentLogFilename
           ? penaltyDecisionAccidentLogFilename
@@ -1955,6 +2020,7 @@
         rctSocket.send(JSON.stringify(command));
         penaltyDecisionActive = false;
         penaltyDecisionAccidentLogFilename = null;
+        stopAutoSelectingLatestAccidentLog();
         accidentLogsModal.hide();
       }
 
@@ -2001,6 +2067,16 @@
           && accidentLog.filename
           && accidentLog.filename === penaltyDecisionAccidentLogFilename
         );
+      }
+
+      function stopAutoSelectingLatestAccidentLog() {
+        autoSelectLatestAccidentLog = false;
+        autoSelectLatestAccidentLogBaselineFilename = null;
+        autoSelectLatestAccidentLogAttempts = 0;
+        if (accidentLogsRefreshTimer !== null) {
+          window.clearTimeout(accidentLogsRefreshTimer);
+          accidentLogsRefreshTimer = null;
+        }
       }
 
       function createDecisionAnalysisPane(accidentLog, option, renderToken) {
@@ -2335,14 +2411,19 @@
         container.append(pane);
       }
 
-      function openAccidentLogsForManualDecision() {
+      function openAccidentLogsForManualDecision(options = {}) {
         if (manualDecisionSubmitInProgress) {
           return;
         }
         penaltyDecisionActive = true;
         autoSelectLatestAccidentLog = true;
-        selectedAccidentLogFilename = accidentLogs.length > 0 ? accidentLogs[0].filename : null;
-        penaltyDecisionAccidentLogFilename = selectedAccidentLogFilename;
+        autoSelectLatestAccidentLogBaselineFilename = options.allowExistingLatest
+          ? null
+          : (accidentLogs.length > 0 ? accidentLogs[0].filename : null);
+        autoSelectLatestAccidentLogAttempts = 0;
+        selectedAccidentLogFilename = null;
+        penaltyDecisionAccidentLogFilename = null;
+        selectLatestAccidentLogForDecisionIfReady();
         const alreadyOpen = isAccidentLogsDialogOpen();
         accidentLogsModal.show();
         if (alreadyOpen) {
@@ -2352,6 +2433,7 @@
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
         });
+        refreshAccidentLogsUntilLatestDecisionLog();
       }
 
       function topicAccessLabel(access) {
@@ -4018,11 +4100,12 @@
             updateRaceResult(message.race_result);
           }
           if (message.penalty_decision && message.penalty_decision.active && !penaltyDecisionActive && !manualDecisionSubmitInProgress) {
-            openAccidentLogsForManualDecision();
+            openAccidentLogsForManualDecision({ allowExistingLatest: true });
           } else if (message.penalty_decision && !message.penalty_decision.active) {
             const wasPenaltyDecisionActive = penaltyDecisionActive;
             penaltyDecisionActive = false;
             penaltyDecisionAccidentLogFilename = null;
+            stopAutoSelectingLatestAccidentLog();
             manualDecisionSubmitInProgress = false;
             if (wasPenaltyDecisionActive && isAccidentLogsDialogOpen()) {
               renderAccidentLogs({ forceDetail: true });
@@ -4055,6 +4138,7 @@
             const wasPenaltyDecisionActive = penaltyDecisionActive;
             penaltyDecisionActive = false;
             penaltyDecisionAccidentLogFilename = null;
+            stopAutoSelectingLatestAccidentLog();
             if (!message.active) {
               manualDecisionSubmitInProgress = false;
             }
@@ -4653,6 +4737,7 @@
       });
       accidentLogsDialog.addEventListener("hidden.bs.modal", () => {
         accidentLogsDialogVisible = false;
+        stopAutoSelectingLatestAccidentLog();
         accidentLogDetailRenderToken += 1;
         abortAccidentDecisionAnalysisRequests();
         stopAccidentReplayTimer();
