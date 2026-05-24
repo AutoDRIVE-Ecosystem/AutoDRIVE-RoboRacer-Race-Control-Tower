@@ -8,7 +8,6 @@ import gzip
 import inspect
 import json
 import logging
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1279,7 +1278,7 @@ class RaceControlTower:
             summary = (
                 await asyncio.to_thread(accident_log_compact_summary_from_mcap, path)
                 if compact
-                else await self.accident_log_summary_from_mcap_process(path, include_lidar_scan=include_lidar_scan)
+                else await asyncio.to_thread(self.accident_log_summary_from_mcap, path, include_lidar_scan=include_lidar_scan)
             )
         except Exception:
             LOGGER.exception("failed to read accident log summary from %s", path)
@@ -2649,33 +2648,6 @@ class RaceControlTower:
 
     def accident_log_summary_from_mcap(self, path: Path, *, include_lidar_scan: bool = True) -> dict[str, Any]:
         return accident_log_summary_from_mcap(path, self.settings.devkit_vehicle_ids, include_lidar_scan=include_lidar_scan)
-
-    async def accident_log_summary_from_mcap_process(self, path: Path, *, include_lidar_scan: bool = True) -> dict[str, Any]:
-        devkit_vehicle_ids = ",".join(str(vehicle_id) for vehicle_id in self.settings.devkit_vehicle_ids)
-        command = [
-            sys.executable,
-            "-m",
-            "rct.accident_summary",
-            str(path),
-            "--devkit-vehicle-ids",
-            devkit_vehicle_ids,
-        ]
-        if not include_lidar_scan:
-            command.append("--no-lidar-scan")
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        if process.returncode != 0:
-            error = stderr.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(f"accident summary subprocess failed with exit code {process.returncode}: {error}")
-        try:
-            return json.loads(stdout.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            error = stderr.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(f"accident summary subprocess returned invalid JSON: {error}") from exc
 
     def topic_options_payload(self) -> list[dict[str, Any]]:
         selections = self.resolved_topic_selections()
