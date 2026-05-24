@@ -326,7 +326,18 @@
 
   function incidentTimes(rows) {
     if (rows.length === 0) {
-      return { min_distance_time: null, min_distance_index: -1, min_distance_m: null, collision_time: null, collision_vehicle_ids: [] };
+      return {
+        min_distance_time: null,
+        min_distance_index: -1,
+        min_distance_m: null,
+        collision_time: null,
+        collision_index: -1,
+        collision_distance_m: null,
+        analysis_time: null,
+        analysis_index: -1,
+        analysis_distance_m: null,
+        collision_vehicle_ids: [],
+      };
     }
     let minIndex = 0;
     for (let index = 1; index < rows.length; index += 1) {
@@ -336,21 +347,34 @@
     }
     const collisionVehicleIds = new Set();
     let collisionTime = null;
-    for (const row of rows) {
+    let collisionIndex = -1;
+    rows.forEach((row, index) => {
       if (row.a_collision_delta > 0) {
         collisionVehicleIds.add(1);
-        collisionTime = collisionTime === null ? row.time : Math.min(collisionTime, row.time);
+        if (collisionTime === null || row.time < collisionTime) {
+          collisionTime = row.time;
+          collisionIndex = index;
+        }
       }
       if (row.b_collision_delta > 0) {
         collisionVehicleIds.add(2);
-        collisionTime = collisionTime === null ? row.time : Math.min(collisionTime, row.time);
+        if (collisionTime === null || row.time < collisionTime) {
+          collisionTime = row.time;
+          collisionIndex = index;
+        }
       }
-    }
+    });
+    const analysisIndex = collisionIndex >= 0 ? collisionIndex : minIndex;
     return {
       min_distance_time: rows[minIndex].time,
       min_distance_index: minIndex,
       min_distance_m: rows[minIndex].distance,
       collision_time: collisionTime,
+      collision_index: collisionIndex,
+      collision_distance_m: collisionIndex >= 0 ? rows[collisionIndex].distance : null,
+      analysis_time: rows[analysisIndex].time,
+      analysis_index: analysisIndex,
+      analysis_distance_m: rows[analysisIndex].distance,
       collision_vehicle_ids: Array.from(collisionVehicleIds).sort(),
     };
   }
@@ -404,15 +428,16 @@
   }
 
   function preContactRows(rows, incident) {
-    if (!rows.length || incident.min_distance_index < 0) {
+    const analysisIndex = Number.isInteger(incident.analysis_index) ? incident.analysis_index : incident.min_distance_index;
+    if (!rows.length || analysisIndex < 0) {
       return [];
     }
-    const minTime = incident.min_distance_time;
-    const selected = rows.filter((row, index) => index <= incident.min_distance_index && row.time >= minTime - 1.0);
+    const analysisTime = Number.isFinite(incident.analysis_time) ? incident.analysis_time : incident.min_distance_time;
+    const selected = rows.filter((row, index) => index <= analysisIndex && row.time >= analysisTime - 1.0);
     if (selected.length >= 3) {
       return selected;
     }
-    return rows.slice(Math.max(0, incident.min_distance_index - 20), incident.min_distance_index + 1);
+    return rows.slice(Math.max(0, analysisIndex - 20), analysisIndex + 1);
   }
 
   function longitudinalEvidence(rows, vehicleId) {
@@ -491,8 +516,12 @@
     const clearanceScore = minClearance === null ? 0 : clip((0.65 - minClearance) / 0.65);
     const collapseScore = clip(clearanceDrop / 0.5);
     const collisionScore = rows.some((row) => row[collisionKey] > 0) || incident.collision_vehicle_ids.includes(vehicleId) ? 1 : 0;
-    const opponentFarScore = incident.min_distance_m !== null ? clip((incident.min_distance_m - 1.2) / 1.3) : 0;
-    const fallbackIsolatedScore = wallMap.wall_reconstruction_used ? 0 : (collisionScore && opponentFarScore > 0.5 ? 0.45 : 0);
+    const eventDistance = Number.isFinite(incident.analysis_distance_m) ? incident.analysis_distance_m : incident.min_distance_m;
+    const opponentFarScore = eventDistance !== null ? clip((eventDistance - 1.2) / 1.3) : 0;
+    const isolatedCollisionScore = incident.collision_vehicle_ids.length === 1 && incident.collision_vehicle_ids.includes(vehicleId) ? 1 : 0;
+    const fallbackIsolatedScore = wallMap.wall_reconstruction_used
+      ? 0
+      : (collisionScore ? clip(opponentFarScore * 0.45 + isolatedCollisionScore * 0.25) : 0);
     const singleWallScore = wallMap.wall_reconstruction_used
       ? clip(clearanceScore * 0.38 + collapseScore * 0.27 + collisionScore * 0.20 + opponentFarScore * 0.15)
       : fallbackIsolatedScore;
@@ -505,6 +534,7 @@
       collapse_score: collapseScore,
       collision_score: collisionScore,
       opponent_far_score: opponentFarScore,
+      isolated_collision_score: isolatedCollisionScore,
     };
   }
 
@@ -841,7 +871,10 @@
   function collisionTypeCT1(context, graphResults) {
     const info = pluginInfo("CT1", CT_LABELS.CT1);
     const best = bestVehicle(context.evidence.wall, "single_wall_score");
-    const distanceLarge = context.incident.min_distance_m !== null && context.incident.min_distance_m > 2.0;
+    const eventDistance = Number.isFinite(context.incident.analysis_distance_m)
+      ? context.incident.analysis_distance_m
+      : context.incident.min_distance_m;
+    const distanceLarge = eventDistance !== null && eventDistance > 2.0;
     const score = distanceLarge ? best.single_wall_score : best.single_wall_score * 0.45;
     const decision = ctDecision(info.label, score);
     const penaltyVehicleId = score >= 0.55 ? best.vehicle_id : null;
@@ -857,6 +890,7 @@
         candidate_vehicle: common.vehicleLabel(best.vehicle_id),
         min_wall_clearance_m: common.round(best.min_wall_clearance_m),
         min_distance_m: common.round(context.incident.min_distance_m),
+        event_distance_m: common.round(eventDistance),
       },
       graphResults);
   }
@@ -865,15 +899,19 @@
     const info = pluginInfo("CT2", CT_LABELS.CT2);
     const loc = bestVehicle(context.evidence.loss, "score");
     const wall = context.evidence.wall[loc.vehicle_id];
-    const contactLikely = context.incident.min_distance_m !== null && context.incident.min_distance_m <= 2.2;
+    const eventDistance = Number.isFinite(context.incident.analysis_distance_m)
+      ? context.incident.analysis_distance_m
+      : context.incident.min_distance_m;
+    const contactLikely = eventDistance !== null && eventDistance <= 2.2;
     const wallReboundSupport = context.wallMap.wall_reconstruction_used
       ? clip(wall.collapse_score * 0.55 + wall.clearance_score * 0.35 + wall.collision_score * 0.10)
       : 0;
-    const score = clip(
+    const contactGate = twoVehicleContactGate(context);
+    const score = clip(contactGate * (
       loc.score * 0.55 * wallReboundSupport
       + wallReboundSupport * 0.35
-      + (contactLikely && wallReboundSupport > 0.35 ? 0.10 : 0),
-    );
+      + (contactLikely && wallReboundSupport > 0.35 ? 0.10 : 0)
+    ));
     const decision = ctDecision(info.label, score);
     const penaltyVehicleId = score >= 0.50 ? loc.vehicle_id : null;
     const faultPercentage = penaltyVehicleId ? 70 + score * 25 : null;
@@ -894,7 +932,7 @@
     const info = pluginInfo("CT3", CT_LABELS.CT3);
     const rear = bestVehicle(context.evidence.longitudinal, "score");
     const lateralAmbiguity = Math.max(context.evidence.lateral[1].score, context.evidence.lateral[2].score);
-    const score = clip(rear.score - Math.max(0, lateralAmbiguity - 0.58) * 0.25);
+    const score = clip((rear.score - Math.max(0, lateralAmbiguity - 0.58) * 0.25) * twoVehicleContactGate(context));
     const decision = ctDecision(info.label, score);
     const penaltyVehicleId = score >= 0.50 ? rear.vehicle_id : null;
     const partialOverlap = context.evidence.side_by_side_score > 0.45;
@@ -915,11 +953,11 @@
     const info = pluginInfo("CT4", CT_LABELS.CT4);
     const rear = bestVehicle(context.evidence.longitudinal, "score");
     const lateInside = lateInsideProxy(context, rear.vehicle_id);
-    const score = clip(
+    const score = clip(twoVehicleContactGate(context) * (
       rear.score * 0.55 * lateInside.score
       + lateInside.score * 0.35
-      + context.evidence.low_ttc_score * 0.10 * lateInside.score,
-    );
+      + context.evidence.low_ttc_score * 0.10 * lateInside.score
+    ));
     const decision = ctDecision(info.label, score);
     const penaltyVehicleId = score >= 0.55 ? rear.vehicle_id : null;
     const faultPercentage = penaltyVehicleId ? 65 + score * 25 : null;
@@ -943,9 +981,9 @@
     const primaryScore = clip(lateral.score - longitudinalDominance * 0.25);
     const minLateralGap = minValue(context.rows, "lateral_gap");
     const secondaryDescriptor = minLateralGap !== null && minLateralGap < 0.25 && context.evidence.side_by_side_score > 0.15;
-    const score = clip(Math.max(primaryScore, secondaryDescriptor ? 0.46 : 0));
+    const score = clip(Math.max(primaryScore, secondaryDescriptor ? 0.46 : 0) * twoVehicleContactGate(context));
     const decision = ctDecision(info.label, score);
-    const penaltyVehicleId = primaryScore >= 0.50 ? lateral.vehicle_id : null;
+    const penaltyVehicleId = score >= 0.50 ? lateral.vehicle_id : null;
     const faultPercentage = penaltyVehicleId ? 60 + score * 30 : null;
     const noPenaltyDetail = secondaryDescriptor
       ? "secondary side-overlap descriptor only; longitudinal closing dominates"
@@ -968,7 +1006,8 @@
   function collisionTypeCT6(context, graphResults) {
     const info = pluginInfo("CT6", CT_LABELS.CT6);
     const squeeze = bestVehicle(context.evidence.squeeze, "score");
-    const score = context.wallMap.wall_reconstruction_used ? squeeze.score : squeeze.score * 0.45;
+    const rawScore = context.wallMap.wall_reconstruction_used ? squeeze.score : squeeze.score * 0.45;
+    const score = clip(rawScore * twoVehicleContactGate(context));
     const decision = ctDecision(info.label, score);
     const penaltyVehicleId = score >= 0.52 ? squeeze.vehicle_id : null;
     const faultPercentage = penaltyVehicleId ? 60 + score * 30 : null;
@@ -1032,6 +1071,20 @@
       graphs: graphResults,
       series: graphResults.length ? graphResults[0].series : [],
     };
+  }
+
+  function incidentEventDistance(incident) {
+    return Number.isFinite(incident && incident.analysis_distance_m)
+      ? incident.analysis_distance_m
+      : (Number.isFinite(incident && incident.min_distance_m) ? incident.min_distance_m : null);
+  }
+
+  function twoVehicleContactGate(context) {
+    const distance = incidentEventDistance(context && context.incident);
+    if (distance === null) {
+      return 1;
+    }
+    return clip((3.0 - distance) / 0.8);
   }
 
   function contributionRow(row) {

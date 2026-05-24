@@ -534,6 +534,12 @@
         padding-left: 1.25rem;
       }
 
+      .rct-sw-analysis-tree-conclusion {
+        color: #495057;
+        font-size: 0.9rem;
+        margin: 0.25rem 0 0.5rem;
+      }
+
       .rct-sw-analysis-summary-table {
         font-size: 0.875rem;
         margin-bottom: 0;
@@ -2404,7 +2410,11 @@
         title.className = "rct-sw-analysis-section-title";
         title.textContent = "Telemetry Analysis Summary";
         if (options.length > 0 && options.every((option) => option.version === "v2")) {
-          container.append(title, createDecisionPackV2SummaryTable(accidentLog, options));
+          container.append(
+            title,
+            createDecisionPackV2TreeConclusion(accidentLog, options),
+            createDecisionPackV2SummaryTable(accidentLog, options),
+          );
           return container;
         }
         const list = document.createElement("ul");
@@ -2420,6 +2430,73 @@
         });
         container.append(title, list);
         return container;
+      }
+
+      function createDecisionPackV2TreeConclusion(accidentLog, options) {
+        const conclusion = document.createElement("p");
+        conclusion.className = "rct-sw-analysis-tree-conclusion";
+        const summary = currentAccidentLogSummary;
+        if (!summary || summary.filename !== accidentLog.filename) {
+          conclusion.textContent = "Decision-tree conclusion: analysis waiting for replay data.";
+          return conclusion;
+        }
+        try {
+          const analyses = options.map((option) => ({
+            option,
+            analysis: decisionAnalysisForOption(summary, option),
+          }));
+          conclusion.textContent = decisionPackV2TreeConclusionText(analyses);
+        } catch (error) {
+          console.warn("Failed to summarize decision-tree conclusion:", error);
+          conclusion.textContent = "Decision-tree conclusion: analysis module unavailable.";
+        }
+        return conclusion;
+      }
+
+      function decisionPackV2TreeConclusionText(analyses) {
+        const byId = new Map(analyses.map((entry) => [entry.option.id, entry]));
+        const branchOrder = ["CT1", "CT2", "CT4", "CT3", "CT6", "CT5"];
+        const fallback = byId.get("CT7");
+        const candidates = branchOrder
+          .map((id) => byId.get(id))
+          .filter((entry) => entry && decisionPackV2Score(entry.analysis) >= 0.45)
+          .sort((left, right) => {
+            const scoreDelta = decisionPackV2Score(right.analysis) - decisionPackV2Score(left.analysis);
+            if (Math.abs(scoreDelta) >= 0.12) {
+              return scoreDelta;
+            }
+            return branchOrder.indexOf(left.option.id) - branchOrder.indexOf(right.option.id);
+          });
+        const selected = candidates[0] || fallback || analyses
+          .slice()
+          .sort((left, right) => decisionPackV2Score(right.analysis) - decisionPackV2Score(left.analysis))[0];
+        if (!selected) {
+          return "Decision-tree conclusion: no telemetry analysis result is available.";
+        }
+        const analysis = selected.analysis;
+        const label = `${selected.option.id} ${displayDecisionAnalysisLabel(selected.option)}`;
+        const possibility = decisionPackV2PossibilityText(analysis);
+        const possibilityText = possibility === "N/A" ? "unknown possibility" : `${possibility} possibility`;
+        const penaltyVehicleId = Number(analysis.penalty_vehicle_id);
+        const faultPercentage = Number(analysis.fault_percentage);
+        let faultText = "no primary fault vehicle is identified";
+        if (Number.isFinite(penaltyVehicleId) && penaltyVehicleId > 0) {
+          const faultSuffix = Number.isFinite(faultPercentage) ? ` (${faultPercentage.toFixed(0)}%)` : "";
+          faultText = `primary fault is on Roboracer ${displayRoboracerLabel(penaltyVehicleId)}${faultSuffix}`;
+        }
+        return `Decision-tree conclusion: ${label} is the selected incident type (${possibilityText}); ${faultText}.`;
+      }
+
+      function decisionPackV2Score(analysis) {
+        const contribution = Number(analysis && analysis.contribution_score);
+        const confidence = Number(analysis && analysis.confidence);
+        if (Number.isFinite(contribution)) {
+          return contribution;
+        }
+        if (Number.isFinite(confidence)) {
+          return confidence;
+        }
+        return 0;
       }
 
       function createDecisionPackV2SummaryTable(accidentLog, options) {
@@ -2658,7 +2735,8 @@
       }
 
       function appendDecisionAnalysisSections(parent, accidentLog, options, renderToken) {
-        parent.append(createDecisionAnalysisSummary(accidentLog, options));
+        const uniqueOptions = uniqueDecisionAnalysisOptions(options);
+        parent.append(createDecisionAnalysisSummary(accidentLog, uniqueOptions));
         const divider = document.createElement("hr");
         divider.className = "my-1";
         parent.append(divider);
@@ -2666,7 +2744,7 @@
         detailTitle.className = "rct-sw-analysis-section-title";
         detailTitle.textContent = "Telemetry Analysis Detail";
         parent.append(detailTitle);
-        options.forEach((option, index) => {
+        uniqueOptions.forEach((option, index) => {
           const result = document.createElement("div");
           result.className = "rct-sw-analysis-result";
           const anchor = document.createElement("a");
@@ -2677,6 +2755,18 @@
           resultTitle.textContent = `${index + 1}. ${displayDecisionAnalysisLabel(option)}`;
           result.append(anchor, resultTitle, createDecisionAnalysisPane(accidentLog, option, renderToken));
           parent.append(result);
+        });
+      }
+
+      function uniqueDecisionAnalysisOptions(options) {
+        const seen = new Set();
+        return options.filter((option) => {
+          const key = `${option.version || ""}\u0000${option.id || ""}`;
+          if (seen.has(key)) {
+            return false;
+          }
+          seen.add(key);
+          return true;
         });
       }
 
@@ -2785,10 +2875,11 @@
         let packageIds = Array.isArray(record.decision_package_ids) && record.decision_package_ids.length > 0
           ? record.decision_package_ids
           : (faultVehicleId && !penalty ? selectedPenaltySwAnalysisOptions().map((option) => option.id) : []);
-        if (faultVehicleId && !penalty && !packageIds.includes("single_vehicle_collision")) {
-          packageIds = [appliedDecisionPackVersion === "v2" ? "CT1" : "single_vehicle_collision", ...packageIds];
+        const singleVehiclePackageId = appliedDecisionPackVersion === "v2" ? "CT1" : "single_vehicle_collision";
+        if (faultVehicleId && !penalty && !packageIds.includes(singleVehiclePackageId)) {
+          packageIds = [singleVehiclePackageId, ...packageIds];
         }
-        const options = packageIds.map((id) => {
+        const options = Array.from(new Set(packageIds)).map((id) => {
           const v2Pack = window.RCTDecisionPacksV2.getCollisionType(id);
           const v1Pack = window.RCTDecisionPacks.get(id);
           const version = v2Pack ? "v2" : "v1";
