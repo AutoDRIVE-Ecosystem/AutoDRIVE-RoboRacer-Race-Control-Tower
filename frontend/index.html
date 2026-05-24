@@ -839,11 +839,11 @@
                   <div class="rct-settings-subtitle">Decision Pack</div>
                   <div class="d-flex flex-wrap gap-3">
                     <div class="form-check">
-                      <input id="decisionPackVersionV1" class="form-check-input decision-pack-version-radio" type="radio" name="decisionPackVersion" value="v1" checked>
+                      <input id="decisionPackVersionV1" class="form-check-input decision-pack-version-radio" type="radio" name="decisionPackVersion" value="v1">
                       <label class="form-check-label" for="decisionPackVersionV1">Decision Pack v1</label>
                     </div>
                     <div class="form-check">
-                      <input id="decisionPackVersionV2" class="form-check-input decision-pack-version-radio" type="radio" name="decisionPackVersion" value="v2">
+                      <input id="decisionPackVersionV2" class="form-check-input decision-pack-version-radio" type="radio" name="decisionPackVersion" value="v2" checked>
                       <label class="form-check-label" for="decisionPackVersionV2">Decision Pack v2</label>
                     </div>
                   </div>
@@ -1323,6 +1323,8 @@
         return settings;
       }, {});
       const canvasFpsOverlayStorageKey = "rct.showCanvasFpsOverlay";
+      const canvasFpsOverlayStorageVersion = "2";
+      const canvasFpsOverlayStorageVersionKey = `${canvasFpsOverlayStorageKey}.version`;
       const totalLapCountInput = document.getElementById("totalLapCount");
       const maximumPenaltyCountInput = document.getElementById("maximumPenaltyCount");
       const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
@@ -1444,7 +1446,7 @@
       let appliedPreAccidentSeconds = 5;
       let appliedIncludeCamera = false;
       let appliedPenaltyRestartDelaySeconds = 2;
-      let appliedDecisionPackVersion = "v1";
+      let appliedDecisionPackVersion = "v2";
       let appliedPenaltySwAnalysis = { ...defaultPenaltySwAnalysis };
       let appliedDecisionPackV2AutomaticDecision = false;
       let appliedDecisionPackV2CollisionTypes = { ...defaultDecisionPackV2CollisionTypes };
@@ -1457,6 +1459,14 @@
       let raceResultActive = false;
       let confettiTimer = null;
       let simulatorConnected = false;
+      let mainTrajectoryDrawAnimationFrame = null;
+      let mainTrajectoryPendingShowInit = false;
+      const monitorMessageRateSamples = [];
+      const monitorTelemetryRateSamples = [];
+      const monitorIpsRateSamples = {
+        1: [],
+        2: [],
+      };
       let accidentLogs = [];
       let selectedAccidentLogFilename = null;
       let renderedAccidentLogDetailKey = null;
@@ -1489,6 +1499,7 @@
       const decisionAnalysisCache = new Map();
       let accidentLogMcapWorkerRequestId = 0;
       let accidentReplayCanvas = null;
+      let accidentReplayResizeObserver = null;
       let accidentReplayFrames = [];
       let accidentReplayFrameIndex = 0;
       let accidentReplayTimer = null;
@@ -1506,6 +1517,24 @@
         lastPointerX: 0,
         lastPointerY: 0,
       };
+
+      function recordRateSample(samples, now = performance.now()) {
+        samples.push(now);
+        while (samples.length > 1 && now - samples[0] > 1000) {
+          samples.shift();
+        }
+      }
+
+      function samplesPerSecond(samples, now = performance.now()) {
+        while (samples.length > 1 && now - samples[0] > 1000) {
+          samples.shift();
+        }
+        if (samples.length < 2) {
+          return 0;
+        }
+        const elapsedSeconds = (now - samples[0]) / 1000;
+        return elapsedSeconds > 0 ? (samples.length - 1) / elapsedSeconds : 0;
+      }
 
       function frontendWebSocketUrl() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -1812,8 +1841,16 @@
           .replace(/\.mcap$/i, "");
       }
 
+      function disconnectAccidentReplayResizeObserver() {
+        if (accidentReplayResizeObserver) {
+          accidentReplayResizeObserver.disconnect();
+          accidentReplayResizeObserver = null;
+        }
+      }
+
       function renderAccidentLogDetail(accidentLog) {
         stopAccidentReplayTimer();
+        disconnectAccidentReplayResizeObserver();
         abortAccidentDecisionAnalysisRequests();
         const renderToken = ++accidentLogDetailRenderToken;
         if (!accidentLog) {
@@ -1949,6 +1986,7 @@
           view: accidentReplayView,
           historyLimit: Number.MAX_SAFE_INTEGER,
           showLidar: true,
+          diagnosticLabel: "replay",
         });
         const replayControls = { replayTime, slider, recenterButton, playPauseButton };
         accidentReplayCanvas.enableWheelZoom(() => {
@@ -1958,12 +1996,13 @@
           renderAccidentReplayFrame(accidentReplayFrameIndex, replayControls);
         });
         if ("ResizeObserver" in window) {
-          new ResizeObserver(() => {
+          accidentReplayResizeObserver = new ResizeObserver(() => {
             if (accidentReplayCanvas && accidentReplayCanvas.canvas === canvas) {
               accidentReplayCanvas.draw();
               updateAccidentReplayRecenterButton(recenterButton);
             }
-          }).observe(canvas);
+          });
+          accidentReplayResizeObserver.observe(canvas);
         }
         accidentReplayCanvas.draw();
         updateAccidentReplayRecenterButton(recenterButton);
@@ -3276,7 +3315,14 @@
       function loadExperimentsFrontendSettings() {
         let enabled = false;
         try {
-          enabled = window.localStorage.getItem(canvasFpsOverlayStorageKey) === "true";
+          const savedVersion = window.localStorage.getItem(canvasFpsOverlayStorageVersionKey);
+          if (savedVersion === canvasFpsOverlayStorageVersion) {
+            enabled = window.localStorage.getItem(canvasFpsOverlayStorageKey) === "true";
+          } else if (savedVersion === null && window.localStorage.getItem(canvasFpsOverlayStorageKey) !== null) {
+            // New setting behavior: default to unchecked on upgrade until user re-applies in the UI.
+            window.localStorage.removeItem(canvasFpsOverlayStorageKey);
+            window.localStorage.setItem(canvasFpsOverlayStorageVersionKey, canvasFpsOverlayStorageVersion);
+          }
         } catch (error) {
           enabled = false;
         }
@@ -3290,6 +3336,7 @@
         showCanvasFpsOverlay = appliedShowCanvasFpsOverlay;
         try {
           window.localStorage.setItem(canvasFpsOverlayStorageKey, String(appliedShowCanvasFpsOverlay));
+          window.localStorage.setItem(canvasFpsOverlayStorageVersionKey, canvasFpsOverlayStorageVersion);
         } catch (error) {
           console.warn("Failed to persist canvas FPS overlay setting:", error);
         }
@@ -3321,6 +3368,10 @@
       function selectedDecisionPackVersion() {
         const selected = decisionPackVersionRadios.find((radio) => radio.checked);
         return selected && selected.value === "v2" ? "v2" : "v1";
+      }
+
+      function normalizeDecisionPackVersion(version) {
+        return version === "v1" ? "v1" : "v2";
       }
 
       function setDecisionPackVersion(version) {
@@ -3547,7 +3598,7 @@
           appliedPenaltyRestartDelaySeconds = restartDelaySeconds;
           penaltyRestartDelaySecondsInput.value = String(restartDelaySeconds);
         }
-        appliedDecisionPackVersion = settings.decision_pack_version === "v2" ? "v2" : "v1";
+        appliedDecisionPackVersion = normalizeDecisionPackVersion(settings.decision_pack_version);
         setDecisionPackVersion(appliedDecisionPackVersion);
         syncPenaltySwAnalysisSettings(settings.sw_analysis);
         syncDecisionPackV2Settings(settings.decision_pack_v2);
@@ -3708,7 +3759,7 @@
             const payload = await postPenaltyRuleSettings();
             const settings = payload.penalty_rule || {};
             appliedPenaltyRestartDelaySeconds = Number(settings.restart_delay_seconds);
-            appliedDecisionPackVersion = settings.decision_pack_version === "v2" ? "v2" : "v1";
+            appliedDecisionPackVersion = normalizeDecisionPackVersion(settings.decision_pack_version);
             penaltyRestartDelaySecondsInput.value = String(appliedPenaltyRestartDelaySeconds);
             setDecisionPackVersion(appliedDecisionPackVersion);
             syncPenaltySwAnalysisSettings(settings.sw_analysis);
@@ -3817,6 +3868,9 @@
 
       function setSimulatorStatus(connected) {
         const wasConnected = simulatorConnected;
+        if (connected === wasConnected) {
+          return;
+        }
         simulatorConnected = connected;
         simulatorStatusText.textContent = connected ? "Connected" : "Disconnected";
         simulatorStatusDot.className = `status-dot status-dot-${connected ? "online" : "offline"}`;
@@ -4116,6 +4170,7 @@
           historyLimit = 100,
           showLidar = false,
           initRenderer = null,
+          diagnosticLabel = "canvas",
         }) {
           this.canvas = canvas;
           this.context = context || canvas.getContext("2d");
@@ -4135,6 +4190,7 @@
           this.historyLimit = historyLimit;
           this.showLidar = showLidar;
           this.initRenderer = initRenderer;
+          this.diagnosticLabel = diagnosticLabel;
           this.drawFpsSamples = [];
         }
 
@@ -4215,6 +4271,9 @@
             history.push(point);
             while (history.length > this.historyLimit) {
               history.shift();
+            }
+            if (this.diagnosticLabel === "main" && monitorIpsRateSamples[vehicleId]) {
+              recordRateSample(monitorIpsRateSamples[vehicleId]);
             }
             this.updateHeadingFromIps(vehicleId);
           }
@@ -4668,11 +4727,22 @@
           while (this.drawFpsSamples.length > 1 && now - this.drawFpsSamples[0] > 1000) {
             this.drawFpsSamples.shift();
           }
-          let label = "draw -- fps";
+          let label = `${this.diagnosticLabel} draw -- fps`;
           if (this.drawFpsSamples.length >= 2) {
             const elapsedSeconds = (now - this.drawFpsSamples[0]) / 1000;
             const fps = elapsedSeconds > 0 ? (this.drawFpsSamples.length - 1) / elapsedSeconds : 0;
-            label = `draw ${fps.toFixed(0)} fps`;
+            label = `${this.diagnosticLabel} draw ${fps.toFixed(0)} fps`;
+          }
+          if (this.diagnosticLabel === "main") {
+            const telemetryRate = samplesPerSecond(monitorTelemetryRateSamples, now);
+            const messageRate = samplesPerSecond(monitorMessageRateSamples, now);
+            const historySizes = Object.entries(this.telemetry)
+              .map(([vehicleId, telemetry]) => `${displayRoboracerLabel(vehicleId)}${telemetry.ipsHistory.length}`)
+              .join(" ");
+            const ipsRates = Object.keys(this.telemetry)
+              .map((vehicleId) => `${displayRoboracerLabel(vehicleId)}${samplesPerSecond(monitorIpsRateSamples[Number(vehicleId)] || [], now).toFixed(0)}`)
+              .join(" ");
+            label = `${label} | telemetry ${telemetryRate.toFixed(0)}/s | ws ${messageRate.toFixed(0)}/s | ips ${ipsRates}/s | history ${historySizes}`;
           }
 
           this.context.save();
@@ -4727,7 +4797,19 @@
         historyLimit: ipsHistoryLimit,
         showLidar: false,
         initRenderer: drawInitModeContent,
+        diagnosticLabel: "main",
       });
+
+      function scheduleMainTrajectoryDraw({ showInit = false } = {}) {
+        mainTrajectoryPendingShowInit = Boolean(showInit);
+        if (mainTrajectoryDrawAnimationFrame !== null) {
+          return;
+        }
+        mainTrajectoryDrawAnimationFrame = window.requestAnimationFrame(() => {
+          mainTrajectoryDrawAnimationFrame = null;
+          mainTrajectoryCanvas.draw({ showInit: mainTrajectoryPendingShowInit });
+        });
+      }
 
       function resetVehicleTraces() {
         mainTrajectoryCanvas.reset();
@@ -4769,7 +4851,7 @@
           applyVehicleTelemetryToSidebar(vehicleId, telemetry);
           mainTrajectoryCanvas.appendTelemetry(vehicleId, telemetry);
         }
-        mainTrajectoryCanvas.draw();
+        scheduleMainTrajectoryDraw();
       }
 
       function showVehicleDecisionStatus(vehicleId, mode, options = {}) {
@@ -5010,7 +5092,7 @@
                 penaltyRestartDelaySecondsInput.value = String(restartDelaySeconds);
               }
             }
-            appliedDecisionPackVersion = settings.decision_pack_version === "v2" ? "v2" : "v1";
+            appliedDecisionPackVersion = normalizeDecisionPackVersion(settings.decision_pack_version);
             if (!hasPendingPenaltyRuleChanges) {
               setDecisionPackVersion(appliedDecisionPackVersion);
             }
@@ -5082,6 +5164,7 @@
             handlePenaltyDecisionStatus(message.penalty_decision);
           }
         } else if (message.event === "telemetry") {
+          recordRateSample(monitorTelemetryRateSamples);
           updateRaceTimeDisplay(message.race_time_seconds);
           if (Object.prototype.hasOwnProperty.call(message, "review_time_seconds")) {
             updateReviewTimeDisplay(message.review_time_seconds);
@@ -5121,6 +5204,9 @@
       }
 
       function connectRctStatus() {
+        if (rctSocket && (rctSocket.readyState === WebSocket.CONNECTING || rctSocket.readyState === WebSocket.OPEN)) {
+          return;
+        }
         setRctStatus("connecting");
         updateSettingsApplyState();
         rctSocket = new WebSocket(frontendWebSocketUrl());
@@ -5144,8 +5230,8 @@
           console.log("RCT frontend WebSocket error:", event);
         });
         rctSocket.addEventListener("message", (event) => {
+          recordRateSample(monitorMessageRateSamples);
           handleMonitorMessage(event.data);
-          console.log("RCT frontend WebSocket message:", event.data);
         });
       }
 
@@ -5732,6 +5818,7 @@
         accidentLogDetailRenderToken += 1;
         abortAccidentDecisionAnalysisRequests();
         stopAccidentReplayTimer();
+        disconnectAccidentReplayResizeObserver();
       });
       clearAccidentLogsButton.addEventListener("click", () => {
         void clearAccidentLogs().catch((error) => {

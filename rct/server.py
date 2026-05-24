@@ -1526,6 +1526,7 @@ class RaceControlTower:
         self.monitor_hub.add(ws)
         self.state.set_monitor_clients(self.monitor_hub.client_count)
         self.start_monitor_stream()
+        self.start_bridge_rate_refresh()
         peer = request.remote or "unknown"
         LOGGER.info("monitor connected from %s", peer)
         await safe_send(ws, self.status_message(full=True))
@@ -1803,8 +1804,6 @@ class RaceControlTower:
     ) -> None:
         self.log_bridge_flow("devkit-to-rct", devkit.vehicle_id)
         self.record_bridge_rate(devkit)
-        if self.monitor_ws_interval <= 0:
-            await self.publish_status()
         rewritten_args = rewrite_args_for_simulator(args, devkit.vehicle_id)
         rewritten_payload = self.filter_control_payload_for_penalty_decision(
             socketio_data_from_args(rewritten_args)
@@ -2698,7 +2697,7 @@ class RaceControlTower:
         restart_delay_seconds = float(restart_delay_seconds)
         if restart_delay_seconds < 0 or restart_delay_seconds > 60:
             raise ValueError("restart_delay_seconds must be between 0 and 60")
-        decision_pack_version = settings.get("decision_pack_version", "v1")
+        decision_pack_version = settings.get("decision_pack_version", "v2")
         if decision_pack_version not in {"v1", "v2"}:
             raise ValueError("decision_pack_version must be v1 or v2")
         sw_analysis = settings.get("sw_analysis", DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS)

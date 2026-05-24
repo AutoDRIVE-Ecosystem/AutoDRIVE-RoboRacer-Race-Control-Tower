@@ -93,7 +93,7 @@ class RaceControlState:
         }
         self._penalty_rule_settings: dict[str, Any] = {
             "restart_delay_seconds": 2.0,
-            "decision_pack_version": "v1",
+            "decision_pack_version": "v2",
             "sw_analysis": dict(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS),
             "decision_pack_v2": {
                 "automatic_decision": False,
@@ -302,7 +302,7 @@ class RaceControlState:
         self,
         *,
         restart_delay_seconds: float,
-        decision_pack_version: str = "v1",
+        decision_pack_version: str = "v2",
         sw_analysis: Mapping[str, bool] | None = None,
         decision_pack_v2: Mapping[str, Any] | None = None,
     ) -> None:
