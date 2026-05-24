@@ -445,16 +445,33 @@
     const longKey = attackerIsA ? "long_r1_in_r2" : "long_r2_in_r1";
     const attackerSpeedKey = attackerIsA ? "a_speed" : "b_speed";
     const targetSpeedKey = attackerIsA ? "b_speed" : "a_speed";
-    const longValues = finiteValues(rows, longKey);
-    const behindFraction = fraction(rows, (row) => Number.isFinite(row[longKey]) && row[longKey] < -0.05);
-    const speedAdvantage = average(rows.map((row) => finiteOrNull(row[attackerSpeedKey] - row[targetSpeedKey])).filter(Number.isFinite));
+    const evidenceRows = rowsBeforeCollisionImpulse(rows);
+    const terminalRows = trailingRows(evidenceRows, 0.55);
+    const longValues = finiteValues(evidenceRows, longKey);
+    const terminalLongValues = finiteValues(terminalRows, longKey);
+    const behindFraction = Math.max(
+      fraction(evidenceRows, (row) => Number.isFinite(row[longKey]) && row[longKey] < -0.05),
+      fraction(terminalRows, (row) => Number.isFinite(row[longKey]) && row[longKey] < -0.05),
+    );
+    const speedAdvantage = Math.max(
+      average(evidenceRows.map((row) => finiteOrNull(row[attackerSpeedKey] - row[targetSpeedKey])).filter(Number.isFinite)),
+      average(terminalRows.map((row) => finiteOrNull(row[attackerSpeedKey] - row[targetSpeedKey])).filter(Number.isFinite)),
+    );
     const speedScore = clip(speedAdvantage / 0.6);
     const firstLong = longValues.length ? longValues[0] : null;
     const lastLong = longValues.length ? longValues[longValues.length - 1] : null;
-    const gapClosed = firstLong !== null && lastLong !== null && firstLong < 0 ? Math.max(0, lastLong - firstLong) : 0;
+    const terminalFirstLong = terminalLongValues.length ? terminalLongValues[0] : null;
+    const terminalLastLong = terminalLongValues.length ? terminalLongValues[terminalLongValues.length - 1] : null;
+    const gapClosed = Math.max(
+      firstLong !== null && lastLong !== null && firstLong < 0 ? Math.max(0, lastLong - firstLong) : 0,
+      terminalFirstLong !== null && terminalLastLong !== null && terminalFirstLong < 0 ? Math.max(0, terminalLastLong - terminalFirstLong) : 0,
+    );
     const gapScore = clip(gapClosed / 1.0);
-    const closingScore = clip(average(rows.map((row) => Math.max(0, finiteOrDefault(row.closing_speed, 0)))) / 0.8);
-    const ttcScore = lowTtcScore(rows);
+    const closingScore = Math.max(
+      clip(average(evidenceRows.map((row) => Math.max(0, finiteOrDefault(row.closing_speed, 0)))) / 0.8),
+      clip(average(terminalRows.map((row) => Math.max(0, finiteOrDefault(row.closing_speed, 0)))) / 0.8),
+    );
+    const ttcScore = Math.max(lowTtcScore(evidenceRows), lowTtcScore(terminalRows));
     const fasterClosingGate = clip((speedAdvantage + 0.05) / 0.45);
     const score = clip(
       behindFraction * 0.18
@@ -473,6 +490,23 @@
       ttc_score: ttcScore,
       faster_closing_gate: fasterClosingGate,
     };
+  }
+
+  function rowsBeforeCollisionImpulse(rows) {
+    const filtered = rows.filter((row) => row.a_collision_delta <= 0 && row.b_collision_delta <= 0);
+    return filtered.length >= 3 ? filtered : rows;
+  }
+
+  function trailingRows(rows, seconds) {
+    if (rows.length < 3) {
+      return rows;
+    }
+    const endTime = rows[rows.length - 1].time;
+    const selected = rows.filter((row) => row.time >= endTime - seconds);
+    if (selected.length >= 3) {
+      return selected;
+    }
+    return rows.slice(-Math.min(rows.length, 12));
   }
 
   function lateralEvidence(rows, vehicleId) {
@@ -907,7 +941,7 @@
       ? clip(wall.collapse_score * 0.55 + wall.clearance_score * 0.35 + wall.collision_score * 0.10)
       : 0;
     const contactGate = twoVehicleContactGate(context);
-    const score = clip(contactGate * (
+    const score = clip(contactGate * rearClosingConflictGate(context, loc.vehicle_id) * (
       loc.score * 0.55 * wallReboundSupport
       + wallReboundSupport * 0.35
       + (contactLikely && wallReboundSupport > 0.35 ? 0.10 : 0)
@@ -981,7 +1015,11 @@
     const primaryScore = clip(lateral.score - longitudinalDominance * 0.25);
     const minLateralGap = minValue(context.rows, "lateral_gap");
     const secondaryDescriptor = minLateralGap !== null && minLateralGap < 0.25 && context.evidence.side_by_side_score > 0.15;
-    const score = clip(Math.max(primaryScore, secondaryDescriptor ? 0.46 : 0) * twoVehicleContactGate(context));
+    const score = clip(
+      Math.max(primaryScore, secondaryDescriptor ? 0.46 : 0)
+      * twoVehicleContactGate(context)
+      * rearClosingConflictGate(context, lateral.vehicle_id),
+    );
     const decision = ctDecision(info.label, score);
     const penaltyVehicleId = score >= 0.50 ? lateral.vehicle_id : null;
     const faultPercentage = penaltyVehicleId ? 60 + score * 30 : null;
@@ -1007,7 +1045,7 @@
     const info = pluginInfo("CT6", CT_LABELS.CT6);
     const squeeze = bestVehicle(context.evidence.squeeze, "score");
     const rawScore = context.wallMap.wall_reconstruction_used ? squeeze.score : squeeze.score * 0.45;
-    const score = clip(rawScore * twoVehicleContactGate(context));
+    const score = clip(rawScore * twoVehicleContactGate(context) * rearClosingConflictGate(context, squeeze.vehicle_id));
     const decision = ctDecision(info.label, score);
     const penaltyVehicleId = score >= 0.52 ? squeeze.vehicle_id : null;
     const faultPercentage = penaltyVehicleId ? 60 + score * 30 : null;
@@ -1085,6 +1123,18 @@
       return 1;
     }
     return clip((3.0 - distance) / 0.8);
+  }
+
+  function rearClosingConflictGate(context, candidateVehicleId) {
+    const rear = bestVehicle(context.evidence.longitudinal, "score");
+    if (rear.vehicle_id === candidateVehicleId) {
+      return 1;
+    }
+    const strongRearClosing = rear.score >= 0.65 && rear.behind_fraction >= 0.8 && rear.speed_advantage_mps >= 0.4;
+    if (!strongRearClosing) {
+      return 1;
+    }
+    return 1 - clip((rear.score - 0.65) / 0.25) * 0.75;
   }
 
   function contributionRow(row) {
