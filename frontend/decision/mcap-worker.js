@@ -159,12 +159,17 @@
       } else if (field === "speed") {
         const speed = numeric(value);
         vehicle.speed = speed === null ? value : speed;
+      } else if (field === "throttle" || field === "steering" || field === "brake" || field === "yaw_rate") {
+        const scalar = numeric(value);
+        if (scalar !== null) {
+          vehicle[field] = scalar;
+        }
       } else if (field === "linear_velocity") {
         const vector = vector3Value(value);
         if (vector) {
           vehicle.linear_velocity = vector;
           const horizontalSpeed = Math.hypot(vector.x, vector.y);
-          if (horizontalSpeed > 0.01) {
+          if (horizontalSpeed > 0.01 && vehicle.heading_yaw === undefined) {
             vehicle.heading_yaw = Math.atan2(vector.y, vector.x);
           }
         }
@@ -173,6 +178,12 @@
         if (quaternion) {
           vehicle.orientation_quaternion = quaternion;
           vehicle.heading_yaw = yawFromQuaternion(quaternion);
+        }
+      } else if (field === "angular_velocity") {
+        const vector = vector3Value(value);
+        if (vector) {
+          vehicle.angular_velocity = vector;
+          vehicle.yaw_rate = vector.z;
         }
       } else {
         vehicle[field] = value;
@@ -286,6 +297,21 @@
     if (normalized.includes("lap") && normalized.includes("count")) {
       return "lap_count";
     }
+    if (normalized.includes("throttle")) {
+      return "throttle";
+    }
+    if (normalized.includes("steering")) {
+      return "steering";
+    }
+    if (normalized.includes("brake")) {
+      return "brake";
+    }
+    if (normalized.includes("yaw") && (normalized.includes("rate") || normalized.includes("velocity"))) {
+      return "yaw_rate";
+    }
+    if (normalized.includes("angular") && normalized.includes("velocity")) {
+      return "angular_velocity";
+    }
     if (normalized.includes("speed")) {
       return "speed";
     }
@@ -369,6 +395,9 @@
   }
 
   function numeric(value) {
+    if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) {
+      return null;
+    }
     const number = Number(value);
     return Number.isFinite(number) ? number : null;
   }

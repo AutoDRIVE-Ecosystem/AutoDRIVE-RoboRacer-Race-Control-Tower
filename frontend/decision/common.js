@@ -6,6 +6,9 @@
   const VERSION = "0.1";
 
   function numeric(value) {
+    if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) {
+      return null;
+    }
     const number = Number(value);
     return Number.isFinite(number) ? number : null;
   }
@@ -28,6 +31,11 @@
     const linearVelocity = telemetry.linear_velocity && typeof telemetry.linear_velocity === "object"
       ? telemetry.linear_velocity
       : null;
+    const angularVelocity = telemetry.angular_velocity && typeof telemetry.angular_velocity === "object"
+      ? telemetry.angular_velocity
+      : null;
+    const yawRate = numeric(telemetry.yaw_rate);
+    const angularYawRate = angularVelocity ? numeric(angularVelocity.z) : null;
     return {
       x,
       y,
@@ -35,6 +43,12 @@
       collision_count: numeric(telemetry.collision_count),
       heading_yaw: numeric(telemetry.heading_yaw),
       linear_velocity: linearVelocity,
+      angular_velocity: angularVelocity,
+      yaw_rate: yawRate === null ? angularYawRate : yawRate,
+      throttle: numeric(telemetry.throttle),
+      steering: numeric(telemetry.steering),
+      brake: numeric(telemetry.brake),
+      lidar_scan: telemetry.lidar_scan || null,
     };
   }
 
@@ -46,9 +60,10 @@
       if (!vehicleA || !vehicleB) {
         continue;
       }
-      const timeValue = numeric(frame.time_to_accident_seconds);
+      const timeOffset = numeric(frame.time_offset_seconds);
+      const timeToAccident = numeric(frame.time_to_accident_seconds);
       samples.push({
-        time: timeValue === null ? samples.length : timeValue,
+        time: timeOffset === null ? (timeToAccident === null ? samples.length : timeToAccident) : timeOffset,
         vehicles: { 1: vehicleA, 2: vehicleB },
       });
     }

@@ -534,6 +534,20 @@
         padding-left: 1.25rem;
       }
 
+      .rct-sw-analysis-summary-table {
+        font-size: 0.875rem;
+        margin-bottom: 0;
+      }
+
+      .rct-sw-analysis-summary-table th,
+      .rct-sw-analysis-summary-table td {
+        vertical-align: top;
+      }
+
+      .rct-sw-analysis-summary-table td:nth-child(2) {
+        white-space: nowrap;
+      }
+
       .rct-sw-analysis-summary a {
         color: #495057;
         text-decoration: none;
@@ -876,8 +890,44 @@
                   <div class="row row-cols-1 row-cols-md-2 g-2">
                     <div class="col">
                       <div class="form-check">
-                        <input id="decisionPackV2CT1" class="form-check-input decision-pack-v2-ct-checkbox" type="checkbox" data-analysis-id="CT1" data-analysis-label="CT1 Single-vehicle wall collision" checked>
-                        <label class="form-check-label" for="decisionPackV2CT1">CT1 Single-vehicle wall collision</label>
+                        <input id="decisionPackV2CT1" class="form-check-input decision-pack-v2-ct-checkbox" type="checkbox" data-analysis-id="CT1" data-analysis-label="Single-vehicle wall collision" checked>
+                        <label class="form-check-label" for="decisionPackV2CT1">Single-vehicle wall collision</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2CT2" class="form-check-input decision-pack-v2-ct-checkbox" type="checkbox" data-analysis-id="CT2" data-analysis-label="Loss-of-control / wall-rebound" checked>
+                        <label class="form-check-label" for="decisionPackV2CT2">Loss-of-control / wall-rebound</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2CT3" class="form-check-input decision-pack-v2-ct-checkbox" type="checkbox" data-analysis-id="CT3" data-analysis-label="Rear-end / excessive closing-speed" checked>
+                        <label class="form-check-label" for="decisionPackV2CT3">Rear-end / excessive closing-speed</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2CT4" class="form-check-input decision-pack-v2-ct-checkbox" type="checkbox" data-analysis-id="CT4" data-analysis-label="Late inside entry / divebomb" checked>
+                        <label class="form-check-label" for="decisionPackV2CT4">Late inside entry / divebomb</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2CT5" class="form-check-input decision-pack-v2-ct-checkbox" type="checkbox" data-analysis-id="CT5" data-analysis-label="Unsafe lateral movement / side-swipe" checked>
+                        <label class="form-check-label" for="decisionPackV2CT5">Unsafe lateral movement / side-swipe</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2CT6" class="form-check-input decision-pack-v2-ct-checkbox" type="checkbox" data-analysis-id="CT6" data-analysis-label="Corner-exit squeeze" checked>
+                        <label class="form-check-label" for="decisionPackV2CT6">Corner-exit squeeze</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2CT7" class="form-check-input decision-pack-v2-ct-checkbox" type="checkbox" data-analysis-id="CT7" data-analysis-label="Shared / indeterminate" checked>
+                        <label class="form-check-label" for="decisionPackV2CT7">Shared / indeterminate</label>
                       </div>
                     </div>
                   </div>
@@ -885,14 +935,92 @@
                   <div class="row row-cols-1 row-cols-md-2 g-2">
                     <div class="col">
                       <div class="form-check">
-                        <input id="decisionPackV2G01" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G01" data-graph-label="G01 A/B distance and collision count" checked>
-                        <label class="form-check-label" for="decisionPackV2G01">G01 A/B distance and collision count</label>
+                        <input id="decisionPackV2G01" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G01" data-graph-label="G01 Trajectory with reconstructed wall map" checked>
+                        <label class="form-check-label" for="decisionPackV2G01">G01 Trajectory with reconstructed wall map</label>
                       </div>
                     </div>
                     <div class="col">
                       <div class="form-check">
-                        <input id="decisionPackV2G02" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G02" data-graph-label="G02 Closing speed and lateral pressure" checked>
-                        <label class="form-check-label" for="decisionPackV2G02">G02 Closing speed and lateral pressure</label>
+                        <input id="decisionPackV2G02" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G02" data-graph-label="G02 Inter-vehicle distance" checked>
+                        <label class="form-check-label" for="decisionPackV2G02">G02 Inter-vehicle distance</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G03" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G03" data-graph-label="G03 Speed timeline" checked>
+                        <label class="form-check-label" for="decisionPackV2G03">G03 Speed timeline</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G04" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G04" data-graph-label="G04 Relative geometry, both frames" checked>
+                        <label class="form-check-label" for="decisionPackV2G04">G04 Relative geometry, both frames</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G05" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G05" data-graph-label="G05 Throttle / brake timeline" checked>
+                        <label class="form-check-label" for="decisionPackV2G05">G05 Throttle / brake timeline</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G06" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G06" data-graph-label="G06 Closing speed" checked>
+                        <label class="form-check-label" for="decisionPackV2G06">G06 Closing speed</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G07" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G07" data-graph-label="G07 Steering timeline" checked>
+                        <label class="form-check-label" for="decisionPackV2G07">G07 Steering timeline</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G08" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G08" data-graph-label="G08 Lateral gap / separation" checked>
+                        <label class="form-check-label" for="decisionPackV2G08">G08 Lateral gap / separation</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G09" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G09" data-graph-label="G09 Longitudinal gap" checked>
+                        <label class="form-check-label" for="decisionPackV2G09">G09 Longitudinal gap</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G10" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G10" data-graph-label="G10 Time-to-collision" checked>
+                        <label class="form-check-label" for="decisionPackV2G10">G10 Time-to-collision</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G11" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G11" data-graph-label="G11 Track-relative position from walls" checked>
+                        <label class="form-check-label" for="decisionPackV2G11">G11 Track-relative position from walls</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G12" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G12" data-graph-label="G12 Yaw rate / heading change" checked>
+                        <label class="form-check-label" for="decisionPackV2G12">G12 Yaw rate / heading change</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G13" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G13" data-graph-label="G13 Wall distance / clearance" checked>
+                        <label class="form-check-label" for="decisionPackV2G13">G13 Wall distance / clearance</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G14" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G14" data-graph-label="G14 Acceleration / jerk" checked>
+                        <label class="form-check-label" for="decisionPackV2G14">G14 Acceleration / jerk</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G15" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G15" data-graph-label="G15 Contribution / uncertainty score" checked>
+                        <label class="form-check-label" for="decisionPackV2G15">G15 Contribution / uncertainty score</label>
                       </div>
                     </div>
                   </div>
@@ -2250,6 +2378,7 @@
             opinion: analysis.opinion,
             confidence: analysis.confidence,
             decision: analysis.decision || null,
+            contribution_score: Number.isFinite(Number(analysis.contribution_score)) ? Number(analysis.contribution_score) : null,
             fault_percentage: Number.isFinite(Number(analysis.fault_percentage)) ? Number(analysis.fault_percentage) : null,
             penalty_vehicle_id: analysis.penalty_vehicle_id,
             metrics: analysis.metrics || {},
@@ -2274,6 +2403,10 @@
         const title = document.createElement("div");
         title.className = "rct-sw-analysis-section-title";
         title.textContent = "Telemetry Analysis Summary";
+        if (options.length > 0 && options.every((option) => option.version === "v2")) {
+          container.append(title, createDecisionPackV2SummaryTable(accidentLog, options));
+          return container;
+        }
         const list = document.createElement("ul");
         list.className = "rct-sw-analysis-summary";
         const summary = currentAccidentLogSummary;
@@ -2287,6 +2420,70 @@
         });
         container.append(title, list);
         return container;
+      }
+
+      function createDecisionPackV2SummaryTable(accidentLog, options) {
+        const table = document.createElement("table");
+        table.className = "table table-sm table-striped align-middle rct-sw-analysis-summary-table";
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        ["Type", "Possibility", "Estimated fault", "Opinion"].forEach((label) => {
+          const th = document.createElement("th");
+          th.scope = "col";
+          th.textContent = label;
+          headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        const tbody = document.createElement("tbody");
+        const summary = currentAccidentLogSummary;
+        options.forEach((option) => {
+          const row = document.createElement("tr");
+          const nameCell = document.createElement("td");
+          const link = document.createElement("a");
+          link.href = `#${decisionAnalysisAnchorId(accidentLog, option)}`;
+          link.textContent = option.label;
+          nameCell.appendChild(link);
+          const contributionCell = document.createElement("td");
+          const faultCell = document.createElement("td");
+          const opinionCell = document.createElement("td");
+          if (!summary) {
+            contributionCell.textContent = "No opinion";
+            faultCell.textContent = "N/A";
+            opinionCell.textContent = "Analysis waiting for replay data";
+          } else {
+            try {
+              const analysis = decisionAnalysisForOption(summary, option);
+              contributionCell.textContent = decisionPackV2PossibilityText(analysis);
+              faultCell.textContent = decisionPackV2EstimatedFaultText(analysis);
+              opinionCell.textContent = String(analysis.opinion || "No opinion").replace(/^Opinion:\s*/i, "");
+            } catch (error) {
+              console.warn(`Failed to summarize decision analysis ${option.id}:`, error);
+              contributionCell.textContent = "No opinion";
+              faultCell.textContent = "N/A";
+              opinionCell.textContent = "Analysis module unavailable";
+            }
+          }
+          row.append(nameCell, contributionCell, faultCell, opinionCell);
+          tbody.appendChild(row);
+        });
+        table.append(thead, tbody);
+        return table;
+      }
+
+      function decisionPackV2PossibilityText(analysis) {
+        const contribution = Number(analysis.contribution_score);
+        const confidence = Number(analysis.confidence);
+        const score = Number.isFinite(contribution) ? contribution : confidence;
+        return Number.isFinite(score) ? `${(score * 100).toFixed(0)}%` : "N/A";
+      }
+
+      function decisionPackV2EstimatedFaultText(analysis) {
+        const penaltyVehicleId = Number(analysis.penalty_vehicle_id);
+        const faultPercentage = Number(analysis.fault_percentage);
+        if (Number.isFinite(penaltyVehicleId) && penaltyVehicleId > 0 && Number.isFinite(faultPercentage)) {
+          return `${displayRoboracerLabel(penaltyVehicleId)} ${faultPercentage.toFixed(0)}%`;
+        }
+        return "N/A";
       }
 
       function decisionSummaryText(summary, option) {
@@ -2362,14 +2559,37 @@
           const graphTitle = document.createElement("div");
           graphTitle.className = "rct-sw-analysis-result-title";
           graphTitle.textContent = `${graphResult.graph.id}. ${graphResult.graph.label}`;
+          const graphOpinion = document.createElement("div");
+          graphOpinion.className = "rct-sw-analysis-result-opinion";
+          graphOpinion.textContent = graphResult.opinion || "";
           const graphPlot = document.createElement("div");
           graphPlot.className = "rct-sw-analysis-plot";
-          container.append(graphTitle, graphPlot);
-          renderDecisionPlot(graphPlot, { series: graphResult.series });
+          container.append(graphTitle);
+          if (graphOpinion.textContent) {
+            container.append(graphOpinion);
+          }
+          container.append(graphPlot);
+          renderDecisionPlot(graphPlot, graphResult);
         });
       }
 
       function renderDecisionPlot(container, analysis) {
+        if (analysis && analysis.plot && Array.isArray(analysis.plot.traces)) {
+          const containerHeight = Number(analysis.plot.container_height);
+          if (Number.isFinite(containerHeight) && containerHeight > 0) {
+            container.style.height = `${containerHeight}px`;
+            container.style.minHeight = `${containerHeight}px`;
+          }
+          const layout = {
+            autosize: true,
+            paper_bgcolor: "rgba(0,0,0,0)",
+            plot_bgcolor: "rgba(0,0,0,0)",
+            font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", size: 11 },
+            ...analysis.plot.layout,
+          };
+          Plotly.react(container, analysis.plot.traces, layout, { displayModeBar: false, displaylogo: false, responsive: true });
+          return;
+        }
         const rows = Array.isArray(analysis.series) ? analysis.series : [];
         const keys = rows.length > 0 ? Object.keys(rows[0]).filter((key) => key !== "time") : [];
         const traces = keys.map((key) => ({
@@ -2392,16 +2612,25 @@
             showlegend: false,
           });
         }
+        const shapes = [{ type: "line", x0: 0, x1: 0, y0: 0, y1: 1, yref: "paper", line: { color: "#6c757d", width: 1, dash: "dash" } }];
+        const minDistanceTime = Number(analysis.markers && analysis.markers.min_distance_time_s);
+        if (Number.isFinite(minDistanceTime) && Math.abs(minDistanceTime) > 0.001) {
+          shapes.push({ type: "line", x0: minDistanceTime, x1: minDistanceTime, y0: 0, y1: 1, yref: "paper", line: { color: "#1565c0", width: 1, dash: "dot" } });
+        }
+        const collisionTime = Number(analysis.markers && analysis.markers.collision_count_time_s);
+        if (Number.isFinite(collisionTime) && Math.abs(collisionTime) > 0.001) {
+          shapes.push({ type: "line", x0: collisionTime, x1: collisionTime, y0: 0, y1: 1, yref: "paper", line: { color: "#dc2626", width: 1, dash: "dashdot" } });
+        }
         Plotly.react(container, traces, {
           autosize: true,
           margin: { l: 42, r: 12, t: 12, b: 72 },
           paper_bgcolor: "rgba(0,0,0,0)",
           plot_bgcolor: "rgba(0,0,0,0)",
           font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", size: 11 },
-          xaxis: { title: { text: "time to collision (s)", font: { size: 11 } }, gridcolor: "#dee2e6", zerolinecolor: "#6c757d" },
+          xaxis: { title: { text: "time (s)", font: { size: 11 } }, gridcolor: "#dee2e6", zerolinecolor: "#6c757d" },
           yaxis: { gridcolor: "#dee2e6", zerolinecolor: "#adb5bd" },
           legend: { orientation: "h", y: -0.25, x: 0 },
-          shapes: [{ type: "line", x0: 0, x1: 0, y0: 0, y1: 1, yref: "paper", line: { color: "#6c757d", width: 1, dash: "dash" } }],
+          shapes,
         }, { displayModeBar: false, displaylogo: false, responsive: true });
       }
 
@@ -2445,10 +2674,17 @@
           anchor.id = anchor.name;
           const resultTitle = document.createElement("div");
           resultTitle.className = "rct-sw-analysis-result-title";
-          resultTitle.textContent = `${index + 1}. ${option.label}`;
+          resultTitle.textContent = `${index + 1}. ${displayDecisionAnalysisLabel(option)}`;
           result.append(anchor, resultTitle, createDecisionAnalysisPane(accidentLog, option, renderToken));
           parent.append(result);
         });
+      }
+
+      function displayDecisionAnalysisLabel(option) {
+        return String(option && option.label ? option.label : "")
+          .replace(/^CT\d+\s*/i, "")
+          .replace(/^G\d+\s*/i, "")
+          || String(option && option.id ? option.id : "Analysis");
       }
 
       function createManualDecisionPane(accidentLog, renderToken) {

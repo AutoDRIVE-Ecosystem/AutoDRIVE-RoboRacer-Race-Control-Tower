@@ -20,10 +20,29 @@ DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS: dict[str, bool] = {
 DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS: dict[str, bool] = {
     "G01": True,
     "G02": True,
+    "G03": True,
+    "G04": True,
+    "G05": True,
+    "G06": True,
+    "G07": True,
+    "G08": True,
+    "G09": True,
+    "G10": True,
+    "G11": True,
+    "G12": True,
+    "G13": True,
+    "G14": True,
+    "G15": True,
 }
 
 DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS: dict[str, bool] = {
     "CT1": True,
+    "CT2": True,
+    "CT3": True,
+    "CT4": True,
+    "CT5": True,
+    "CT6": True,
+    "CT7": True,
 }
 
 

@@ -224,13 +224,18 @@ def extract_monitor_telemetry(payload: Any) -> dict[int, dict[str, Any]]:
         elif field == "speed":
             speed = _numeric_float(value)
             vehicle_values[field] = speed if speed is not None else value
+        elif field in {"throttle", "steering", "brake", "yaw_rate"}:
+            scalar = _numeric_float(value)
+            if scalar is None:
+                continue
+            vehicle_values[field] = scalar
         elif field == "linear_velocity":
             vector = _vector3_value(value)
             if vector is None:
                 continue
             vehicle_values[field] = vector
             horizontal_speed = math.hypot(vector["x"], vector["y"])
-            if horizontal_speed > 0.01:
+            if horizontal_speed > 0.01 and "heading_yaw" not in vehicle_values:
                 vehicle_values["heading_yaw"] = math.atan2(vector["y"], vector["x"])
         elif field == "orientation_quaternion":
             quaternion = _quaternion_value(value)
@@ -238,6 +243,12 @@ def extract_monitor_telemetry(payload: Any) -> dict[int, dict[str, Any]]:
                 continue
             vehicle_values[field] = quaternion
             vehicle_values["heading_yaw"] = _yaw_from_quaternion(quaternion)
+        elif field == "angular_velocity":
+            vector = _vector3_value(value)
+            if vector is None:
+                continue
+            vehicle_values[field] = vector
+            vehicle_values["yaw_rate"] = vector["z"]
         else:
             vehicle_values[field] = value
 
@@ -335,6 +346,15 @@ def _monitor_telemetry_from_topic_message(payload: dict[Any, Any]) -> tuple[int,
     elif field == "speed":
         numeric_value = _numeric_float(value)
         value = numeric_value if numeric_value is not None else value
+    elif field in {"throttle", "steering", "brake", "yaw_rate"}:
+        value = _numeric_float(value)
+        if value is None:
+            return None
+    elif field == "angular_velocity":
+        vector = _vector3_value(value)
+        if vector is None:
+            return None
+        value = vector
 
     return vehicle_id, field, value
 
@@ -482,6 +502,16 @@ def _monitor_field_from_key(key: Any) -> str | None:
         return "lap_time"
     if "lap" in normalized and "count" in normalized:
         return "lap_count"
+    if "throttle" in normalized:
+        return "throttle"
+    if "steering" in normalized:
+        return "steering"
+    if "brake" in normalized:
+        return "brake"
+    if "yaw" in normalized and ("rate" in normalized or "velocity" in normalized):
+        return "yaw_rate"
+    if "angular" in normalized and "velocity" in normalized:
+        return "angular_velocity"
     if "speed" in normalized:
         return "speed"
     if "linear" in normalized and "velocity" in normalized:
