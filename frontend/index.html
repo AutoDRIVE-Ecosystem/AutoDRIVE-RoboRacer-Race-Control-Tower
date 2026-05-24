@@ -1062,6 +1062,13 @@
                 <p class="rct-settings-description">
                   Experimental and advanced settings.
                 </p>
+                <div class="mt-3">
+                  <div class="rct-settings-subtitle">Canvas Diagnostics</div>
+                  <div class="form-check">
+                    <input id="showCanvasFpsOverlay" class="form-check-input" type="checkbox">
+                    <label class="form-check-label" for="showCanvasFpsOverlay">Show canvas drawing FPS</label>
+                  </div>
+                </div>
                 <div id="experimentsDecisionPackContainer"></div>
               </div>
               <div class="tab-pane fade" id="about-tab-pane" role="tabpanel" aria-labelledby="about-tab" tabindex="0">
@@ -1296,6 +1303,7 @@
       const decisionPackVersionRadios = Array.from(document.querySelectorAll(".decision-pack-version-radio"));
       const decisionPackSettings = document.getElementById("decisionPackSettings");
       const experimentsDecisionPackContainer = document.getElementById("experimentsDecisionPackContainer");
+      const showCanvasFpsOverlayCheckbox = document.getElementById("showCanvasFpsOverlay");
       const decisionPackV1Options = document.getElementById("decisionPackV1Options");
       const decisionPackV2Options = document.getElementById("decisionPackV2Options");
       const decisionPackV2AutomaticDecisionCheckbox = document.getElementById("decisionPackV2AutomaticDecision");
@@ -1314,6 +1322,7 @@
         settings[checkbox.dataset.graphId] = checkbox.checked;
         return settings;
       }, {});
+      const canvasFpsOverlayStorageKey = "rct.showCanvasFpsOverlay";
       const totalLapCountInput = document.getElementById("totalLapCount");
       const maximumPenaltyCountInput = document.getElementById("maximumPenaltyCount");
       const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
@@ -1440,6 +1449,8 @@
       let appliedDecisionPackV2AutomaticDecision = false;
       let appliedDecisionPackV2CollisionTypes = { ...defaultDecisionPackV2CollisionTypes };
       let appliedDecisionPackV2Graphs = { ...defaultDecisionPackV2Graphs };
+      let appliedShowCanvasFpsOverlay = false;
+      let showCanvasFpsOverlay = false;
       let appliedTotalLapCount = 10;
       let appliedMaximumPenaltyCount = 0;
       let appliedCelebrationWithConfetti = true;
@@ -3258,6 +3269,43 @@
         );
       }
 
+      function experimentsFrontendSettingsChanged() {
+        return showCanvasFpsOverlayCheckbox.checked !== appliedShowCanvasFpsOverlay;
+      }
+
+      function loadExperimentsFrontendSettings() {
+        let enabled = false;
+        try {
+          enabled = window.localStorage.getItem(canvasFpsOverlayStorageKey) === "true";
+        } catch (error) {
+          enabled = false;
+        }
+        appliedShowCanvasFpsOverlay = enabled;
+        showCanvasFpsOverlay = enabled;
+        showCanvasFpsOverlayCheckbox.checked = enabled;
+      }
+
+      function saveExperimentsFrontendSettings() {
+        appliedShowCanvasFpsOverlay = showCanvasFpsOverlayCheckbox.checked;
+        showCanvasFpsOverlay = appliedShowCanvasFpsOverlay;
+        try {
+          window.localStorage.setItem(canvasFpsOverlayStorageKey, String(appliedShowCanvasFpsOverlay));
+        } catch (error) {
+          console.warn("Failed to persist canvas FPS overlay setting:", error);
+        }
+        refreshCanvasFpsOverlay();
+        updateSettingsApplyState();
+      }
+
+      function refreshCanvasFpsOverlay() {
+        if (typeof mainTrajectoryCanvas !== "undefined" && mainTrajectoryCanvas) {
+          mainTrajectoryCanvas.draw({ showInit: !simulatorConnected });
+        }
+        if (accidentReplayCanvas) {
+          accidentReplayCanvas.draw();
+        }
+      }
+
       function penaltyRestartDelaySecondsValue() {
         const parsed = Number.parseFloat(penaltyRestartDelaySecondsInput.value);
         return Number.isFinite(parsed) ? parsed : NaN;
@@ -3736,17 +3784,20 @@
         const accidentRecorderValid = Number.isFinite(preAccidentSecondsValue());
         const penaltyRuleChanged = penaltyRuleSettingsChanged();
         const penaltyRuleValid = Number.isFinite(penaltyRestartDelaySecondsValue());
+        const experimentsFrontendChanged = experimentsFrontendSettingsChanged();
         const racingRuleChanged = racingRuleSettingsChanged();
         const racingRuleValid = Number.isFinite(totalLapCountValue()) && Number.isFinite(maximumPenaltyCountValue());
         const wsConnected = Boolean(rctSocket && rctSocket.readyState === WebSocket.OPEN);
+        const experimentsActive = experimentsTabButton.classList.contains("active");
         const activeTabChanged = (
           (topicsTabButton.classList.contains("active") && topicsChanged)
           || (accidentRecorderTabButton.classList.contains("active") && accidentRecorderChanged && accidentRecorderValid)
           || (penaltyRuleTabButton.classList.contains("active") && penaltyRuleChanged && penaltyRuleValid)
           || (racingRuleTabButton.classList.contains("active") && racingRuleChanged && racingRuleValid)
-          || (experimentsTabButton.classList.contains("active") && penaltyRuleChanged && penaltyRuleValid)
+          || (experimentsActive && (experimentsFrontendChanged || (penaltyRuleChanged && penaltyRuleValid)))
         );
-        settingsApplyButton.disabled = !activeTabChanged || !wsConnected;
+        const activeTabNeedsWebSocket = !experimentsActive || penaltyRuleChanged;
+        settingsApplyButton.disabled = !activeTabChanged || (activeTabNeedsWebSocket && !wsConnected);
       }
 
       function setCanvasInteractionEnabled(enabled) {
@@ -4084,6 +4135,7 @@
           this.historyLimit = historyLimit;
           this.showLidar = showLidar;
           this.initRenderer = initRenderer;
+          this.drawFpsSamples = [];
         }
 
         reset() {
@@ -4606,6 +4658,41 @@
           this.context.textAlign = "start";
         }
 
+        drawFpsOverlay(width) {
+          if (!showCanvasFpsOverlay) {
+            this.drawFpsSamples = [];
+            return;
+          }
+          const now = performance.now();
+          this.drawFpsSamples.push(now);
+          while (this.drawFpsSamples.length > 1 && now - this.drawFpsSamples[0] > 1000) {
+            this.drawFpsSamples.shift();
+          }
+          let label = "draw -- fps";
+          if (this.drawFpsSamples.length >= 2) {
+            const elapsedSeconds = (now - this.drawFpsSamples[0]) / 1000;
+            const fps = elapsedSeconds > 0 ? (this.drawFpsSamples.length - 1) / elapsedSeconds : 0;
+            label = `draw ${fps.toFixed(0)} fps`;
+          }
+
+          this.context.save();
+          this.context.font = "700 12px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+          this.context.textAlign = "left";
+          this.context.textBaseline = "top";
+          const paddingX = 6;
+          const paddingY = 4;
+          const boxWidth = Math.max(1, Math.min(width - 16, Math.max(86, this.context.measureText(label).width + paddingX * 2)));
+          const boxHeight = 22;
+          this.context.fillStyle = "rgba(17, 24, 39, 0.72)";
+          this.context.fillRect(8, 8, boxWidth, boxHeight);
+          this.context.strokeStyle = "rgba(255, 255, 255, 0.32)";
+          this.context.lineWidth = 1;
+          this.context.strokeRect(8.5, 8.5, boxWidth - 1, boxHeight - 1);
+          this.context.fillStyle = "#f9fafb";
+          this.context.fillText(label, 8 + paddingX, 8 + paddingY);
+          this.context.restore();
+        }
+
         draw({ showInit = false } = {}) {
           const { height, width } = this.resize();
           this.context.clearRect(0, 0, width, height);
@@ -4614,6 +4701,7 @@
 
           if (showInit && this.initRenderer) {
             this.initRenderer(this.context, width, height);
+            this.drawFpsOverlay(width);
             return;
           }
 
@@ -4622,6 +4710,7 @@
           this.drawLidarDots(width, height, scale);
           this.drawVehicleHistory(width, height, scale);
           this.drawVehicles(width, height, scale);
+          this.drawFpsOverlay(width);
         }
       }
 
@@ -5584,6 +5673,7 @@
       decisionPackV2GraphCheckboxes.forEach((checkbox) => {
         checkbox.addEventListener("change", updateSettingsApplyState);
       });
+      showCanvasFpsOverlayCheckbox.addEventListener("change", updateSettingsApplyState);
       totalLapCountInput.addEventListener("input", updateSettingsApplyState);
       maximumPenaltyCountInput.addEventListener("input", updateSettingsApplyState);
       celebrationWithConfettiCheckbox.addEventListener("change", updateSettingsApplyState);
@@ -5594,7 +5684,10 @@
         } else if (activeTabButton && activeTabButton.id === "penalty-rule-tab") {
           void savePenaltyRuleSettings();
         } else if (activeTabButton && activeTabButton.id === "experiments-tab") {
-          void savePenaltyRuleSettings();
+          saveExperimentsFrontendSettings();
+          if (penaltyRuleSettingsChanged()) {
+            void savePenaltyRuleSettings();
+          }
         } else if (activeTabButton && activeTabButton.id === "racing-rule-tab") {
           void saveRacingRuleSettings();
         } else {
@@ -5647,6 +5740,7 @@
       });
 
       async function initializeFrontend() {
+        loadExperimentsFrontendSettings();
         renderTopicOptions(fallbackTopicOptions, {});
         renderAccidentLogs();
         updateAccidentLogsButton();
