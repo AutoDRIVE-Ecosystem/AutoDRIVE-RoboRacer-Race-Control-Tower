@@ -33,7 +33,12 @@ def replay_lidar_ranges_payload(ranges: list[float]) -> dict[str, Any]:
     }
 
 
-def accident_log_summary_from_mcap(path: Path, devkit_vehicle_ids: tuple[int, ...] = ()) -> dict[str, Any]:
+def accident_log_summary_from_mcap(
+    path: Path,
+    devkit_vehicle_ids: tuple[int, ...] = (),
+    *,
+    include_lidar_scan: bool = True,
+) -> dict[str, Any]:
     from mcap.exceptions import EndOfFile
     from mcap.reader import NonSeekingReader
 
@@ -60,20 +65,21 @@ def accident_log_summary_from_mcap(path: Path, devkit_vehicle_ids: tuple[int, ..
                 vehicles = extract_monitor_telemetry(bridge_payload)
                 if not vehicles:
                     continue
-                lidar_vehicle_ids = set(vehicles) | set(devkit_vehicle_ids) | {1, 2}
-                lidar_positions = {
-                    vehicle_id: {"ips": values["ips"]}
-                    for vehicle_id, values in vehicles.items()
-                    if isinstance(values.get("ips"), dict)
-                }
-                lidar_scans: dict[int, Any] = {
-                    vehicle_id: replay_lidar_ranges_payload(ranges)
-                    for vehicle_id, ranges in extract_lidar_range_arrays(bridge_payload, lidar_vehicle_ids).items()
-                }
-                for vehicle_id, points in extract_lidar_scans(bridge_payload, lidar_vehicle_ids, lidar_positions).items():
-                    lidar_scans.setdefault(vehicle_id, points)
-                for vehicle_id, points in lidar_scans.items():
-                    vehicles.setdefault(vehicle_id, {})["lidar_scan"] = points
+                if include_lidar_scan:
+                    lidar_vehicle_ids = set(vehicles) | set(devkit_vehicle_ids) | {1, 2}
+                    lidar_positions = {
+                        vehicle_id: {"ips": values["ips"]}
+                        for vehicle_id, values in vehicles.items()
+                        if isinstance(values.get("ips"), dict)
+                    }
+                    lidar_scans: dict[int, Any] = {
+                        vehicle_id: replay_lidar_ranges_payload(ranges)
+                        for vehicle_id, ranges in extract_lidar_range_arrays(bridge_payload, lidar_vehicle_ids).items()
+                    }
+                    for vehicle_id, points in extract_lidar_scans(bridge_payload, lidar_vehicle_ids, lidar_positions).items():
+                        lidar_scans.setdefault(vehicle_id, points)
+                    for vehicle_id, points in lidar_scans.items():
+                        vehicles.setdefault(vehicle_id, {})["lidar_scan"] = points
 
                 frames.append(
                     {
@@ -112,6 +118,41 @@ def accident_log_summary_from_mcap(path: Path, devkit_vehicle_ids: tuple[int, ..
     }
 
 
+def accident_log_compact_summary_from_mcap(path: Path) -> dict[str, Any]:
+    from mcap.exceptions import EndOfFile
+    from mcap.reader import NonSeekingReader
+
+    metadata: dict[str, Any] = {}
+    complete = True
+    with path.open("rb") as mcap_file:
+        reader = NonSeekingReader(mcap_file)
+        try:
+            for _schema, channel, message in reader.iter_messages(
+                topics=("/rct/accident/metadata",),
+                log_time_order=False,
+            ):
+                try:
+                    payload = json.loads(message.data.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                if channel.topic == "/rct/accident/metadata":
+                    metadata = payload
+                    break
+        except EndOfFile:
+            complete = False
+            LOGGER.debug("read partial compact accident log summary from %s before MCAP footer was available", path)
+
+    return {
+        "filename": path.name,
+        "time": path.stem.removeprefix("autodrive "),
+        "size_bytes": path.stat().st_size,
+        "complete": complete,
+        "metadata": metadata,
+        "decision_record": load_decision_record(path),
+        "frames": [],
+    }
+
+
 def parse_vehicle_ids(value: str) -> tuple[int, ...]:
     if not value:
         return ()
@@ -127,9 +168,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate an RCT accident MCAP replay summary.")
     parser.add_argument("path", type=Path)
     parser.add_argument("--devkit-vehicle-ids", default="")
+    parser.add_argument("--no-lidar-scan", action="store_true")
     args = parser.parse_args()
 
-    summary = accident_log_summary_from_mcap(args.path, parse_vehicle_ids(args.devkit_vehicle_ids))
+    summary = accident_log_summary_from_mcap(
+        args.path,
+        parse_vehicle_ids(args.devkit_vehicle_ids),
+        include_lidar_scan=not args.no_lidar_scan,
+    )
     print(json.dumps(summary, separators=(",", ":")))
 
 

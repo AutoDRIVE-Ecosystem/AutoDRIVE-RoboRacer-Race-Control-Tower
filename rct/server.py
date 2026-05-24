@@ -21,7 +21,7 @@ from socketio import packet as socketio_packet
 from aiohttp import WSMsgType, web
 
 from .accident_recorder import AccidentRecorder, list_accident_logs
-from .accident_summary import accident_log_summary_from_mcap, replay_lidar_ranges_payload
+from .accident_summary import accident_log_compact_summary_from_mcap, accident_log_summary_from_mcap, replay_lidar_ranges_payload
 from .bridge import (
     BridgeHistory,
     BridgeRateTracker,
@@ -779,6 +779,10 @@ class RaceControlTower:
             self.handle_monitor_accident_log_ros2_mcap_get,
         )
         app.router.add_get(
+            "/monitor/REST/{version}/accident-logs/{filename}/rct.mcap",
+            self.handle_monitor_accident_log_rct_mcap_file_get,
+        )
+        app.router.add_get(
             "/monitor/REST/{version}/accident-logs/{filename}",
             self.handle_monitor_accident_log_ros2_mcap_file_get,
         )
@@ -796,6 +800,10 @@ class RaceControlTower:
         )
         app.router.add_options(
             "/monitor/REST/{version}/accident-logs/{filename}/ros2.mcap",
+            self.handle_monitor_accident_log_ros2_mcap_options,
+        )
+        app.router.add_options(
+            "/monitor/REST/{version}/accident-logs/{filename}/rct.mcap",
             self.handle_monitor_accident_log_ros2_mcap_options,
         )
         app.router.add_get(
@@ -1204,6 +1212,28 @@ class RaceControlTower:
 
         return await self.ros2_mcap_response_for_path(path, request)
 
+    async def handle_monitor_accident_log_rct_mcap_file_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        try:
+            path = self.accident_log_path_from_filename(request.match_info["filename"])
+        except ValueError as exc:
+            status = 404 if str(exc) == "accident log not found" else 400
+            return web.json_response({"error": str(exc)}, status=status)
+
+        body = await asyncio.to_thread(path.read_bytes)
+        headers = {
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(path.name)}",
+            **remote_mcap_cors_headers(),
+        }
+        range_response = mcap_range_response(body, request, headers)
+        if range_response is not None:
+            return range_response
+        return web.Response(body=body, headers=headers)
+
     async def ros2_mcap_response_for_path(self, path: Path, request: web.Request) -> web.Response:
         try:
             body = await asyncio.to_thread(convert_accident_mcap_to_ros2_mcap, path)
@@ -1243,8 +1273,14 @@ class RaceControlTower:
             status = 404 if str(exc) == "accident log not found" else 400
             return web.json_response({"error": str(exc)}, status=status)
 
+        compact = request.query.get("frames", "").lower() in {"0", "false", "no"}
         try:
-            summary = await self.accident_log_summary_from_mcap_process(path)
+            include_lidar_scan = request.query.get("lidar", "").lower() not in {"0", "false", "no"}
+            summary = (
+                await asyncio.to_thread(accident_log_compact_summary_from_mcap, path)
+                if compact
+                else await self.accident_log_summary_from_mcap_process(path, include_lidar_scan=include_lidar_scan)
+            )
         except Exception:
             LOGGER.exception("failed to read accident log summary from %s", path)
             return web.json_response({"error": "failed to read accident log summary"}, status=500)
@@ -2611,18 +2647,23 @@ class RaceControlTower:
             raise ValueError("accident log path must be inside accident log directory")
         return path
 
-    def accident_log_summary_from_mcap(self, path: Path) -> dict[str, Any]:
-        return accident_log_summary_from_mcap(path, self.settings.devkit_vehicle_ids)
+    def accident_log_summary_from_mcap(self, path: Path, *, include_lidar_scan: bool = True) -> dict[str, Any]:
+        return accident_log_summary_from_mcap(path, self.settings.devkit_vehicle_ids, include_lidar_scan=include_lidar_scan)
 
-    async def accident_log_summary_from_mcap_process(self, path: Path) -> dict[str, Any]:
+    async def accident_log_summary_from_mcap_process(self, path: Path, *, include_lidar_scan: bool = True) -> dict[str, Any]:
         devkit_vehicle_ids = ",".join(str(vehicle_id) for vehicle_id in self.settings.devkit_vehicle_ids)
-        process = await asyncio.create_subprocess_exec(
+        command = [
             sys.executable,
             "-m",
             "rct.accident_summary",
             str(path),
             "--devkit-vehicle-ids",
             devkit_vehicle_ids,
+        ]
+        if not include_lidar_scan:
+            command.append("--no-lidar-scan")
+        process = await asyncio.create_subprocess_exec(
+            *command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

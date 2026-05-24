@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from rct.accident_recorder import AccidentBridgeRecord, AccidentRecorder, accident_log_filename, list_accident_logs
+from rct.accident_summary import accident_log_compact_summary_from_mcap
 from rct.bridge import (
     BridgeHistory,
     BridgeRateTracker,
@@ -227,6 +228,31 @@ class AccidentRecorderTests(unittest.TestCase):
 
             self.assertTrue(Path(log.path).exists())
             self.assertEqual(list(Path(temporary_directory).glob("*.tmp")), [])
+
+    def test_compact_summary_omits_frames_and_keeps_decision_metadata(self):
+        recorder = AccidentRecorder()
+        with TemporaryDirectory() as temporary_directory:
+            recorder.output_dir = Path(temporary_directory)
+            log = recorder.write_mcap(
+                [
+                    AccidentBridgeRecord(
+                        monotonic_timestamp=1.0,
+                        wall_time_ns=1_000_000_000,
+                        event="simulator/Bridge",
+                        payload={"V1 Position": "1 2 0"},
+                    )
+                ],
+                trigger_vehicle_id=1,
+                collision_count=1,
+                created_at=datetime(2026, 5, 19, 1, 2, 3, 456000),
+            )
+            save_decision_record(Path(log.path), fault_vehicle_id=1)
+
+            summary = accident_log_compact_summary_from_mcap(Path(log.path))
+
+        self.assertEqual(summary["frames"], [])
+        self.assertEqual(summary["metadata"]["trigger_vehicle_id"], 1)
+        self.assertEqual(summary["decision_record"]["fault_vehicle_id"], 1)
 
     def test_lists_accident_logs_newest_first(self):
         with TemporaryDirectory() as temporary_directory:

@@ -1317,6 +1317,7 @@
       const accidentLogSummaryCache = new Map();
       const accidentLogSummaryInflight = new Map();
       const decisionAnalysisCache = new Map();
+      let accidentLogMcapWorkerRequestId = 0;
       let accidentReplayCanvas = null;
       let accidentReplayFrames = [];
       let accidentReplayFrameIndex = 0;
@@ -1959,15 +1960,10 @@
         if (!forceReload && accidentLogSummaryInflight.has(filename)) {
           return accidentLogSummaryInflight.get(filename);
         }
-        const summaryPromise = fetch(
-          monitorRestUrl(`/accident-logs/${encodeURIComponent(filename)}/summary?ts=${Date.now()}`),
-          { cache: "no-store" },
-        )
-          .then((response) => {
-            if (!response.ok) {
-              throw new Error(`Failed to load accident log summary: ${response.status} ${response.statusText}`);
-            }
-            return response.json();
+        const summaryPromise = loadAccidentLogSummaryFromMcap(filename)
+          .catch((error) => {
+            console.warn("Frontend MCAP summary failed; falling back to backend summary:", error);
+            return loadAccidentLogFullSummary(filename, { includeLidar: true });
           })
           .then((summary) => {
             if (summary.complete !== false) {
@@ -1980,6 +1976,73 @@
           });
         accidentLogSummaryInflight.set(filename, summaryPromise);
         return summaryPromise;
+      }
+
+      async function loadAccidentLogFullSummary(filename, options = {}) {
+        const lidarQuery = options.includeLidar ? "lidar=1" : "lidar=0";
+        const response = await fetch(
+          monitorRestUrl(`/accident-logs/${encodeURIComponent(filename)}/summary?${lidarQuery}&ts=${Date.now()}`),
+          { cache: "no-store" },
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load accident log summary: ${response.status} ${response.statusText}`);
+        }
+        return response.json();
+      }
+
+      async function loadAccidentLogCompactSummary(filename) {
+        const response = await fetch(
+          monitorRestUrl(`/accident-logs/${encodeURIComponent(filename)}/summary?frames=0&ts=${Date.now()}`),
+          { cache: "no-store" },
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load compact accident log summary: ${response.status} ${response.statusText}`);
+        }
+        return response.json();
+      }
+
+      async function loadAccidentLogSummaryFromMcap(filename) {
+        if (typeof Worker !== "function") {
+          throw new Error("Web Workers are not available");
+        }
+        const compactSummary = await loadAccidentLogCompactSummary(filename);
+        return new Promise((resolve, reject) => {
+          const worker = new Worker(new URL("decision/mcap-worker.js", window.location.href));
+          const requestId = ++accidentLogMcapWorkerRequestId;
+          const cleanup = () => {
+            worker.terminate();
+          };
+          worker.addEventListener("message", (event) => {
+            const message = event.data || {};
+            if (message.requestId !== requestId && message.type !== "progress") {
+              return;
+            }
+            if (message.type === "summary") {
+              cleanup();
+              resolve({
+                ...compactSummary,
+                ...message.summary,
+                decision_record: compactSummary.decision_record || null,
+                metadata: message.summary.metadata || compactSummary.metadata || {},
+              });
+            } else if (message.type === "error") {
+              cleanup();
+              reject(new Error(message.error || "MCAP worker failed"));
+            }
+          });
+          worker.addEventListener("error", (error) => {
+            cleanup();
+            reject(new Error(error.message || "MCAP worker failed"));
+          });
+          worker.postMessage({
+            type: "load-rct-accident-mcap",
+            requestId,
+            filename,
+            sizeBytes: compactSummary.size_bytes,
+            compactSummary,
+            url: monitorRestUrl(`/accident-logs/${encodeURIComponent(filename)}/rct.mcap?ts=${Date.now()}`),
+          });
+        });
       }
 
       async function loadAccidentLogs() {

@@ -83,11 +83,11 @@ class AccidentRecorder:
         output_path = self.output_dir / accident_log_filename(created)
         temporary_path = output_path.with_name(f".{output_path.name}.tmp")
 
-        from mcap.writer import Writer
+        from mcap.writer import CompressionType, Writer
 
         try:
             with temporary_path.open("wb") as output:
-                writer = Writer(output)
+                writer = Writer(output, compression=CompressionType.NONE)
                 writer.start(profile="rct-accident-bridge")
                 schema_id = writer.register_schema(
                     name="autodrive.rct.AccidentBridgeEvent",
