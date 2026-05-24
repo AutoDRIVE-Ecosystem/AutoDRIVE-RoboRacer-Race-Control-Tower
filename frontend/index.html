@@ -782,6 +782,9 @@
                 <button class="nav-link" id="racing-rule-tab" data-bs-toggle="tab" data-bs-target="#racing-rule-tab-pane" type="button" role="tab" aria-controls="racing-rule-tab-pane" aria-selected="false">Racing Rule</button>
               </li>
               <li class="nav-item" role="presentation">
+                <button class="nav-link" id="experiments-tab" data-bs-toggle="tab" data-bs-target="#experiments-tab-pane" type="button" role="tab" aria-controls="experiments-tab-pane" aria-selected="false">Experiments</button>
+              </li>
+              <li class="nav-item" role="presentation">
                 <button class="nav-link" id="about-tab" data-bs-toggle="tab" data-bs-target="#about-tab-pane" type="button" role="tab" aria-controls="about-tab-pane" aria-selected="false">About</button>
               </li>
             </ul>
@@ -831,6 +834,7 @@
                   <label for="penaltyRestartDelaySeconds" class="col-form-label">Penalty restart delay seconds:</label>
                   <input id="penaltyRestartDelaySeconds" class="form-control form-control-sm rct-pre-accident-input" type="number" min="0" max="60" step="1" value="2">
                 </div>
+                <div id="decisionPackSettings">
                 <div class="mt-3">
                   <div class="rct-settings-subtitle">Decision Pack</div>
                   <div class="d-flex flex-wrap gap-3">
@@ -892,6 +896,10 @@
                   </div>
                 </div>
                 <div id="decisionPackV2Options" class="mt-3" hidden>
+                  <div class="form-check mb-3">
+                    <input id="decisionPackV2AutomaticDecision" class="form-check-input" type="checkbox">
+                    <label class="form-check-label" for="decisionPackV2AutomaticDecision">Automatic Decision</label>
+                  </div>
                   <div class="rct-settings-subtitle">Decision Pack v2 Collision Types</div>
                   <div class="row row-cols-1 row-cols-md-2 g-2">
                     <div class="col">
@@ -1031,6 +1039,7 @@
                     </div>
                   </div>
                 </div>
+                </div>
               </div>
               <div class="tab-pane fade" id="racing-rule-tab-pane" role="tabpanel" aria-labelledby="racing-rule-tab" tabindex="0">
                 <p class="rct-settings-description">
@@ -1048,6 +1057,12 @@
                   <label for="celebrationWithConfetti" class="col-form-label">Celebration with Confetti:</label>
                   <input id="celebrationWithConfetti" class="form-check-input mt-0" type="checkbox" checked>
                 </div>
+              </div>
+              <div class="tab-pane fade" id="experiments-tab-pane" role="tabpanel" aria-labelledby="experiments-tab" tabindex="0">
+                <p class="rct-settings-description">
+                  Experimental and advanced settings.
+                </p>
+                <div id="experimentsDecisionPackContainer"></div>
               </div>
               <div class="tab-pane fade" id="about-tab-pane" role="tabpanel" aria-labelledby="about-tab" tabindex="0">
                 <p class="text-body-secondary">
@@ -1279,8 +1294,11 @@
       const includeCameraCheckbox = document.getElementById("includeCamera");
       const penaltyRestartDelaySecondsInput = document.getElementById("penaltyRestartDelaySeconds");
       const decisionPackVersionRadios = Array.from(document.querySelectorAll(".decision-pack-version-radio"));
+      const decisionPackSettings = document.getElementById("decisionPackSettings");
+      const experimentsDecisionPackContainer = document.getElementById("experimentsDecisionPackContainer");
       const decisionPackV1Options = document.getElementById("decisionPackV1Options");
       const decisionPackV2Options = document.getElementById("decisionPackV2Options");
+      const decisionPackV2AutomaticDecisionCheckbox = document.getElementById("decisionPackV2AutomaticDecision");
       const swAnalysisCheckboxes = Array.from(document.querySelectorAll(".sw-analysis-checkbox"));
       const defaultPenaltySwAnalysis = swAnalysisCheckboxes.reduce((settings, checkbox) => {
         settings[checkbox.dataset.analysisId] = checkbox.checked;
@@ -1419,6 +1437,7 @@
       let appliedPenaltyRestartDelaySeconds = 2;
       let appliedDecisionPackVersion = "v1";
       let appliedPenaltySwAnalysis = { ...defaultPenaltySwAnalysis };
+      let appliedDecisionPackV2AutomaticDecision = false;
       let appliedDecisionPackV2CollisionTypes = { ...defaultDecisionPackV2CollisionTypes };
       let appliedDecisionPackV2Graphs = { ...defaultDecisionPackV2Graphs };
       let appliedTotalLapCount = 10;
@@ -1435,11 +1454,17 @@
       const accidentDecisionAnalysisControllers = new Set();
       let autoSelectLatestAccidentLog = false;
       let autoSelectLatestAccidentLogBaselineFilename = null;
+      let autoSelectLatestAccidentLogAllowExistingLatest = false;
       let autoSelectLatestAccidentLogAttempts = 0;
+      let autoSelectLatestAccidentLogValidationFilename = null;
+      let autoSelectLatestAccidentLogStartedAtMs = null;
       let accidentLogsRefreshTimer = null;
       let penaltyDecisionActive = false;
       let penaltyDecisionAccidentLogFilename = null;
       let manualDecisionSubmitInProgress = false;
+      let pendingAutomaticDecision = null;
+      const automaticDecisionMemo = "Auto-decision made by telemetry analysis";
+      const automaticDecisionSubmitFilenames = new Set();
       let activePenaltyStatusSignature = null;
       let decisionStatusTimer = null;
       let reviewTimeRunning = false;
@@ -1547,18 +1572,82 @@
         const latestIsFresh = autoSelectLatestAccidentLogBaselineFilename === null
           || latestFilename !== autoSelectLatestAccidentLogBaselineFilename;
         if (!latestIsFresh && !options.force) {
+          if (autoSelectLatestAccidentLogAllowExistingLatest) {
+            validateExistingLatestAccidentLogForDecision(latestFilename);
+          }
           return false;
         }
         selectedAccidentLogFilename = latestFilename;
         penaltyDecisionAccidentLogFilename = latestFilename;
         autoSelectLatestAccidentLog = false;
         autoSelectLatestAccidentLogBaselineFilename = null;
+        autoSelectLatestAccidentLogAllowExistingLatest = false;
         autoSelectLatestAccidentLogAttempts = 0;
+        autoSelectLatestAccidentLogValidationFilename = null;
+        autoSelectLatestAccidentLogStartedAtMs = null;
         if (accidentLogsRefreshTimer !== null) {
           window.clearTimeout(accidentLogsRefreshTimer);
           accidentLogsRefreshTimer = null;
         }
         return true;
+      }
+
+      function validateExistingLatestAccidentLogForDecision(filename) {
+        if (!filename || autoSelectLatestAccidentLogValidationFilename === filename) {
+          return;
+        }
+        autoSelectLatestAccidentLogValidationFilename = filename;
+        void loadAccidentLogCompactSummary(filename)
+          .then((summary) => {
+            if (
+              !autoSelectLatestAccidentLog
+              || !autoSelectLatestAccidentLogAllowExistingLatest
+              || autoSelectLatestAccidentLogValidationFilename !== filename
+              || accidentLogs.length === 0
+              || accidentLogs[0].filename !== filename
+            ) {
+              return;
+            }
+            autoSelectLatestAccidentLogValidationFilename = null;
+            if (summary && summary.decision_record) {
+              return;
+            }
+            const candidateTimeMs = accidentLogTimeMs(accidentLogs[0]);
+            if (
+              autoSelectLatestAccidentLogStartedAtMs !== null
+              && Number.isFinite(candidateTimeMs)
+              && candidateTimeMs < autoSelectLatestAccidentLogStartedAtMs - 5000
+            ) {
+              return;
+            }
+            if (selectLatestAccidentLogForDecisionIfReady({ force: true })) {
+              renderAccidentLogs({ forceDetail: true });
+            }
+          })
+          .catch((error) => {
+            if (autoSelectLatestAccidentLogValidationFilename === filename) {
+              autoSelectLatestAccidentLogValidationFilename = null;
+            }
+            console.warn("Failed to validate latest accident log before decision selection:", error);
+          });
+      }
+
+      function accidentLogTimeMs(accidentLog) {
+        const value = String(accidentLog && (accidentLog.time || accidentLog.filename) || "");
+        const match = value.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2}):(\d{3})/);
+        if (!match) {
+          return NaN;
+        }
+        const [, year, month, day, hour, minute, second, millisecond] = match;
+        return new Date(
+          Number(year),
+          Number(month) - 1,
+          Number(day),
+          Number(hour),
+          Number(minute),
+          Number(second),
+          Number(millisecond),
+        ).getTime();
       }
 
       function setAccidentLogs(nextAccidentLogs) {
@@ -1610,9 +1699,22 @@
         const waitingForLatestDecisionLog = autoSelectLatestAccidentLog
           && penaltyDecisionActive
           && !penaltyDecisionAccidentLogFilename;
+        const decisionAccidentLog = penaltyDecisionActive && penaltyDecisionAccidentLogFilename
+          ? accidentLogs.find((accidentLog) => accidentLog.filename === penaltyDecisionAccidentLogFilename)
+          : null;
+        const shouldFocusDecisionAccidentLog = Boolean(
+          decisionAccidentLog
+          && appliedDecisionPackV2AutomaticDecision
+          && appliedDecisionPackVersion === "v2"
+          && !manualDecisionSubmitInProgress
+        );
         const selectedAccidentLog = waitingForLatestDecisionLog
           ? null
-          : (accidentLogs.find((accidentLog) => accidentLog.filename === selectedAccidentLogFilename) || accidentLogs[0]);
+          : (
+            shouldFocusDecisionAccidentLog
+              ? decisionAccidentLog
+              : (accidentLogs.find((accidentLog) => accidentLog.filename === selectedAccidentLogFilename) || accidentLogs[0])
+          );
         if (selectedAccidentLog) {
           selectedAccidentLogFilename = selectedAccidentLog.filename;
         }
@@ -1649,6 +1751,10 @@
       }
 
       function selectAccidentLog(filename) {
+        if (pendingAutomaticDecision && pendingAutomaticDecision.filename !== filename) {
+          automaticDecisionSubmitFilenames.delete(pendingAutomaticDecision.filename);
+          pendingAutomaticDecision = null;
+        }
         if (penaltyDecisionActive && !penaltyDecisionAccidentLogFilename) {
           stopAutoSelectingLatestAccidentLog();
           penaltyDecisionAccidentLogFilename = filename;
@@ -1877,6 +1983,7 @@
               renderAccidentReplayFrame(lastIndex, replayControls);
               updateAccidentReplayPlayPauseButton(playPauseButton);
             }
+            prepareAutomaticDecisionAfterReplay(accidentLog, summary, replayControls, renderToken);
           })
           .catch((error) => {
             console.warn("Failed to load accident log summary:", error);
@@ -2043,6 +2150,7 @@
           let offsetSeconds = accidentReplayStartOffset + elapsedSeconds;
 
           if (duration > 0 && offsetSeconds >= duration) {
+            completeAutomaticDecisionReplayCycle();
             if (accidentReplayRepeat) {
               offsetSeconds %= duration;
               accidentReplayStartedAt = performance.now();
@@ -2266,6 +2374,10 @@
           console.warn("Cannot submit final decision before accident replay summary is loaded");
           return;
         }
+        if (accidentLog && accidentLog.filename) {
+          automaticDecisionSubmitFilenames.delete(accidentLog.filename);
+          clearPendingAutomaticDecision(accidentLog.filename);
+        }
         accidentLogDetailRenderToken += 1;
         abortAccidentDecisionAnalysisRequests();
         stopAccidentReplayTimer();
@@ -2282,6 +2394,133 @@
         penaltyDecisionAccidentLogFilename = null;
         stopAutoSelectingLatestAccidentLog();
         accidentLogsModal.hide();
+      }
+
+      function prepareAutomaticDecisionAfterReplay(accidentLog, summary, replayControls, renderToken) {
+        if (
+          !appliedDecisionPackV2AutomaticDecision
+          || appliedDecisionPackVersion !== "v2"
+          || !shouldShowManualDecisionPane(accidentLog)
+          || !summary
+          || summary.filename !== accidentLog.filename
+          || manualDecisionSubmitInProgress
+          || automaticDecisionSubmitFilenames.has(accidentLog.filename)
+          || accidentReplayFrames.length === 0
+          || accidentReplayDuration() <= 0
+        ) {
+          return false;
+        }
+        const command = automaticDecisionCommand(summary);
+        if (!command) {
+          return false;
+        }
+        automaticDecisionSubmitFilenames.add(accidentLog.filename);
+        pendingAutomaticDecision = {
+          filename: accidentLog.filename,
+          command,
+          renderToken,
+          replayCycleStarted: true,
+        };
+        startAccidentReplay(replayControls, { restart: true });
+        return true;
+      }
+
+      function completeAutomaticDecisionReplayCycle() {
+        const pending = pendingAutomaticDecision;
+        if (
+          !pending
+          || !pending.replayCycleStarted
+          || pending.renderToken !== accidentLogDetailRenderToken
+          || selectedAccidentLogFilename !== pending.filename
+          || manualDecisionSubmitInProgress
+        ) {
+          return;
+        }
+        pending.replayCycleStarted = false;
+        const accidentLog = accidentLogs.find((log) => log.filename === pending.filename);
+        if (!accidentLog) {
+          automaticDecisionSubmitFilenames.delete(pending.filename);
+          pendingAutomaticDecision = null;
+          return;
+        }
+        void submitAutomaticDecision(accidentLog, pending.command);
+      }
+
+      async function submitAutomaticDecision(accidentLog, command) {
+        if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
+          automaticDecisionSubmitFilenames.delete(accidentLog.filename);
+          clearPendingAutomaticDecision(accidentLog.filename);
+          console.warn("Cannot submit automatic decision while RCT WebSocket is disconnected");
+          return;
+        }
+        manualDecisionSubmitInProgress = true;
+        try {
+          const memoInput = accidentLogDetail.querySelector(".rct-manual-decision-memo");
+          await saveDecisionRecord(accidentLog, command, memoInput ? memoInput.value : automaticDecisionMemo);
+        } catch (error) {
+          manualDecisionSubmitInProgress = false;
+          automaticDecisionSubmitFilenames.delete(accidentLog.filename);
+          clearPendingAutomaticDecision(accidentLog.filename);
+          console.warn("Failed to save automatic decision record:", error);
+          return;
+        }
+        rctSocket.send(JSON.stringify(command));
+        penaltyDecisionActive = false;
+        penaltyDecisionAccidentLogFilename = null;
+        clearPendingAutomaticDecision(accidentLog.filename);
+        stopAutoSelectingLatestAccidentLog();
+        accidentLogsModal.hide();
+      }
+
+      function automaticDecisionCommand(summary) {
+        const options = selectedPenaltySwAnalysisOptions();
+        if (!options.length || !options.every((option) => option.version === "v2")) {
+          return null;
+        }
+        try {
+          const selected = decisionPackV2SelectedAnalysis(options.map((option) => ({
+            option,
+            analysis: decisionAnalysisForOption(summary, option),
+          })));
+          const penaltyVehicleId = Number(selected && selected.analysis && selected.analysis.penalty_vehicle_id);
+          if (Number.isFinite(penaltyVehicleId) && penaltyVehicleId > 0) {
+            return { command: "manual-penalty-decision", penalty_vehicle_id: penaltyVehicleId };
+          }
+          return { command: "manual-no-decision" };
+        } catch (error) {
+          console.warn("Failed to compute automatic telemetry decision:", error);
+          return null;
+        }
+      }
+
+      function automaticDecisionButtonKey(command) {
+        if (!command) {
+          return null;
+        }
+        if (command.command === "manual-no-decision") {
+          return "no-decision";
+        }
+        const penaltyVehicleId = Number(command.penalty_vehicle_id);
+        if (penaltyVehicleId === 1) {
+          return "fault-a";
+        }
+        if (penaltyVehicleId === 2) {
+          return "fault-b";
+        }
+        return null;
+      }
+
+      function automaticDecisionPreviewCommand(accidentLog) {
+        if (
+          !appliedDecisionPackV2AutomaticDecision
+          || appliedDecisionPackVersion !== "v2"
+          || !shouldShowManualDecisionPane(accidentLog)
+          || !currentAccidentLogSummary
+          || currentAccidentLogSummary.filename !== accidentLog.filename
+        ) {
+          return null;
+        }
+        return automaticDecisionCommand(currentAccidentLogSummary);
       }
 
       async function saveDecisionRecord(accidentLog, command, memo) {
@@ -2332,10 +2571,22 @@
       function stopAutoSelectingLatestAccidentLog() {
         autoSelectLatestAccidentLog = false;
         autoSelectLatestAccidentLogBaselineFilename = null;
+        autoSelectLatestAccidentLogAllowExistingLatest = false;
         autoSelectLatestAccidentLogAttempts = 0;
+        autoSelectLatestAccidentLogValidationFilename = null;
+        autoSelectLatestAccidentLogStartedAtMs = null;
         if (accidentLogsRefreshTimer !== null) {
           window.clearTimeout(accidentLogsRefreshTimer);
           accidentLogsRefreshTimer = null;
+        }
+      }
+
+      function clearPendingAutomaticDecision(filename) {
+        if (!pendingAutomaticDecision) {
+          return;
+        }
+        if (!filename || pendingAutomaticDecision.filename === filename) {
+          pendingAutomaticDecision = null;
         }
       }
 
@@ -2454,6 +2705,25 @@
       }
 
       function decisionPackV2TreeConclusionText(analyses) {
+        const selected = decisionPackV2SelectedAnalysis(analyses);
+        if (!selected) {
+          return "Decision-tree conclusion: no telemetry analysis result is available.";
+        }
+        const analysis = selected.analysis;
+        const label = `${selected.option.id} ${displayDecisionAnalysisLabel(selected.option)}`;
+        const possibility = decisionPackV2PossibilityText(analysis);
+        const possibilityText = possibility === "N/A" ? "unknown possibility" : `${possibility} possibility`;
+        const penaltyVehicleId = Number(analysis.penalty_vehicle_id);
+        const faultPercentage = Number(analysis.fault_percentage);
+        let faultText = "no primary fault vehicle is identified";
+        if (Number.isFinite(penaltyVehicleId) && penaltyVehicleId > 0) {
+          const faultSuffix = Number.isFinite(faultPercentage) ? ` (${faultPercentage.toFixed(0)}%)` : "";
+          faultText = `primary fault is on Roboracer ${displayRoboracerLabel(penaltyVehicleId)}${faultSuffix}`;
+        }
+        return `Decision-tree conclusion: ${label} is the selected incident type (${possibilityText}); ${faultText}.`;
+      }
+
+      function decisionPackV2SelectedAnalysis(analyses) {
         const byId = new Map(analyses.map((entry) => [entry.option.id, entry]));
         const branchOrder = ["CT1", "CT2", "CT4", "CT3", "CT6", "CT5"];
         const fallback = byId.get("CT7");
@@ -2470,21 +2740,7 @@
         const selected = candidates[0] || fallback || analyses
           .slice()
           .sort((left, right) => decisionPackV2Score(right.analysis) - decisionPackV2Score(left.analysis))[0];
-        if (!selected) {
-          return "Decision-tree conclusion: no telemetry analysis result is available.";
-        }
-        const analysis = selected.analysis;
-        const label = `${selected.option.id} ${displayDecisionAnalysisLabel(selected.option)}`;
-        const possibility = decisionPackV2PossibilityText(analysis);
-        const possibilityText = possibility === "N/A" ? "unknown possibility" : `${possibility} possibility`;
-        const penaltyVehicleId = Number(analysis.penalty_vehicle_id);
-        const faultPercentage = Number(analysis.fault_percentage);
-        let faultText = "no primary fault vehicle is identified";
-        if (Number.isFinite(penaltyVehicleId) && penaltyVehicleId > 0) {
-          const faultSuffix = Number.isFinite(faultPercentage) ? ` (${faultPercentage.toFixed(0)}%)` : "";
-          faultText = `primary fault is on Roboracer ${displayRoboracerLabel(penaltyVehicleId)}${faultSuffix}`;
-        }
-        return `Decision-tree conclusion: ${label} is the selected incident type (${possibilityText}); ${faultText}.`;
+        return selected || null;
       }
 
       function decisionPackV2Score(analysis) {
@@ -2789,10 +3045,16 @@
         const manualDecisionTitle = document.createElement("div");
         manualDecisionTitle.className = "rct-manual-decision-title";
         manualDecisionTitle.textContent = "Final decision";
+        const automaticCommand = decisionReady ? automaticDecisionPreviewCommand(accidentLog) : null;
         if (!decisionReady) {
           const titleNote = document.createElement("span");
           titleNote.className = "rct-manual-decision-title-note";
           titleNote.textContent = " (Analyzing telemetry...)";
+          manualDecisionTitle.appendChild(titleNote);
+        } else if (automaticCommand) {
+          const titleNote = document.createElement("span");
+          titleNote.className = "rct-manual-decision-title-note";
+          titleNote.textContent = " (Auto decision after replay)";
           manualDecisionTitle.appendChild(titleNote);
         }
         const manualDecisionActions = document.createElement("div");
@@ -2812,6 +3074,17 @@
         noDecisionButton.type = "button";
         noDecisionButton.textContent = "No Decision";
         noDecisionButton.disabled = !decisionReady;
+        const automaticButtonKey = automaticDecisionButtonKey(automaticCommand);
+        if (automaticButtonKey === "fault-a") {
+          vehicleAButton.className = "btn btn-danger";
+        } else if (automaticButtonKey === "fault-b") {
+          vehicleBButton.className = "btn btn-danger";
+        } else if (automaticButtonKey === "no-decision") {
+          noDecisionButton.className = "btn btn-secondary";
+        }
+        if (automaticCommand) {
+          memoInput.value = automaticDecisionMemo;
+        }
         vehicleAButton.addEventListener("click", () => submitManualPenaltyDecision(accidentLog, memoInput, 1));
         vehicleBButton.addEventListener("click", () => submitManualPenaltyDecision(accidentLog, memoInput, 2));
         noDecisionButton.addEventListener("click", () => submitManualNoDecision(accidentLog, memoInput));
@@ -2903,10 +3176,14 @@
         }
         penaltyDecisionActive = true;
         autoSelectLatestAccidentLog = true;
-        autoSelectLatestAccidentLogBaselineFilename = options.allowExistingLatest
-          ? null
-          : (accidentLogs.length > 0 ? accidentLogs[0].filename : null);
+        autoSelectLatestAccidentLogBaselineFilename = accidentLogs.length > 0 ? accidentLogs[0].filename : null;
+        autoSelectLatestAccidentLogAllowExistingLatest = Boolean(options.allowExistingLatest);
         autoSelectLatestAccidentLogAttempts = 0;
+        autoSelectLatestAccidentLogValidationFilename = null;
+        const reviewTimeSeconds = Number(options.reviewTimeSeconds);
+        autoSelectLatestAccidentLogStartedAtMs = Number.isFinite(reviewTimeSeconds)
+          ? Date.now() - Math.max(0, reviewTimeSeconds) * 1000
+          : Date.now();
         selectedAccidentLogFilename = null;
         penaltyDecisionAccidentLogFilename = null;
         selectLatestAccidentLogForDecisionIfReady();
@@ -2975,6 +3252,7 @@
           penaltyRestartDelaySecondsValue() !== appliedPenaltyRestartDelaySeconds
           || selectedDecisionPackVersion() !== appliedDecisionPackVersion
           || JSON.stringify(collectPenaltySwAnalysisSettings()) !== JSON.stringify(appliedPenaltySwAnalysis)
+          || decisionPackV2AutomaticDecisionCheckbox.checked !== appliedDecisionPackV2AutomaticDecision
           || JSON.stringify(collectDecisionPackV2Settings().collision_types) !== JSON.stringify(appliedDecisionPackV2CollisionTypes)
           || JSON.stringify(collectDecisionPackV2Settings().graphs) !== JSON.stringify(appliedDecisionPackV2Graphs)
         );
@@ -3008,6 +3286,7 @@
 
       function collectDecisionPackV2Settings() {
         return {
+          automatic_decision: decisionPackV2AutomaticDecisionCheckbox.checked,
           collision_types: decisionPackV2CollisionTypeCheckboxes.reduce((settings, checkbox) => {
             settings[checkbox.dataset.analysisId] = checkbox.checked;
             return settings;
@@ -3043,11 +3322,15 @@
 
       function normalizeDecisionPackV2Settings(settings) {
         const normalized = {
+          automatic_decision: false,
           collision_types: { ...defaultDecisionPackV2CollisionTypes },
           graphs: { ...defaultDecisionPackV2Graphs },
         };
         if (!settings || typeof settings !== "object") {
           return normalized;
+        }
+        if (Object.prototype.hasOwnProperty.call(settings, "automatic_decision")) {
+          normalized.automatic_decision = Boolean(settings.automatic_decision);
         }
         const collisionTypes = settings.collision_types && typeof settings.collision_types === "object" ? settings.collision_types : {};
         const graphs = settings.graphs && typeof settings.graphs === "object" ? settings.graphs : {};
@@ -3068,8 +3351,10 @@
 
       function syncDecisionPackV2Settings(settings) {
         const normalized = normalizeDecisionPackV2Settings(settings);
+        appliedDecisionPackV2AutomaticDecision = normalized.automatic_decision;
         appliedDecisionPackV2CollisionTypes = normalized.collision_types;
         appliedDecisionPackV2Graphs = normalized.graphs;
+        decisionPackV2AutomaticDecisionCheckbox.checked = appliedDecisionPackV2AutomaticDecision;
         for (const checkbox of decisionPackV2CollisionTypeCheckboxes) {
           checkbox.checked = Boolean(appliedDecisionPackV2CollisionTypes[checkbox.dataset.analysisId]);
         }
@@ -3445,6 +3730,7 @@
         const accidentRecorderTabButton = document.getElementById("accident-recorder-tab");
         const penaltyRuleTabButton = document.getElementById("penalty-rule-tab");
         const racingRuleTabButton = document.getElementById("racing-rule-tab");
+        const experimentsTabButton = document.getElementById("experiments-tab");
         const topicsChanged = topicSelectionsChanged();
         const accidentRecorderChanged = accidentRecorderSettingsChanged();
         const accidentRecorderValid = Number.isFinite(preAccidentSecondsValue());
@@ -3458,6 +3744,7 @@
           || (accidentRecorderTabButton.classList.contains("active") && accidentRecorderChanged && accidentRecorderValid)
           || (penaltyRuleTabButton.classList.contains("active") && penaltyRuleChanged && penaltyRuleValid)
           || (racingRuleTabButton.classList.contains("active") && racingRuleChanged && racingRuleValid)
+          || (experimentsTabButton.classList.contains("active") && penaltyRuleChanged && penaltyRuleValid)
         );
         settingsApplyButton.disabled = !activeTabChanged || !wsConnected;
       }
@@ -4640,12 +4927,14 @@
             }
             appliedPenaltySwAnalysis = normalizePenaltySwAnalysisSettings(settings.sw_analysis);
             const normalizedV2 = normalizeDecisionPackV2Settings(settings.decision_pack_v2);
+            appliedDecisionPackV2AutomaticDecision = normalizedV2.automatic_decision;
             appliedDecisionPackV2CollisionTypes = normalizedV2.collision_types;
             appliedDecisionPackV2Graphs = normalizedV2.graphs;
             if (!hasPendingPenaltyRuleChanges) {
               for (const checkbox of swAnalysisCheckboxes) {
                 checkbox.checked = Boolean(appliedPenaltySwAnalysis[checkbox.dataset.analysisId]);
               }
+              decisionPackV2AutomaticDecisionCheckbox.checked = appliedDecisionPackV2AutomaticDecision;
               for (const checkbox of decisionPackV2CollisionTypeCheckboxes) {
                 checkbox.checked = Boolean(appliedDecisionPackV2CollisionTypes[checkbox.dataset.analysisId]);
               }
@@ -4684,7 +4973,11 @@
             updateRaceResult(message.race_result);
           }
           if (message.penalty_decision && message.penalty_decision.active && !penaltyDecisionActive && !manualDecisionSubmitInProgress) {
-            openAccidentLogsForManualDecision({ allowExistingLatest: true });
+            const reviewTimeSeconds = Number(message.review_time_seconds);
+            openAccidentLogsForManualDecision({
+              allowExistingLatest: Number.isFinite(reviewTimeSeconds) && reviewTimeSeconds >= 2,
+              reviewTimeSeconds,
+            });
           } else if (message.penalty_decision && !message.penalty_decision.active) {
             const wasPenaltyDecisionActive = penaltyDecisionActive;
             penaltyDecisionActive = false;
@@ -4717,7 +5010,7 @@
           }
           handlePenaltyDecisionStatus(message);
           if (message.active && !manualDecisionSubmitInProgress) {
-            openAccidentLogsForManualDecision();
+            openAccidentLogsForManualDecision({ reviewTimeSeconds: message.review_time_seconds });
           } else {
             const wasPenaltyDecisionActive = penaltyDecisionActive;
             penaltyDecisionActive = false;
@@ -5256,6 +5549,8 @@
         mainTrajectoryCanvas.draw({ showInit: !simulatorConnected });
       }
 
+      experimentsDecisionPackContainer.appendChild(decisionPackSettings);
+
       mainImage.addEventListener("load", drawMainCanvas);
       mainImage.src = "assets/autodrive-rct.png";
       window.addEventListener("resize", drawMainCanvas);
@@ -5279,6 +5574,7 @@
           updateSettingsApplyState();
         });
       });
+      decisionPackV2AutomaticDecisionCheckbox.addEventListener("change", updateSettingsApplyState);
       swAnalysisCheckboxes.forEach((checkbox) => {
         checkbox.addEventListener("change", updateSettingsApplyState);
       });
@@ -5296,6 +5592,8 @@
         if (activeTabButton && activeTabButton.id === "accident-recorder-tab") {
           void saveAccidentRecorderSettings();
         } else if (activeTabButton && activeTabButton.id === "penalty-rule-tab") {
+          void savePenaltyRuleSettings();
+        } else if (activeTabButton && activeTabButton.id === "experiments-tab") {
           void savePenaltyRuleSettings();
         } else if (activeTabButton && activeTabButton.id === "racing-rule-tab") {
           void saveRacingRuleSettings();
@@ -5333,6 +5631,10 @@
       });
       accidentLogsDialog.addEventListener("hidden.bs.modal", () => {
         accidentLogsDialogVisible = false;
+        if (pendingAutomaticDecision) {
+          automaticDecisionSubmitFilenames.delete(pendingAutomaticDecision.filename);
+          pendingAutomaticDecision = null;
+        }
         stopAutoSelectingLatestAccidentLog();
         accidentLogDetailRenderToken += 1;
         abortAccidentDecisionAnalysisRequests();

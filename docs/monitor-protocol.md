@@ -162,13 +162,44 @@ Response:
   "version": "0.1",
   "penalty_rule": {
     "restart_delay_seconds": 2.0,
+    "decision_pack_version": "v1",
     "sw_analysis": {
       "rear_end_collision": true,
+      "single_vehicle_collision": true,
       "unsafe_lateral_movement": true,
       "late_braking_divebomb": true,
       "squeeze_at_corner_exit": true,
       "unsafe_rejoin": true,
       "shared_racing_incident": true
+    },
+    "decision_pack_v2": {
+      "automatic_decision": false,
+      "graphs": {
+        "G01": true,
+        "G02": true,
+        "G03": true,
+        "G04": true,
+        "G05": true,
+        "G06": true,
+        "G07": true,
+        "G08": true,
+        "G09": true,
+        "G10": true,
+        "G11": true,
+        "G12": true,
+        "G13": true,
+        "G14": true,
+        "G15": true
+      },
+      "collision_types": {
+        "CT1": true,
+        "CT2": true,
+        "CT3": true,
+        "CT4": true,
+        "CT5": true,
+        "CT6": true,
+        "CT7": true
+      }
     }
   }
 }
@@ -183,18 +214,49 @@ Request:
 ```json
 {
   "restart_delay_seconds": 2.0,
+  "decision_pack_version": "v2",
   "sw_analysis": {
     "rear_end_collision": true,
+    "single_vehicle_collision": true,
     "unsafe_lateral_movement": true,
     "late_braking_divebomb": true,
     "squeeze_at_corner_exit": true,
     "unsafe_rejoin": true,
     "shared_racing_incident": true
+  },
+  "decision_pack_v2": {
+    "automatic_decision": true,
+    "graphs": {
+      "G01": true,
+      "G02": true,
+      "G03": true,
+      "G04": true,
+      "G05": true,
+      "G06": true,
+      "G07": true,
+      "G08": true,
+      "G09": true,
+      "G10": true,
+      "G11": true,
+      "G12": true,
+      "G13": true,
+      "G14": true,
+      "G15": true
+    },
+    "collision_types": {
+      "CT1": true,
+      "CT2": true,
+      "CT3": true,
+      "CT4": true,
+      "CT5": true,
+      "CT6": true,
+      "CT7": true
+    }
   }
 }
 ```
 
-`restart_delay_seconds` must be a number from `0` to `60`. `sw_analysis` must be an object of supported software-analysis option booleans. When `restart_delay_seconds` is greater than `0`, a vehicle that receives a manual penalty stays command-filtered for that duration after the decision while the other vehicle is released immediately. When set to `0`, both vehicles are released immediately after the decision. The response returns `ok: true` and the applied `penalty_rule` settings. RCT publishes an updated `status` event after the settings change.
+`restart_delay_seconds` must be a number from `0` to `60`. `decision_pack_version` must be `v1` or `v2`. `sw_analysis` must be an object of supported software-analysis option booleans. `decision_pack_v2.automatic_decision`, `decision_pack_v2.graphs`, and `decision_pack_v2.collision_types` configure experimental Decision Pack v2 behavior. When `restart_delay_seconds` is greater than `0`, a vehicle that receives a manual penalty stays command-filtered for that duration after the decision while the other vehicle is released immediately. When set to `0`, both vehicles are released immediately after the decision. The response returns `ok: true` and the applied `penalty_rule` settings. RCT publishes an updated `status` event after the settings change.
 
 Racing rule settings:
 
@@ -353,13 +415,44 @@ Initial event:
   },
   "penalty_rule": {
     "restart_delay_seconds": 2.0,
+    "decision_pack_version": "v1",
     "sw_analysis": {
       "rear_end_collision": true,
+      "single_vehicle_collision": true,
       "unsafe_lateral_movement": true,
       "late_braking_divebomb": true,
       "squeeze_at_corner_exit": true,
       "unsafe_rejoin": true,
       "shared_racing_incident": true
+    },
+    "decision_pack_v2": {
+      "automatic_decision": false,
+      "graphs": {
+        "G01": true,
+        "G02": true,
+        "G03": true,
+        "G04": true,
+        "G05": true,
+        "G06": true,
+        "G07": true,
+        "G08": true,
+        "G09": true,
+        "G10": true,
+        "G11": true,
+        "G12": true,
+        "G13": true,
+        "G14": true,
+        "G15": true
+      },
+      "collision_types": {
+        "CT1": true,
+        "CT2": true,
+        "CT3": true,
+        "CT4": true,
+        "CT5": true,
+        "CT6": true,
+        "CT7": true
+      }
     }
   },
   "racing_rule": {

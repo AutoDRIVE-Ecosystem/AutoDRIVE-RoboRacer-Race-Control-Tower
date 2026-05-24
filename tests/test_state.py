@@ -103,6 +103,7 @@ class RaceControlStateTests(unittest.TestCase):
         self.assertEqual(state.snapshot()["penalty_rule"]["restart_delay_seconds"], 2.0)
         self.assertEqual(state.snapshot()["penalty_rule"]["decision_pack_version"], "v1")
         self.assertTrue(state.snapshot()["penalty_rule"]["sw_analysis"]["rear_end_collision"])
+        self.assertFalse(state.snapshot()["penalty_rule"]["decision_pack_v2"]["automatic_decision"])
         self.assertTrue(state.snapshot()["penalty_rule"]["decision_pack_v2"]["graphs"]["G01"])
         self.assertTrue(state.snapshot()["penalty_rule"]["decision_pack_v2"]["collision_types"]["CT1"])
 
@@ -118,6 +119,7 @@ class RaceControlStateTests(unittest.TestCase):
                 "shared_racing_incident": True,
             },
             decision_pack_v2={
+                "automatic_decision": True,
                 "graphs": {"G02": False},
                 "collision_types": {"CT1": False},
             },
@@ -126,6 +128,7 @@ class RaceControlStateTests(unittest.TestCase):
         self.assertEqual(state.snapshot()["penalty_rule"]["restart_delay_seconds"], 1.5)
         self.assertEqual(state.snapshot()["penalty_rule"]["decision_pack_version"], "v2")
         self.assertFalse(state.snapshot()["penalty_rule"]["sw_analysis"]["rear_end_collision"])
+        self.assertTrue(state.snapshot()["penalty_rule"]["decision_pack_v2"]["automatic_decision"])
         self.assertFalse(state.snapshot()["penalty_rule"]["decision_pack_v2"]["graphs"]["G02"])
         self.assertFalse(state.snapshot()["penalty_rule"]["decision_pack_v2"]["collision_types"]["CT1"])
 

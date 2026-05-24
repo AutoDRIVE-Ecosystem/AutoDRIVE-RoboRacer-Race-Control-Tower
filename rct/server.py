@@ -2714,6 +2714,9 @@ class RaceControlTower:
         decision_pack_v2 = settings.get("decision_pack_v2", {})
         if not isinstance(decision_pack_v2, dict):
             raise ValueError("decision_pack_v2 must be an object")
+        automatic_decision = decision_pack_v2.get("automatic_decision", False)
+        if not isinstance(automatic_decision, bool):
+            raise ValueError("decision_pack_v2.automatic_decision must be a boolean")
         graph_settings = decision_pack_v2.get("graphs", DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS)
         if not isinstance(graph_settings, dict):
             raise ValueError("decision_pack_v2.graphs must be an object")
@@ -2739,6 +2742,7 @@ class RaceControlTower:
             "decision_pack_version": decision_pack_version,
             "sw_analysis": validated_sw_analysis,
             "decision_pack_v2": {
+                "automatic_decision": automatic_decision,
                 "graphs": validated_graphs,
                 "collision_types": validated_collision_types,
             },
