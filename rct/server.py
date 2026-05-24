@@ -52,6 +52,8 @@ from .protocol import (
 )
 from .ros2_mcap import convert_accident_mcap_to_ros2_mcap
 from .state import (
+    DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS,
+    DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS,
     DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS,
     AccidentLogMonitorState,
     DevKitMonitorState,
@@ -136,7 +138,12 @@ TOPICS_IGNORED_FOR_DEVKIT_BRIDGE = frozenset(
         "/tf",
     }
 )
-KNOWN_DECISION_PACKAGE_IDS = frozenset(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS)
+KNOWN_DECISION_PACKAGE_IDS = frozenset(
+    [
+        *DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS,
+        *DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS,
+    ]
+)
 ZERO_LIDAR_RANGE_ARRAY_BASE64 = base64.b64encode(
     gzip.compress("\n".join(["0.0"] * 1080).encode("utf-8"))
 ).decode("ascii")
@@ -2191,10 +2198,13 @@ class RaceControlTower:
         )
         self.state.add_accident_log(monitor_log)
         if auto_fault_vehicle_id is not None:
-            sw_analysis = self.state.penalty_rule_settings().get("sw_analysis", {})
+            penalty_rule = self.state.penalty_rule_settings()
+            sw_analysis = penalty_rule.get("sw_analysis", {})
+            v2_collision_types = penalty_rule.get("decision_pack_v2", {}).get("collision_types", {})
+            configured_package_ids = v2_collision_types if penalty_rule.get("decision_pack_version") == "v2" else sw_analysis
             decision_package_ids = [
                 package_id
-                for package_id, enabled in sw_analysis.items()
+                for package_id, enabled in configured_package_ids.items()
                 if enabled and package_id in KNOWN_DECISION_PACKAGE_IDS
             ]
             await asyncio.to_thread(
@@ -2675,6 +2685,9 @@ class RaceControlTower:
         restart_delay_seconds = float(restart_delay_seconds)
         if restart_delay_seconds < 0 or restart_delay_seconds > 60:
             raise ValueError("restart_delay_seconds must be between 0 and 60")
+        decision_pack_version = settings.get("decision_pack_version", "v1")
+        if decision_pack_version not in {"v1", "v2"}:
+            raise ValueError("decision_pack_version must be v1 or v2")
         sw_analysis = settings.get("sw_analysis", DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS)
         if not isinstance(sw_analysis, dict):
             raise ValueError("sw_analysis must be an object")
@@ -2685,9 +2698,37 @@ class RaceControlTower:
             if not isinstance(value, bool):
                 raise ValueError(f"sw_analysis.{key} must be a boolean")
             validated_sw_analysis[key] = value
+        decision_pack_v2 = settings.get("decision_pack_v2", {})
+        if not isinstance(decision_pack_v2, dict):
+            raise ValueError("decision_pack_v2 must be an object")
+        graph_settings = decision_pack_v2.get("graphs", DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS)
+        if not isinstance(graph_settings, dict):
+            raise ValueError("decision_pack_v2.graphs must be an object")
+        validated_graphs = dict(DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS)
+        for key, value in graph_settings.items():
+            if key not in validated_graphs:
+                raise ValueError(f"unknown decision_pack_v2 graph option: {key}")
+            if not isinstance(value, bool):
+                raise ValueError(f"decision_pack_v2.graphs.{key} must be a boolean")
+            validated_graphs[key] = value
+        collision_type_settings = decision_pack_v2.get("collision_types", DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS)
+        if not isinstance(collision_type_settings, dict):
+            raise ValueError("decision_pack_v2.collision_types must be an object")
+        validated_collision_types = dict(DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS)
+        for key, value in collision_type_settings.items():
+            if key not in validated_collision_types:
+                raise ValueError(f"unknown decision_pack_v2 collision type option: {key}")
+            if not isinstance(value, bool):
+                raise ValueError(f"decision_pack_v2.collision_types.{key} must be a boolean")
+            validated_collision_types[key] = value
         return {
             "restart_delay_seconds": restart_delay_seconds,
+            "decision_pack_version": decision_pack_version,
             "sw_analysis": validated_sw_analysis,
+            "decision_pack_v2": {
+                "graphs": validated_graphs,
+                "collision_types": validated_collision_types,
+            },
         }
 
     def validate_racing_rule_settings(self, settings: dict[str, Any]) -> dict[str, Any]:

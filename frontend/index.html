@@ -560,6 +560,13 @@
         width: 100%;
       }
 
+      .rct-sw-analysis-plot-list {
+        display: grid;
+        gap: 0.75rem;
+        max-width: 100%;
+        width: 100%;
+      }
+
       .rct-sw-analysis-plot .js-plotly-plot,
       .rct-sw-analysis-plot .plot-container,
       .rct-sw-analysis-plot .svg-container {
@@ -805,6 +812,19 @@
                   <input id="penaltyRestartDelaySeconds" class="form-control form-control-sm rct-pre-accident-input" type="number" min="0" max="60" step="1" value="2">
                 </div>
                 <div class="mt-3">
+                  <div class="rct-settings-subtitle">Decision Pack</div>
+                  <div class="d-flex flex-wrap gap-3">
+                    <div class="form-check">
+                      <input id="decisionPackVersionV1" class="form-check-input decision-pack-version-radio" type="radio" name="decisionPackVersion" value="v1" checked>
+                      <label class="form-check-label" for="decisionPackVersionV1">Decision Pack v1</label>
+                    </div>
+                    <div class="form-check">
+                      <input id="decisionPackVersionV2" class="form-check-input decision-pack-version-radio" type="radio" name="decisionPackVersion" value="v2">
+                      <label class="form-check-label" for="decisionPackVersionV2">Decision Pack v2</label>
+                    </div>
+                  </div>
+                </div>
+                <div id="decisionPackV1Options" class="mt-3">
                   <div class="rct-settings-subtitle">Telemetry Analysis</div>
                   <div class="row row-cols-1 row-cols-md-2 g-2">
                     <div class="col">
@@ -847,6 +867,32 @@
                       <div class="form-check">
                         <input id="swAnalysisSharedRacingIncident" class="form-check-input sw-analysis-checkbox" type="checkbox" data-analysis-id="shared_racing_incident" data-analysis-label="Shared racing incident" checked>
                         <label class="form-check-label" for="swAnalysisSharedRacingIncident">Shared racing incident</label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div id="decisionPackV2Options" class="mt-3" hidden>
+                  <div class="rct-settings-subtitle">Decision Pack v2 Collision Types</div>
+                  <div class="row row-cols-1 row-cols-md-2 g-2">
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2CT1" class="form-check-input decision-pack-v2-ct-checkbox" type="checkbox" data-analysis-id="CT1" data-analysis-label="CT1 Single-vehicle wall collision" checked>
+                        <label class="form-check-label" for="decisionPackV2CT1">CT1 Single-vehicle wall collision</label>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="rct-settings-subtitle mt-3">Decision Pack v2 Graphs</div>
+                  <div class="row row-cols-1 row-cols-md-2 g-2">
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G01" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G01" data-graph-label="G01 A/B distance and collision count" checked>
+                        <label class="form-check-label" for="decisionPackV2G01">G01 A/B distance and collision count</label>
+                      </div>
+                    </div>
+                    <div class="col">
+                      <div class="form-check">
+                        <input id="decisionPackV2G02" class="form-check-input decision-pack-v2-graph-checkbox" type="checkbox" data-graph-id="G02" data-graph-label="G02 Closing speed and lateral pressure" checked>
+                        <label class="form-check-label" for="decisionPackV2G02">G02 Closing speed and lateral pressure</label>
                       </div>
                     </div>
                   </div>
@@ -1082,6 +1128,7 @@
     <script src="vendor/plotly-2.35.2.min.js"></script>
     <script src="decision/common.js"></script>
     <script src="decision/packs.js"></script>
+    <script src="decision/v2.js"></script>
     <script>
       let rctSocket = null;
       const rctStatusDot = document.getElementById("rctStatusDot");
@@ -1097,9 +1144,22 @@
       const preAccidentSecondsInput = document.getElementById("preAccidentSeconds");
       const includeCameraCheckbox = document.getElementById("includeCamera");
       const penaltyRestartDelaySecondsInput = document.getElementById("penaltyRestartDelaySeconds");
+      const decisionPackVersionRadios = Array.from(document.querySelectorAll(".decision-pack-version-radio"));
+      const decisionPackV1Options = document.getElementById("decisionPackV1Options");
+      const decisionPackV2Options = document.getElementById("decisionPackV2Options");
       const swAnalysisCheckboxes = Array.from(document.querySelectorAll(".sw-analysis-checkbox"));
       const defaultPenaltySwAnalysis = swAnalysisCheckboxes.reduce((settings, checkbox) => {
         settings[checkbox.dataset.analysisId] = checkbox.checked;
+        return settings;
+      }, {});
+      const decisionPackV2CollisionTypeCheckboxes = Array.from(document.querySelectorAll(".decision-pack-v2-ct-checkbox"));
+      const decisionPackV2GraphCheckboxes = Array.from(document.querySelectorAll(".decision-pack-v2-graph-checkbox"));
+      const defaultDecisionPackV2CollisionTypes = decisionPackV2CollisionTypeCheckboxes.reduce((settings, checkbox) => {
+        settings[checkbox.dataset.analysisId] = checkbox.checked;
+        return settings;
+      }, {});
+      const defaultDecisionPackV2Graphs = decisionPackV2GraphCheckboxes.reduce((settings, checkbox) => {
+        settings[checkbox.dataset.graphId] = checkbox.checked;
         return settings;
       }, {});
       const totalLapCountInput = document.getElementById("totalLapCount");
@@ -1223,7 +1283,10 @@
       let appliedPreAccidentSeconds = 5;
       let appliedIncludeCamera = false;
       let appliedPenaltyRestartDelaySeconds = 2;
+      let appliedDecisionPackVersion = "v1";
       let appliedPenaltySwAnalysis = { ...defaultPenaltySwAnalysis };
+      let appliedDecisionPackV2CollisionTypes = { ...defaultDecisionPackV2CollisionTypes };
+      let appliedDecisionPackV2Graphs = { ...defaultDecisionPackV2Graphs };
       let appliedTotalLapCount = 10;
       let appliedMaximumPenaltyCount = 0;
       let appliedCelebrationWithConfetti = true;
@@ -2101,11 +2164,15 @@
       }
 
       function decisionAnalysisForOption(summary, option) {
-        const cacheKey = `${summary.filename}\u0000${summary.size_bytes}\u0000${option.id}`;
+        const version = option.version === "v2" ? "v2" : "v1";
+        const graphSettingsKey = version === "v2" ? JSON.stringify(appliedDecisionPackV2Graphs) : "";
+        const cacheKey = `${summary.filename}\u0000${summary.size_bytes}\u0000${version}\u0000${option.id}\u0000${graphSettingsKey}`;
         if (decisionAnalysisCache.has(cacheKey)) {
           return decisionAnalysisCache.get(cacheKey);
         }
-        const analysis = window.RCTDecisionPacks.analyze(option.id, summary);
+        const analysis = version === "v2"
+          ? window.RCTDecisionPacksV2.analyze(option.id, summary, { graphs: appliedDecisionPackV2Graphs })
+          : window.RCTDecisionPacks.analyze(option.id, summary);
         decisionAnalysisCache.set(cacheKey, analysis);
         return analysis;
       }
@@ -2119,6 +2186,8 @@
             output_version: analysis.output_version,
             opinion: analysis.opinion,
             confidence: analysis.confidence,
+            decision: analysis.decision || null,
+            fault_percentage: Number.isFinite(Number(analysis.fault_percentage)) ? Number(analysis.fault_percentage) : null,
             penalty_vehicle_id: analysis.penalty_vehicle_id,
             metrics: analysis.metrics || {},
           }];
@@ -2164,10 +2233,14 @@
         try {
           const analysis = decisionAnalysisForOption(summary, option);
           const confidence = Number(analysis.confidence);
+          const faultPercentage = Number(analysis.fault_percentage);
           const penaltyVehicleId = Number(analysis.penalty_vehicle_id);
           const hasConfidence = Number.isFinite(confidence) && confidence > 0;
           if (Number.isFinite(penaltyVehicleId) && penaltyVehicleId > 0) {
             const label = displayRoboracerLabel(penaltyVehicleId);
+            if (Number.isFinite(faultPercentage)) {
+              return `Fault on ${label} (${faultPercentage.toFixed(0)}%)`;
+            }
             if (confidence >= 0.7) {
               return `Fault on ${label}${hasConfidence ? ` (${(confidence * 100).toFixed(0)}%)` : ""}`;
             }
@@ -2191,7 +2264,9 @@
         opinion.textContent = analysis.opinion;
         pane.append(opinion);
         const plot = document.createElement("div");
-        plot.className = "rct-sw-analysis-plot";
+        plot.className = Array.isArray(analysis.graphs) && analysis.graphs.length > 0
+          ? "rct-sw-analysis-plot-list"
+          : "rct-sw-analysis-plot";
         pane.append(plot);
         const metrics = document.createElement("div");
         metrics.className = "rct-sw-analysis-metrics";
@@ -2209,7 +2284,25 @@
             return;
           }
           plot.textContent = "";
-          renderDecisionPlot(plot, analysis);
+          renderDecisionPlots(plot, analysis);
+        });
+      }
+
+      function renderDecisionPlots(container, analysis) {
+        const graphs = Array.isArray(analysis.graphs) ? analysis.graphs : [];
+        if (graphs.length === 0) {
+          renderDecisionPlot(container, analysis);
+          return;
+        }
+        container.textContent = "";
+        graphs.forEach((graphResult) => {
+          const graphTitle = document.createElement("div");
+          graphTitle.className = "rct-sw-analysis-result-title";
+          graphTitle.textContent = `${graphResult.graph.id}. ${graphResult.graph.label}`;
+          const graphPlot = document.createElement("div");
+          graphPlot.className = "rct-sw-analysis-plot";
+          container.append(graphTitle, graphPlot);
+          renderDecisionPlot(graphPlot, { series: graphResult.series });
         });
       }
 
@@ -2394,11 +2487,14 @@
           ? record.decision_package_ids
           : (faultVehicleId && !penalty ? selectedPenaltySwAnalysisOptions().map((option) => option.id) : []);
         if (faultVehicleId && !penalty && !packageIds.includes("single_vehicle_collision")) {
-          packageIds = ["single_vehicle_collision", ...packageIds];
+          packageIds = [appliedDecisionPackVersion === "v2" ? "CT1" : "single_vehicle_collision", ...packageIds];
         }
         const options = packageIds.map((id) => {
-          const pack = window.RCTDecisionPacks.get(id);
-          return { id, label: pack ? pack.info.label : id.replace(/_/g, " ") };
+          const v2Pack = window.RCTDecisionPacksV2.getCollisionType(id);
+          const v1Pack = window.RCTDecisionPacks.get(id);
+          const version = v2Pack ? "v2" : "v1";
+          const pack = v2Pack || v1Pack;
+          return { id, label: pack ? pack.info.label : id.replace(/_/g, " "), version };
         });
         if (options.length > 0) {
           const divider = document.createElement("hr");
@@ -2487,7 +2583,10 @@
       function penaltyRuleSettingsChanged() {
         return (
           penaltyRestartDelaySecondsValue() !== appliedPenaltyRestartDelaySeconds
+          || selectedDecisionPackVersion() !== appliedDecisionPackVersion
           || JSON.stringify(collectPenaltySwAnalysisSettings()) !== JSON.stringify(appliedPenaltySwAnalysis)
+          || JSON.stringify(collectDecisionPackV2Settings().collision_types) !== JSON.stringify(appliedDecisionPackV2CollisionTypes)
+          || JSON.stringify(collectDecisionPackV2Settings().graphs) !== JSON.stringify(appliedDecisionPackV2Graphs)
         );
       }
 
@@ -2501,6 +2600,33 @@
           settings[checkbox.dataset.analysisId] = checkbox.checked;
           return settings;
         }, {});
+      }
+
+      function selectedDecisionPackVersion() {
+        const selected = decisionPackVersionRadios.find((radio) => radio.checked);
+        return selected && selected.value === "v2" ? "v2" : "v1";
+      }
+
+      function setDecisionPackVersion(version) {
+        const normalized = version === "v2" ? "v2" : "v1";
+        for (const radio of decisionPackVersionRadios) {
+          radio.checked = radio.value === normalized;
+        }
+        decisionPackV1Options.hidden = normalized !== "v1";
+        decisionPackV2Options.hidden = normalized !== "v2";
+      }
+
+      function collectDecisionPackV2Settings() {
+        return {
+          collision_types: decisionPackV2CollisionTypeCheckboxes.reduce((settings, checkbox) => {
+            settings[checkbox.dataset.analysisId] = checkbox.checked;
+            return settings;
+          }, {}),
+          graphs: decisionPackV2GraphCheckboxes.reduce((settings, checkbox) => {
+            settings[checkbox.dataset.graphId] = checkbox.checked;
+            return settings;
+          }, {}),
+        };
       }
 
       function normalizePenaltySwAnalysisSettings(settings) {
@@ -2525,12 +2651,59 @@
         }
       }
 
+      function normalizeDecisionPackV2Settings(settings) {
+        const normalized = {
+          collision_types: { ...defaultDecisionPackV2CollisionTypes },
+          graphs: { ...defaultDecisionPackV2Graphs },
+        };
+        if (!settings || typeof settings !== "object") {
+          return normalized;
+        }
+        const collisionTypes = settings.collision_types && typeof settings.collision_types === "object" ? settings.collision_types : {};
+        const graphs = settings.graphs && typeof settings.graphs === "object" ? settings.graphs : {};
+        for (const checkbox of decisionPackV2CollisionTypeCheckboxes) {
+          const analysisId = checkbox.dataset.analysisId;
+          if (Object.prototype.hasOwnProperty.call(collisionTypes, analysisId)) {
+            normalized.collision_types[analysisId] = Boolean(collisionTypes[analysisId]);
+          }
+        }
+        for (const checkbox of decisionPackV2GraphCheckboxes) {
+          const graphId = checkbox.dataset.graphId;
+          if (Object.prototype.hasOwnProperty.call(graphs, graphId)) {
+            normalized.graphs[graphId] = Boolean(graphs[graphId]);
+          }
+        }
+        return normalized;
+      }
+
+      function syncDecisionPackV2Settings(settings) {
+        const normalized = normalizeDecisionPackV2Settings(settings);
+        appliedDecisionPackV2CollisionTypes = normalized.collision_types;
+        appliedDecisionPackV2Graphs = normalized.graphs;
+        for (const checkbox of decisionPackV2CollisionTypeCheckboxes) {
+          checkbox.checked = Boolean(appliedDecisionPackV2CollisionTypes[checkbox.dataset.analysisId]);
+        }
+        for (const checkbox of decisionPackV2GraphCheckboxes) {
+          checkbox.checked = Boolean(appliedDecisionPackV2Graphs[checkbox.dataset.graphId]);
+        }
+      }
+
       function selectedPenaltySwAnalysisOptions() {
+        if (appliedDecisionPackVersion === "v2") {
+          return decisionPackV2CollisionTypeCheckboxes
+            .filter((checkbox) => Boolean(appliedDecisionPackV2CollisionTypes[checkbox.dataset.analysisId]))
+            .map((checkbox) => ({
+              id: checkbox.dataset.analysisId,
+              label: checkbox.dataset.analysisLabel,
+              version: "v2",
+            }));
+        }
         return swAnalysisCheckboxes
           .filter((checkbox) => Boolean(appliedPenaltySwAnalysis[checkbox.dataset.analysisId]))
           .map((checkbox) => ({
             id: checkbox.dataset.analysisId,
             label: checkbox.dataset.analysisLabel,
+            version: "v1",
           }));
       }
 
@@ -2651,7 +2824,10 @@
           appliedPenaltyRestartDelaySeconds = restartDelaySeconds;
           penaltyRestartDelaySecondsInput.value = String(restartDelaySeconds);
         }
+        appliedDecisionPackVersion = settings.decision_pack_version === "v2" ? "v2" : "v1";
+        setDecisionPackVersion(appliedDecisionPackVersion);
         syncPenaltySwAnalysisSettings(settings.sw_analysis);
+        syncDecisionPackV2Settings(settings.decision_pack_v2);
         updateSettingsApplyState();
       }
 
@@ -2779,7 +2955,9 @@
           },
           body: JSON.stringify({
             restart_delay_seconds: penaltyRestartDelaySecondsValue(),
+            decision_pack_version: selectedDecisionPackVersion(),
             sw_analysis: collectPenaltySwAnalysisSettings(),
+            decision_pack_v2: collectDecisionPackV2Settings(),
           }),
         });
         if (!response.ok) {
@@ -2807,8 +2985,11 @@
             const payload = await postPenaltyRuleSettings();
             const settings = payload.penalty_rule || {};
             appliedPenaltyRestartDelaySeconds = Number(settings.restart_delay_seconds);
+            appliedDecisionPackVersion = settings.decision_pack_version === "v2" ? "v2" : "v1";
             penaltyRestartDelaySecondsInput.value = String(appliedPenaltyRestartDelaySeconds);
+            setDecisionPackVersion(appliedDecisionPackVersion);
             syncPenaltySwAnalysisSettings(settings.sw_analysis);
+            syncDecisionPackV2Settings(settings.decision_pack_v2);
             updateSettingsApplyState();
             return payload;
           })
@@ -4063,10 +4244,23 @@
                 penaltyRestartDelaySecondsInput.value = String(restartDelaySeconds);
               }
             }
+            appliedDecisionPackVersion = settings.decision_pack_version === "v2" ? "v2" : "v1";
+            if (!hasPendingPenaltyRuleChanges) {
+              setDecisionPackVersion(appliedDecisionPackVersion);
+            }
             appliedPenaltySwAnalysis = normalizePenaltySwAnalysisSettings(settings.sw_analysis);
+            const normalizedV2 = normalizeDecisionPackV2Settings(settings.decision_pack_v2);
+            appliedDecisionPackV2CollisionTypes = normalizedV2.collision_types;
+            appliedDecisionPackV2Graphs = normalizedV2.graphs;
             if (!hasPendingPenaltyRuleChanges) {
               for (const checkbox of swAnalysisCheckboxes) {
                 checkbox.checked = Boolean(appliedPenaltySwAnalysis[checkbox.dataset.analysisId]);
+              }
+              for (const checkbox of decisionPackV2CollisionTypeCheckboxes) {
+                checkbox.checked = Boolean(appliedDecisionPackV2CollisionTypes[checkbox.dataset.analysisId]);
+              }
+              for (const checkbox of decisionPackV2GraphCheckboxes) {
+                checkbox.checked = Boolean(appliedDecisionPackV2Graphs[checkbox.dataset.graphId]);
               }
             }
             updateSettingsApplyState();
@@ -4689,7 +4883,19 @@
       preAccidentSecondsInput.addEventListener("input", updateSettingsApplyState);
       includeCameraCheckbox.addEventListener("change", updateSettingsApplyState);
       penaltyRestartDelaySecondsInput.addEventListener("input", updateSettingsApplyState);
+      decisionPackVersionRadios.forEach((radio) => {
+        radio.addEventListener("change", () => {
+          setDecisionPackVersion(selectedDecisionPackVersion());
+          updateSettingsApplyState();
+        });
+      });
       swAnalysisCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", updateSettingsApplyState);
+      });
+      decisionPackV2CollisionTypeCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", updateSettingsApplyState);
+      });
+      decisionPackV2GraphCheckboxes.forEach((checkbox) => {
         checkbox.addEventListener("change", updateSettingsApplyState);
       });
       totalLapCountInput.addEventListener("input", updateSettingsApplyState);

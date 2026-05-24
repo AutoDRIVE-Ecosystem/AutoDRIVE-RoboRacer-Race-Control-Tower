@@ -20,7 +20,10 @@ Download and Foxglove use separate MCAP endpoints. The replay/decision summary i
   Shared telemetry normalization, geometry helpers, scoring helpers, and Plotly row builders.
 
 - `frontend/decision/packs.js`
-  Decision pack registry. Add new frontend decision packs here.
+  Decision pack v1 registry. Existing steward UI analysis packs are kept here for saved-record and runtime compatibility.
+
+- `frontend/decision/v2.js`
+  Decision pack v2 framework. Graph plugins use IDs such as `G01`; collision-type plugins use IDs such as `CT1`. Collision-type plugins consume one or more graph plugin outputs and return `decision`, `fault_percentage`, and text `opinion` while preserving the v1-compatible output fields used by the current UI.
 
 - `frontend/index.html`
   Steward UI, Plotly rendering, final-decision submission, saved-record compatibility checks.

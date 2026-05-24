@@ -17,6 +17,15 @@ DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS: dict[str, bool] = {
     "shared_racing_incident": True,
 }
 
+DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS: dict[str, bool] = {
+    "G01": True,
+    "G02": True,
+}
+
+DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS: dict[str, bool] = {
+    "CT1": True,
+}
+
 
 @dataclass
 class DevKitMonitorState:
@@ -65,7 +74,12 @@ class RaceControlState:
         }
         self._penalty_rule_settings: dict[str, Any] = {
             "restart_delay_seconds": 2.0,
+            "decision_pack_version": "v1",
             "sw_analysis": dict(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS),
+            "decision_pack_v2": {
+                "graphs": dict(DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS),
+                "collision_types": dict(DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS),
+            },
         }
         self._racing_rule_settings: dict[str, float | bool] = {
             "total_lap_count": 10,
@@ -268,14 +282,30 @@ class RaceControlState:
         self,
         *,
         restart_delay_seconds: float,
+        decision_pack_version: str = "v1",
         sw_analysis: Mapping[str, bool] | None = None,
+        decision_pack_v2: Mapping[str, Any] | None = None,
     ) -> None:
         next_sw_analysis = dict(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS)
         if sw_analysis is not None:
             next_sw_analysis.update(sw_analysis)
+        next_graphs = dict(DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS)
+        next_collision_types = dict(DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS)
+        if decision_pack_v2 is not None:
+            graph_settings = decision_pack_v2.get("graphs", {})
+            if isinstance(graph_settings, Mapping):
+                next_graphs.update(graph_settings)
+            collision_type_settings = decision_pack_v2.get("collision_types", {})
+            if isinstance(collision_type_settings, Mapping):
+                next_collision_types.update(collision_type_settings)
         next_settings = {
             "restart_delay_seconds": float(restart_delay_seconds),
+            "decision_pack_version": str(decision_pack_version),
             "sw_analysis": next_sw_analysis,
+            "decision_pack_v2": {
+                "graphs": next_graphs,
+                "collision_types": next_collision_types,
+            },
         }
         with self._lock:
             if self._penalty_rule_settings == next_settings:
@@ -287,6 +317,13 @@ class RaceControlState:
         with self._lock:
             settings = dict(self._penalty_rule_settings)
             settings["sw_analysis"] = dict(settings.get("sw_analysis", {}))
+            v2_settings = settings.get("decision_pack_v2", {})
+            if not isinstance(v2_settings, dict):
+                v2_settings = {}
+            settings["decision_pack_v2"] = {
+                "graphs": dict(v2_settings.get("graphs", {})),
+                "collision_types": dict(v2_settings.get("collision_types", {})),
+            }
             return settings
 
     def set_racing_rule_settings(

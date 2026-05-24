@@ -101,10 +101,14 @@ class RaceControlStateTests(unittest.TestCase):
         state = RaceControlState()
 
         self.assertEqual(state.snapshot()["penalty_rule"]["restart_delay_seconds"], 2.0)
+        self.assertEqual(state.snapshot()["penalty_rule"]["decision_pack_version"], "v1")
         self.assertTrue(state.snapshot()["penalty_rule"]["sw_analysis"]["rear_end_collision"])
+        self.assertTrue(state.snapshot()["penalty_rule"]["decision_pack_v2"]["graphs"]["G01"])
+        self.assertTrue(state.snapshot()["penalty_rule"]["decision_pack_v2"]["collision_types"]["CT1"])
 
         state.set_penalty_rule_settings(
             restart_delay_seconds=1.5,
+            decision_pack_version="v2",
             sw_analysis={
                 "rear_end_collision": False,
                 "unsafe_lateral_movement": True,
@@ -113,10 +117,17 @@ class RaceControlStateTests(unittest.TestCase):
                 "unsafe_rejoin": True,
                 "shared_racing_incident": True,
             },
+            decision_pack_v2={
+                "graphs": {"G02": False},
+                "collision_types": {"CT1": False},
+            },
         )
 
         self.assertEqual(state.snapshot()["penalty_rule"]["restart_delay_seconds"], 1.5)
+        self.assertEqual(state.snapshot()["penalty_rule"]["decision_pack_version"], "v2")
         self.assertFalse(state.snapshot()["penalty_rule"]["sw_analysis"]["rear_end_collision"])
+        self.assertFalse(state.snapshot()["penalty_rule"]["decision_pack_v2"]["graphs"]["G02"])
+        self.assertFalse(state.snapshot()["penalty_rule"]["decision_pack_v2"]["collision_types"]["CT1"])
 
     def test_snapshot_tracks_racing_rule_settings(self):
         state = RaceControlState()
