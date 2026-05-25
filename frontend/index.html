@@ -620,6 +620,14 @@
         max-width: 100% !important;
       }
 
+      .rct-matplotlib-plot-image {
+        display: block;
+        height: 100%;
+        max-width: 100%;
+        object-fit: contain;
+        width: 100%;
+      }
+
       .rct-sw-analysis-metrics {
         color: #6c757d;
         display: flex;
@@ -926,6 +934,17 @@
                   <div class="form-check mb-3">
                     <input id="decisionPackV2AutomaticDecision" class="form-check-input" type="checkbox">
                     <label class="form-check-label" for="decisionPackV2AutomaticDecision">Automatic Decision</label>
+                  </div>
+                  <div class="rct-settings-subtitle">Decision Pack v2 Graph Renderer</div>
+                  <div class="d-flex flex-wrap gap-3 mb-3">
+                    <div class="form-check">
+                      <input id="decisionPackV2GraphRendererPlotly" class="form-check-input decision-pack-v2-graph-renderer-radio" type="radio" name="decisionPackV2GraphRenderer" value="plotly" checked>
+                      <label class="form-check-label" for="decisionPackV2GraphRendererPlotly">plotly.js (default)</label>
+                    </div>
+                    <div class="form-check">
+                      <input id="decisionPackV2GraphRendererMatplotlib" class="form-check-input decision-pack-v2-graph-renderer-radio" type="radio" name="decisionPackV2GraphRenderer" value="matplotlib">
+                      <label class="form-check-label" for="decisionPackV2GraphRendererMatplotlib">Pyodide Matplotlib</label>
+                    </div>
                   </div>
                   <div class="rct-settings-subtitle">Decision Pack v2 Collision Types</div>
                   <div class="row row-cols-1 row-cols-md-2 g-2">
@@ -1316,6 +1335,7 @@
     <script src="decision/common.js"></script>
     <script src="decision/packs.js"></script>
     <script src="decision/v2.js"></script>
+    <script src="decision/matplotlib-renderer.js"></script>
     <script>
       let rctSocket = null;
       const rctStatusDot = document.getElementById("rctStatusDot");
@@ -1338,6 +1358,7 @@
       const decisionPackV1Options = document.getElementById("decisionPackV1Options");
       const decisionPackV2Options = document.getElementById("decisionPackV2Options");
       const decisionPackV2AutomaticDecisionCheckbox = document.getElementById("decisionPackV2AutomaticDecision");
+      const decisionPackV2GraphRendererRadios = Array.from(document.querySelectorAll(".decision-pack-v2-graph-renderer-radio"));
       const swAnalysisCheckboxes = Array.from(document.querySelectorAll(".sw-analysis-checkbox"));
       const defaultPenaltySwAnalysis = swAnalysisCheckboxes.reduce((settings, checkbox) => {
         settings[checkbox.dataset.analysisId] = checkbox.checked;
@@ -1356,6 +1377,7 @@
       const canvasFpsOverlayStorageKey = "rct.showCanvasFpsOverlay";
       const canvasFpsOverlayStorageVersion = "2";
       const canvasFpsOverlayStorageVersionKey = `${canvasFpsOverlayStorageKey}.version`;
+      const decisionPackV2GraphRendererStorageKey = "rct.decisionPackV2GraphRenderer";
       const totalLapCountInput = document.getElementById("totalLapCount");
       const maximumPenaltyCountInput = document.getElementById("maximumPenaltyCount");
       const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
@@ -1483,6 +1505,7 @@
       let appliedDecisionPackV2AutomaticDecision = false;
       let appliedDecisionPackV2CollisionTypes = { ...defaultDecisionPackV2CollisionTypes };
       let appliedDecisionPackV2Graphs = { ...defaultDecisionPackV2Graphs };
+      let appliedDecisionPackV2GraphRenderer = "plotly";
       let appliedShowCanvasFpsOverlay = false;
       let showCanvasFpsOverlay = false;
       let appliedTotalLapCount = 10;
@@ -3091,21 +3114,39 @@
       }
 
       function renderDecisionPlot(container, analysis) {
+        const payload = decisionPlotPayload(analysis);
+        if (payload.container_height) {
+          container.style.height = `${payload.container_height}px`;
+          container.style.minHeight = `${payload.container_height}px`;
+        }
+        const useMatplotlib = appliedDecisionPackV2GraphRenderer === "matplotlib"
+          && (analysis.framework_version === "2" || analysis.graph)
+          && window.RCTMatplotlibRenderer;
+        if (useMatplotlib) {
+          window.RCTMatplotlibRenderer.render(container, payload).catch((error) => {
+            console.warn("Matplotlib chart rendering failed; falling back to default renderer:", error);
+            renderDecisionPlotlyPayload(container, payload);
+          });
+          return;
+        }
+        renderDecisionPlotlyPayload(container, payload);
+      }
+
+      function decisionPlotPayload(analysis) {
         if (analysis && analysis.plot && Array.isArray(analysis.plot.traces)) {
           const containerHeight = Number(analysis.plot.container_height);
-          if (Number.isFinite(containerHeight) && containerHeight > 0) {
-            container.style.height = `${containerHeight}px`;
-            container.style.minHeight = `${containerHeight}px`;
-          }
-          const layout = {
-            autosize: true,
-            paper_bgcolor: "rgba(0,0,0,0)",
-            plot_bgcolor: "rgba(0,0,0,0)",
-            font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", size: 11 },
-            ...analysis.plot.layout,
+          return {
+            traces: analysis.plot.traces,
+            layout: {
+              autosize: true,
+              paper_bgcolor: "rgba(0,0,0,0)",
+              plot_bgcolor: "rgba(0,0,0,0)",
+              font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", size: 11 },
+              ...analysis.plot.layout,
+            },
+            container_height: Number.isFinite(containerHeight) && containerHeight > 0 ? containerHeight : null,
+            metadata: decisionPlotMetadata(analysis),
           };
-          Plotly.react(container, analysis.plot.traces, layout, { displayModeBar: false, displaylogo: false, responsive: true });
-          return;
         }
         const rows = Array.isArray(analysis.series) ? analysis.series : [];
         const keys = rows.length > 0 ? Object.keys(rows[0]).filter((key) => key !== "time") : [];
@@ -3138,17 +3179,54 @@
         if (Number.isFinite(collisionTime) && Math.abs(collisionTime) > 0.001) {
           shapes.push({ type: "line", x0: collisionTime, x1: collisionTime, y0: 0, y1: 1, yref: "paper", line: { color: "#dc2626", width: 1, dash: "dashdot" } });
         }
-        Plotly.react(container, traces, {
-          autosize: true,
-          margin: { l: 42, r: 12, t: 12, b: 72 },
-          paper_bgcolor: "rgba(0,0,0,0)",
-          plot_bgcolor: "rgba(0,0,0,0)",
-          font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", size: 11 },
-          xaxis: { title: { text: "time (s)", font: { size: 11 } }, gridcolor: "#dee2e6", zerolinecolor: "#6c757d" },
-          yaxis: { gridcolor: "#dee2e6", zerolinecolor: "#adb5bd" },
-          legend: { orientation: "h", y: -0.25, x: 0 },
-          shapes,
-        }, { displayModeBar: false, displaylogo: false, responsive: true });
+        return {
+          traces,
+          layout: {
+            autosize: true,
+            margin: { l: 42, r: 12, t: 12, b: 72 },
+            paper_bgcolor: "rgba(0,0,0,0)",
+            plot_bgcolor: "rgba(0,0,0,0)",
+            font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", size: 11 },
+            xaxis: { title: { text: "time (s)", font: { size: 11 } }, gridcolor: "#dee2e6", zerolinecolor: "#6c757d" },
+            yaxis: { gridcolor: "#dee2e6", zerolinecolor: "#adb5bd" },
+            legend: { orientation: "h", y: -0.25, x: 0 },
+            shapes,
+          },
+          container_height: null,
+          metadata: decisionPlotMetadata(analysis),
+        };
+      }
+
+      function renderDecisionPlotlyPayload(container, payload) {
+        Plotly.react(container, payload.traces, payload.layout, { displayModeBar: false, displaylogo: false, responsive: true });
+      }
+
+      function decisionPlotMetadata(analysis) {
+        const graph = analysis && analysis.graph;
+        const graphId = graph && typeof graph.id === "string" ? graph.id : "";
+        return {
+          title: graph ? graph.label : "",
+          x_axis_title: "time since log start (s)",
+          y_axis_title: decisionGraphYAxisTitle(graphId),
+        };
+      }
+
+      function decisionGraphYAxisTitle(graphId) {
+        return {
+          G02: "distance between vehicles (m)",
+          G03: "speed from odometry twist",
+          G05: "normalized command value",
+          G06: "closing speed (m/s)",
+          G07: "steering command",
+          G08: "lateral gap / separation (m)",
+          G09: "longitudinal gap (m)",
+          G10: "time to collision (s)",
+          G11: "track-relative offset (m)",
+          G12: "yaw rate / relative heading",
+          G13: "wall distance / clearance (m)",
+          G14: "acceleration / jerk proxy",
+          G15: "contribution / uncertainty score",
+        }[graphId] || "";
       }
 
       function decisionSeriesLabel(key) {
@@ -3443,11 +3521,15 @@
       }
 
       function experimentsFrontendSettingsChanged() {
-        return showCanvasFpsOverlayCheckbox.checked !== appliedShowCanvasFpsOverlay;
+        return (
+          showCanvasFpsOverlayCheckbox.checked !== appliedShowCanvasFpsOverlay
+          || selectedDecisionPackV2GraphRenderer() !== appliedDecisionPackV2GraphRenderer
+        );
       }
 
       function loadExperimentsFrontendSettings() {
         let enabled = false;
+        let graphRenderer = "plotly";
         try {
           const savedVersion = window.localStorage.getItem(canvasFpsOverlayStorageVersionKey);
           if (savedVersion === canvasFpsOverlayStorageVersion) {
@@ -3457,24 +3539,39 @@
             window.localStorage.removeItem(canvasFpsOverlayStorageKey);
             window.localStorage.setItem(canvasFpsOverlayStorageVersionKey, canvasFpsOverlayStorageVersion);
           }
+          graphRenderer = normalizeDecisionPackV2GraphRenderer(window.localStorage.getItem(decisionPackV2GraphRendererStorageKey));
         } catch (error) {
           enabled = false;
+          graphRenderer = "plotly";
         }
         appliedShowCanvasFpsOverlay = enabled;
         showCanvasFpsOverlay = enabled;
         showCanvasFpsOverlayCheckbox.checked = enabled;
+        appliedDecisionPackV2GraphRenderer = graphRenderer;
+        setDecisionPackV2GraphRenderer(appliedDecisionPackV2GraphRenderer);
       }
 
       function saveExperimentsFrontendSettings() {
+        const previousGraphRenderer = appliedDecisionPackV2GraphRenderer;
         appliedShowCanvasFpsOverlay = showCanvasFpsOverlayCheckbox.checked;
         showCanvasFpsOverlay = appliedShowCanvasFpsOverlay;
+        appliedDecisionPackV2GraphRenderer = selectedDecisionPackV2GraphRenderer();
         try {
           window.localStorage.setItem(canvasFpsOverlayStorageKey, String(appliedShowCanvasFpsOverlay));
           window.localStorage.setItem(canvasFpsOverlayStorageVersionKey, canvasFpsOverlayStorageVersion);
+          window.localStorage.setItem(decisionPackV2GraphRendererStorageKey, appliedDecisionPackV2GraphRenderer);
         } catch (error) {
-          console.warn("Failed to persist canvas FPS overlay setting:", error);
+          console.warn("Failed to persist frontend experiment settings:", error);
+        }
+        if (appliedDecisionPackV2GraphRenderer === "matplotlib" && window.RCTMatplotlibRenderer) {
+          void window.RCTMatplotlibRenderer.load().catch((error) => {
+            console.warn("Failed to initialize Pyodide matplotlib:", error);
+          });
         }
         refreshCanvasFpsOverlay();
+        if (previousGraphRenderer !== appliedDecisionPackV2GraphRenderer) {
+          renderAccidentLogs({ forceDetail: true });
+        }
         updateSettingsApplyState();
       }
 
@@ -3515,6 +3612,22 @@
         }
         decisionPackV1Options.hidden = normalized !== "v1";
         decisionPackV2Options.hidden = normalized !== "v2";
+      }
+
+      function normalizeDecisionPackV2GraphRenderer(renderer) {
+        return renderer === "matplotlib" ? "matplotlib" : "plotly";
+      }
+
+      function selectedDecisionPackV2GraphRenderer() {
+        const selected = decisionPackV2GraphRendererRadios.find((radio) => radio.checked);
+        return normalizeDecisionPackV2GraphRenderer(selected && selected.value);
+      }
+
+      function setDecisionPackV2GraphRenderer(renderer) {
+        const normalized = normalizeDecisionPackV2GraphRenderer(renderer);
+        for (const radio of decisionPackV2GraphRendererRadios) {
+          radio.checked = radio.value === normalized;
+        }
       }
 
       function collectDecisionPackV2Settings() {
@@ -5884,6 +5997,16 @@
         });
       });
       decisionPackV2AutomaticDecisionCheckbox.addEventListener("change", updateSettingsApplyState);
+      decisionPackV2GraphRendererRadios.forEach((radio) => {
+        radio.addEventListener("change", () => {
+          if (selectedDecisionPackV2GraphRenderer() === "matplotlib" && window.RCTMatplotlibRenderer) {
+            void window.RCTMatplotlibRenderer.load().catch((error) => {
+              console.warn("Failed to initialize Pyodide matplotlib:", error);
+            });
+          }
+          updateSettingsApplyState();
+        });
+      });
       swAnalysisCheckboxes.forEach((checkbox) => {
         checkbox.addEventListener("change", updateSettingsApplyState);
       });
