@@ -1742,6 +1742,29 @@
         return vehicleId === 1 || vehicleId === 2 ? vehicleId : null;
       }
 
+      function accidentLogDecisionBadge(accidentLog) {
+        const record = accidentLog && accidentLog.decision_record;
+        if (!record) {
+          return null;
+        }
+        if (record.no_decision) {
+          return {
+            className: "text-bg-secondary",
+            label: "N",
+            title: "No decision",
+          };
+        }
+        const faultVehicleId = accidentLogFaultVehicleId(accidentLog);
+        if (!faultVehicleId) {
+          return null;
+        }
+        return {
+          className: faultVehicleId === 1 ? "text-bg-success" : "text-bg-warning text-dark",
+          label: displayRoboracerLabel(faultVehicleId),
+          title: `Fault ${displayRoboracerLabel(faultVehicleId)}`,
+        };
+      }
+
       function accidentLogHasVehicleFault(result) {
         const vehicleId = Number(result && result.penalty_vehicle_id);
         return vehicleId === 1 || vehicleId === 2;
@@ -1872,16 +1895,15 @@
           const timeLabel = document.createElement("span");
           timeLabel.textContent = timeText;
           item.appendChild(timeLabel);
-          const faultVehicleId = accidentLogFaultVehicleId(accidentLog);
+          const decisionBadge = accidentLogDecisionBadge(accidentLog);
           const fullTimeLabel = accidentLog.time || accidentLog.filename || "";
-          const faultLabel = faultVehicleId ? `Fault ${displayRoboracerLabel(faultVehicleId)}` : "";
-          if (faultVehicleId) {
+          if (decisionBadge) {
             const badge = document.createElement("span");
-            badge.className = `badge rounded-pill rct-accident-log-fault-badge ${faultVehicleId === 1 ? "text-bg-success" : "text-bg-warning text-dark"}`;
-            badge.textContent = displayRoboracerLabel(faultVehicleId);
+            badge.className = `badge rounded-pill rct-accident-log-fault-badge ${decisionBadge.className}`;
+            badge.textContent = decisionBadge.label;
             item.appendChild(badge);
           }
-          item.title = [fullTimeLabel, faultLabel].filter(Boolean).join(" - ");
+          item.title = [fullTimeLabel, decisionBadge && decisionBadge.title].filter(Boolean).join(" - ");
           item.setAttribute("aria-label", item.title || timeText);
           item.addEventListener("pointerdown", () => {
             selectAccidentLog(accidentLog.filename);
