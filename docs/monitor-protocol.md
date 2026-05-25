@@ -311,13 +311,14 @@ Response:
       "filename": "autodrive 2026-05-19 23:20:56:540.mcap",
       "path": "accident_logs/autodrive 2026-05-19 23:20:56:540.mcap",
       "time": "2026-05-19 23:20:56:540",
-      "size_bytes": 1863259
+      "size_bytes": 1863259,
+      "decision_record": null
     }
   ]
 }
 ```
 
-Logs are returned newest first. RCT refreshes the list from the accident recorder output directory before responding.
+Logs are returned newest first. RCT refreshes the list from the accident recorder output directory before responding. If a matching `.json` decision record exists next to the `.mcap`, `decision_record` contains that parsed record.
 
 ```http
 GET /monitor/REST/0.1/accident-logs/{filename}/summary

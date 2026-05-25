@@ -67,6 +67,7 @@ class AccidentLogMonitorState:
     path: str
     time: str
     size_bytes: int
+    decision_record: dict[str, Any] | None = None
 
 
 @dataclass

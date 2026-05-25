@@ -32,6 +32,7 @@ from .bridge import (
 )
 from .config import Settings, load_settings
 from .decision import (
+    load_decision_record,
     save_decision_record,
 )
 from .monitor import MonitorEventHub, safe_send
@@ -1369,6 +1370,8 @@ class RaceControlTower:
             LOGGER.exception("failed to save decision record for %s", path)
             return web.json_response({"error": "failed to save decision record"}, status=500)
 
+        self.refresh_accident_logs_from_disk()
+        await self.publish_accident_logs()
         return web.json_response({"ok": True, "decision_record": record})
 
     async def handle_monitor_accident_logs_delete(self, request: web.Request) -> web.Response:
@@ -2220,13 +2223,7 @@ class RaceControlTower:
         except ModuleNotFoundError:
             LOGGER.exception("mcap package is not installed; cannot save accident record")
             return
-        monitor_log = AccidentLogMonitorState(
-            filename=accident_log.filename,
-            path=accident_log.path,
-            time=accident_log.time,
-            size_bytes=accident_log.size_bytes,
-        )
-        self.state.add_accident_log(monitor_log)
+        decision_record = None
         if auto_fault_vehicle_id is not None:
             penalty_rule = self.state.penalty_rule_settings()
             sw_analysis = penalty_rule.get("sw_analysis", {})
@@ -2237,7 +2234,7 @@ class RaceControlTower:
                 for package_id, enabled in configured_package_ids.items()
                 if enabled and package_id in KNOWN_DECISION_PACKAGE_IDS
             ]
-            await asyncio.to_thread(
+            decision_record = await asyncio.to_thread(
                 save_decision_record,
                 Path(accident_log.path),
                 fault_vehicle_id=auto_fault_vehicle_id,
@@ -2248,6 +2245,14 @@ class RaceControlTower:
                 decision_results={},
                 memo="Automatically recorded: single-vehicle collision.",
             )
+        monitor_log = AccidentLogMonitorState(
+            filename=accident_log.filename,
+            path=accident_log.path,
+            time=accident_log.time,
+            size_bytes=accident_log.size_bytes,
+            decision_record=decision_record,
+        )
+        self.state.add_accident_log(monitor_log)
         await self.publish_accident_logs()
         await self.publish_status()
 
@@ -2608,15 +2613,17 @@ class RaceControlTower:
         return payload
 
     def refresh_accident_logs_from_disk(self) -> None:
-        self.state.set_accident_logs(
+        accident_logs = [
             AccidentLogMonitorState(
                 filename=accident_log.filename,
                 path=accident_log.path,
                 time=accident_log.time,
                 size_bytes=accident_log.size_bytes,
+                decision_record=load_decision_record(Path(accident_log.path)),
             )
             for accident_log in list_accident_logs(self.accident_recorder.output_dir)
-        )
+        ]
+        self.state.set_accident_logs(accident_logs)
 
     def accident_log_path_from_filename(self, filename: str) -> Path:
         if Path(filename).name != filename:

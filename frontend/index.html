@@ -361,12 +361,35 @@
         min-width: 0;
       }
 
+      .rct-accident-logs-layout {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: 11.25rem minmax(0, 1fr);
+      }
+
       .rct-accident-logs-list {
         border: 1px solid #dee2e6;
         border-radius: 0.5rem;
         max-height: calc(100vh - 16rem);
         min-height: 20rem;
         overflow: auto;
+      }
+
+      .rct-accident-logs-list .list-group-item {
+        font-variant-numeric: tabular-nums;
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      .rct-accident-log-list-item {
+        align-items: center;
+        display: flex;
+        gap: 0.4rem;
+        justify-content: center;
+      }
+
+      .rct-accident-log-fault-badge {
+        min-width: 1.5rem;
       }
 
       .rct-accident-logs-detail {
@@ -1108,11 +1131,11 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
-            <div class="row g-3">
-              <div class="col-4">
+            <div class="rct-accident-logs-layout">
+              <div>
                 <div id="accidentLogsList" class="list-group rct-accident-logs-list" role="listbox" aria-label="Accident log times"></div>
               </div>
-              <div class="col-8">
+              <div>
                 <div id="accidentLogDetail" class="rct-accident-logs-detail p-3 text-body-secondary">To be defined</div>
               </div>
             </div>
@@ -1600,8 +1623,13 @@
             && leftLog.filename === rightLog.filename
             && leftLog.time === rightLog.time
             && leftLog.size_bytes === rightLog.size_bytes
-            && leftLog.path === rightLog.path;
+            && leftLog.path === rightLog.path
+            && accidentLogDecisionRecordKey(leftLog) === accidentLogDecisionRecordKey(rightLog);
         });
+      }
+
+      function accidentLogDecisionRecordKey(accidentLog) {
+        return JSON.stringify(accidentLog && accidentLog.decision_record ? accidentLog.decision_record : null);
       }
 
       function selectLatestAccidentLogForDecisionIfReady(options = {}) {
@@ -1690,6 +1718,35 @@
         ).getTime();
       }
 
+      function accidentLogListTime(accidentLog) {
+        const value = String(accidentLog && (accidentLog.time || accidentLog.filename) || "");
+        const match = value.match(/\b(\d{2}:\d{2}:\d{2}(?::\d{1,6})?)\b/);
+        return match ? match[1] : value;
+      }
+
+      function accidentLogFaultVehicleId(accidentLog) {
+        const record = accidentLog && accidentLog.decision_record;
+        if (!record) {
+          return null;
+        }
+        const vehicleId = Number(record.fault_vehicle_id || record.penalty_vehicle_id);
+        return vehicleId === 1 || vehicleId === 2 ? vehicleId : null;
+      }
+
+      function updateAccidentLogDecisionRecord(filename, decisionRecord) {
+        let changed = false;
+        accidentLogs = accidentLogs.map((accidentLog) => {
+          if (accidentLog.filename !== filename) {
+            return accidentLog;
+          }
+          changed = true;
+          return { ...accidentLog, decision_record: decisionRecord || null };
+        });
+        if (changed) {
+          renderAccidentLogs();
+        }
+      }
+
       function setAccidentLogs(nextAccidentLogs) {
         if (accidentLogsEqual(accidentLogs, nextAccidentLogs)) {
           if (selectLatestAccidentLogForDecisionIfReady()) {
@@ -1764,14 +1821,28 @@
           const needsDecision = penaltyDecisionActive
             && accidentLog.filename
             && accidentLog.filename === penaltyDecisionAccidentLogFilename;
-          item.className = `list-group-item list-group-item-action${selected ? " active" : (needsDecision ? " list-group-item-danger" : "")}`;
+          item.className = `list-group-item list-group-item-action rct-accident-log-list-item${selected ? " active" : (needsDecision ? " list-group-item-danger" : "")}`;
           item.type = "button";
           item.role = "option";
           item.setAttribute("aria-selected", selected ? "true" : "false");
           if (selected) {
             item.setAttribute("aria-current", "true");
           }
-          item.textContent = accidentLog.time;
+          const timeText = accidentLogListTime(accidentLog);
+          const timeLabel = document.createElement("span");
+          timeLabel.textContent = timeText;
+          item.appendChild(timeLabel);
+          const faultVehicleId = accidentLogFaultVehicleId(accidentLog);
+          const fullTimeLabel = accidentLog.time || accidentLog.filename || "";
+          const faultLabel = faultVehicleId ? `Fault ${displayRoboracerLabel(faultVehicleId)}` : "";
+          if (faultVehicleId) {
+            const badge = document.createElement("span");
+            badge.className = `badge rounded-pill rct-accident-log-fault-badge ${faultVehicleId === 1 ? "text-bg-success" : "text-bg-warning text-dark"}`;
+            badge.textContent = displayRoboracerLabel(faultVehicleId);
+            item.appendChild(badge);
+          }
+          item.title = [fullTimeLabel, faultLabel].filter(Boolean).join(" - ");
+          item.setAttribute("aria-label", item.title || timeText);
           item.addEventListener("pointerdown", () => {
             selectAccidentLog(accidentLog.filename);
           });
@@ -2606,6 +2677,7 @@
         const payload = await response.json();
         accidentLogSummaryCache.delete(accidentLog.filename);
         accidentLogSummaryInflight.delete(accidentLog.filename);
+        updateAccidentLogDecisionRecord(accidentLog.filename, payload.decision_record || null);
         return payload.decision_record || null;
       }
 

@@ -201,6 +201,7 @@ class RaceControlStateTests(unittest.TestCase):
                     "path": "accident_logs/autodrive 2026-05-19 12:00:00:001.mcap",
                     "time": "2026-05-19 12:00:00:001",
                     "size_bytes": 123,
+                    "decision_record": None,
                 }
             ],
         )
