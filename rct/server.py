@@ -1996,7 +1996,6 @@ class RaceControlTower:
             release_delay_seconds=release_delay_seconds,
         )
         await self.publish_status()
-        await self.emit_control_cache_to_simulator()
         await self.broadcast_monitor(
             envelope(
                 "penalty-decision",
@@ -2042,7 +2041,6 @@ class RaceControlTower:
             release_delay_seconds=PENALTY_RELEASE_DELAY_SECONDS,
         )
         await self.publish_status()
-        await self.emit_control_cache_to_simulator()
         await self.broadcast_monitor(
             envelope(
                 "penalty-decision",
@@ -2075,7 +2073,6 @@ class RaceControlTower:
             release_delay_seconds=delay_seconds,
         )
         await self.publish_status()
-        await self.emit_control_cache_to_simulator()
         await self.broadcast_monitor(
             envelope(
                 "penalty-decision",
@@ -2153,7 +2150,6 @@ class RaceControlTower:
         self.state.stop_race_time()
         LOGGER.info("race finished: winner=V%s loser=V%s reason=%s", winner_vehicle_id, loser_vehicle_id, reason)
         await self.publish_status()
-        await self.emit_control_cache_to_simulator()
         await self.broadcast_monitor(
             envelope(
                 "race-result",
