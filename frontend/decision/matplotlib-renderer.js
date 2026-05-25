@@ -331,8 +331,7 @@ def rct_render_matplotlib_plot(payload_json):
       },
       metadata: payload.metadata || {},
     };
-    pyodide.globals.set("_rct_plot_payload_json", JSON.stringify(renderPayload));
-    const svg = pyodide.runPython("rct_render_matplotlib_plot(_rct_plot_payload_json)");
+    const svg = await renderSvg(renderPayload);
     if (!container.isConnected || container._rctMatplotlibRenderToken !== token) {
       return;
     }
@@ -345,8 +344,15 @@ def rct_render_matplotlib_plot(payload_json):
     container.replaceChildren(image);
   }
 
+  async function renderSvg(payload) {
+    const pyodide = await loadMatplotlib();
+    pyodide.globals.set("_rct_plot_payload_json", JSON.stringify(payload));
+    return pyodide.runPython("rct_render_matplotlib_plot(_rct_plot_payload_json)");
+  }
+
   window.RCTMatplotlibRenderer = {
     load: loadMatplotlib,
     render,
+    renderSvg,
   };
 })();

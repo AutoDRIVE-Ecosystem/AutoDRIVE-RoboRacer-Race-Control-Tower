@@ -2868,11 +2868,16 @@
         title.className = "rct-sw-analysis-section-title";
         title.textContent = "Telemetry Analysis Summary";
         if (options.length > 0 && options.every((option) => option.version === "v2")) {
+          const summaryTable = createDecisionPackV2SummaryTable(accidentLog, options);
           container.append(
             title,
             createDecisionPackV2TreeConclusion(accidentLog, options),
-            createDecisionPackV2SummaryTable(accidentLog, options),
+            summaryTable,
           );
+          const bundleLink = createDecisionPackV2MatplotlibBundleLink(accidentLog, options);
+          if (bundleLink) {
+            container.append(bundleLink);
+          }
           return container;
         }
         const list = document.createElement("ul");
@@ -3008,6 +3013,224 @@
         });
         table.append(thead, tbody);
         return table;
+      }
+
+      function createDecisionPackV2MatplotlibBundleLink(accidentLog, options) {
+        const summary = currentAccidentLogSummary;
+        if (
+          appliedDecisionPackV2GraphRenderer !== "matplotlib"
+          || !summary
+          || summary.filename !== accidentLog.filename
+          || !window.RCTMatplotlibRenderer
+        ) {
+          return null;
+        }
+        const wrapper = document.createElement("p");
+        wrapper.className = "mb-0 text-start";
+        wrapper.style.marginLeft = "0";
+        wrapper.style.paddingLeft = "0";
+        const link = document.createElement("a");
+        link.href = "#";
+        link.className = "link-primary text-decoration-underline";
+        link.textContent = "[Download matplotlib graphs and MCAP bundle]";
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          if (link.getAttribute("aria-busy") === "true") {
+            return;
+          }
+          link.setAttribute("aria-busy", "true");
+          link.textContent = "Preparing matplotlib bundle...";
+          createDecisionPackV2MatplotlibBundle(accidentLog, options)
+            .catch((error) => {
+              console.warn("Failed to create matplotlib bundle:", error);
+              link.textContent = "[Bundle generation failed]";
+            })
+            .finally(() => {
+              window.setTimeout(() => {
+                if (link.isConnected) {
+                  link.removeAttribute("aria-busy");
+                  link.textContent = "[Download matplotlib graphs and MCAP bundle]";
+                }
+              }, 1200);
+            });
+        });
+        wrapper.appendChild(link);
+        return wrapper;
+      }
+
+      async function createDecisionPackV2MatplotlibBundle(accidentLog, options) {
+        const summary = currentAccidentLogSummary;
+        if (!summary || summary.filename !== accidentLog.filename) {
+          throw new Error("Accident log summary is not loaded");
+        }
+        const files = [];
+        const graphResults = uniqueDecisionPackV2GraphResults(summary, options);
+        for (const graphResult of graphResults) {
+          const payload = decisionPlotPayload(graphResult);
+          const svg = await window.RCTMatplotlibRenderer.renderSvg({
+            traces: payload.traces,
+            layout: payload.layout,
+            render: { style: "paper" },
+            metadata: payload.metadata || {},
+          });
+          const graphId = graphResult.graph && graphResult.graph.id ? graphResult.graph.id : "G";
+          const graphName = graphResult.graph && graphResult.graph.label ? graphResult.graph.label : "Graph";
+          files.push({
+            name: safeZipFilename(`${graphId} - ${graphName}.svg`),
+            data: new TextEncoder().encode(svg),
+          });
+        }
+        const originalMcapName = accidentLog.filename || summary.filename;
+        const ros2McapName = ros2McapDownloadFilename(originalMcapName);
+        files.push({
+          name: safeZipFilename(originalMcapName),
+          data: new Uint8Array(await fetchBinary(monitorRestUrl(`/accident-logs/${encodeURIComponent(originalMcapName)}/rct.mcap`))),
+        });
+        files.push({
+          name: safeZipFilename(ros2McapName),
+          data: new Uint8Array(await fetchBinary(monitorRestUrl(`/accident-logs/${encodeURIComponent(originalMcapName)}/ros2.mcap`))),
+        });
+        const zipBlob = createZipBlob(files);
+        const baseName = safeZipFilename(displayAccidentLogTitle(originalMcapName).replace(/\s+/g, "_"));
+        downloadBlob(zipBlob, `${baseName}_matplotlib_graphs.zip`);
+      }
+
+      function uniqueDecisionPackV2GraphResults(summary, options) {
+        const graphs = new Map();
+        for (const option of options) {
+          const analysis = decisionAnalysisForOption(summary, option);
+          for (const graphResult of Array.isArray(analysis.graphs) ? analysis.graphs : []) {
+            const graphId = graphResult && graphResult.graph && graphResult.graph.id;
+            if (graphId && !graphs.has(graphId)) {
+              graphs.set(graphId, graphResult);
+            }
+          }
+        }
+        return Array.from(graphs.values()).sort((left, right) => {
+          const leftId = left.graph && left.graph.id ? left.graph.id : "";
+          const rightId = right.graph && right.graph.id ? right.graph.id : "";
+          return leftId.localeCompare(rightId, undefined, { numeric: true });
+        });
+      }
+
+      function ros2McapDownloadFilename(filename) {
+        return String(filename || "accident.mcap").replace(/\.mcap$/i, "_ros2.mcap");
+      }
+
+      async function fetchBinary(url) {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+        }
+        return response.arrayBuffer();
+      }
+
+      function safeZipFilename(filename) {
+        return String(filename || "file")
+          .replace(/[\\/:*?"<>|]+/g, "-")
+          .replace(/\s+/g, " ")
+          .trim() || "file";
+      }
+
+      function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      function createZipBlob(files) {
+        const localParts = [];
+        const centralParts = [];
+        let offset = 0;
+        for (const file of files) {
+          const nameBytes = new TextEncoder().encode(file.name);
+          const data = file.data instanceof Uint8Array ? file.data : new Uint8Array(file.data);
+          const crc = crc32(data);
+          const dateTime = zipDateTime(new Date());
+          const localHeader = new Uint8Array(30 + nameBytes.length);
+          const localView = new DataView(localHeader.buffer);
+          localView.setUint32(0, 0x04034b50, true);
+          localView.setUint16(4, 20, true);
+          localView.setUint16(6, 0, true);
+          localView.setUint16(8, 0, true);
+          localView.setUint16(10, dateTime.time, true);
+          localView.setUint16(12, dateTime.date, true);
+          localView.setUint32(14, crc, true);
+          localView.setUint32(18, data.length, true);
+          localView.setUint32(22, data.length, true);
+          localView.setUint16(26, nameBytes.length, true);
+          localView.setUint16(28, 0, true);
+          localHeader.set(nameBytes, 30);
+          localParts.push(localHeader, data);
+
+          const centralHeader = new Uint8Array(46 + nameBytes.length);
+          const centralView = new DataView(centralHeader.buffer);
+          centralView.setUint32(0, 0x02014b50, true);
+          centralView.setUint16(4, 20, true);
+          centralView.setUint16(6, 20, true);
+          centralView.setUint16(8, 0, true);
+          centralView.setUint16(10, 0, true);
+          centralView.setUint16(12, dateTime.time, true);
+          centralView.setUint16(14, dateTime.date, true);
+          centralView.setUint32(16, crc, true);
+          centralView.setUint32(20, data.length, true);
+          centralView.setUint32(24, data.length, true);
+          centralView.setUint16(28, nameBytes.length, true);
+          centralView.setUint16(30, 0, true);
+          centralView.setUint16(32, 0, true);
+          centralView.setUint16(34, 0, true);
+          centralView.setUint16(36, 0, true);
+          centralView.setUint32(38, 0, true);
+          centralView.setUint32(42, offset, true);
+          centralHeader.set(nameBytes, 46);
+          centralParts.push(centralHeader);
+          offset += localHeader.length + data.length;
+        }
+        const centralSize = centralParts.reduce((total, part) => total + part.length, 0);
+        const end = new Uint8Array(22);
+        const endView = new DataView(end.buffer);
+        endView.setUint32(0, 0x06054b50, true);
+        endView.setUint16(4, 0, true);
+        endView.setUint16(6, 0, true);
+        endView.setUint16(8, files.length, true);
+        endView.setUint16(10, files.length, true);
+        endView.setUint32(12, centralSize, true);
+        endView.setUint32(16, offset, true);
+        endView.setUint16(20, 0, true);
+        return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+      }
+
+      function zipDateTime(date) {
+        const year = Math.max(1980, date.getFullYear());
+        return {
+          time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
+          date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+        };
+      }
+
+      const crc32Table = (() => {
+        const table = new Uint32Array(256);
+        for (let index = 0; index < 256; index += 1) {
+          let value = index;
+          for (let bit = 0; bit < 8; bit += 1) {
+            value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+          }
+          table[index] = value >>> 0;
+        }
+        return table;
+      })();
+
+      function crc32(data) {
+        let crc = 0xffffffff;
+        for (let index = 0; index < data.length; index += 1) {
+          crc = crc32Table[(crc ^ data[index]) & 0xff] ^ (crc >>> 8);
+        }
+        return (crc ^ 0xffffffff) >>> 0;
       }
 
       function decisionPackV2PossibilityText(analysis) {
