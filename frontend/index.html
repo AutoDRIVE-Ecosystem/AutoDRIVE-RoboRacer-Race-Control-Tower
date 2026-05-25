@@ -392,6 +392,10 @@
         min-width: 1.5rem;
       }
 
+      .rct-accident-logs-filter {
+        margin-right: auto;
+      }
+
       .rct-accident-logs-detail {
         border: 1px solid #dee2e6;
         border-radius: 0.5rem;
@@ -1141,6 +1145,10 @@
             </div>
           </div>
           <div class="modal-footer">
+            <div class="form-check rct-accident-logs-filter">
+              <input id="filterSingleVehicleCollision" class="form-check-input" type="checkbox">
+              <label class="form-check-label" for="filterSingleVehicleCollision">filter single vehicle collision</label>
+            </div>
             <button id="clearAccidentLogsButton" type="button" class="btn btn-outline-danger">Clear</button>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
           </div>
@@ -1354,6 +1362,7 @@
       const accidentLogsButton = document.getElementById("accidentLogsButton");
       const accidentLogsButtonText = document.getElementById("accidentLogsButtonText");
       const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
+      const filterSingleVehicleCollision = document.getElementById("filterSingleVehicleCollision");
       const accidentLogsList = document.getElementById("accidentLogsList");
       const accidentLogDetail = document.getElementById("accidentLogDetail");
       const accidentLogsModal = bootstrap.Modal.getOrCreateInstance(accidentLogsDialog);
@@ -1733,6 +1742,36 @@
         return vehicleId === 1 || vehicleId === 2 ? vehicleId : null;
       }
 
+      function accidentLogHasVehicleFault(result) {
+        const vehicleId = Number(result && result.penalty_vehicle_id);
+        return vehicleId === 1 || vehicleId === 2;
+      }
+
+      function isSingleVehicleCollisionLog(accidentLog) {
+        const record = accidentLog && accidentLog.decision_record;
+        if (!record || record.no_decision) {
+          return false;
+        }
+        const results = record.decision_results || {};
+        if (
+          accidentLogHasVehicleFault(results.single_vehicle_collision)
+          || accidentLogHasVehicleFault(results.CT1)
+        ) {
+          return true;
+        }
+        const memo = String(record.memo || "").toLowerCase();
+        return Boolean(record.fault_vehicle_id)
+          && !record.penalty_vehicle_id
+          && memo.includes("single-vehicle collision");
+      }
+
+      function visibleAccidentLogs() {
+        if (!filterSingleVehicleCollision.checked) {
+          return accidentLogs;
+        }
+        return accidentLogs.filter((accidentLog) => !isSingleVehicleCollisionLog(accidentLog));
+      }
+
       function updateAccidentLogDecisionRecord(filename, decisionRecord) {
         let changed = false;
         accidentLogs = accidentLogs.map((accidentLog) => {
@@ -1780,13 +1819,14 @@
 
       function renderAccidentLogs(options = {}) {
         const forceDetail = Boolean(options.forceDetail);
+        const displayedAccidentLogs = visibleAccidentLogs();
         accidentLogsList.innerHTML = "";
-        if (accidentLogs.length === 0) {
+        if (displayedAccidentLogs.length === 0) {
           selectedAccidentLogFilename = null;
           renderedAccidentLogDetailKey = null;
           const emptyItem = document.createElement("div");
           emptyItem.className = "list-group-item text-body-secondary";
-          emptyItem.textContent = "No accident logs";
+          emptyItem.textContent = accidentLogs.length === 0 ? "No accident logs" : "No matching accident logs";
           accidentLogsList.appendChild(emptyItem);
           if (isAccidentLogsDialogOpen()) {
             renderAccidentLogDetail(null);
@@ -1797,7 +1837,7 @@
           && penaltyDecisionActive
           && !penaltyDecisionAccidentLogFilename;
         const decisionAccidentLog = penaltyDecisionActive && penaltyDecisionAccidentLogFilename
-          ? accidentLogs.find((accidentLog) => accidentLog.filename === penaltyDecisionAccidentLogFilename)
+          ? displayedAccidentLogs.find((accidentLog) => accidentLog.filename === penaltyDecisionAccidentLogFilename)
           : null;
         const shouldFocusDecisionAccidentLog = Boolean(
           decisionAccidentLog
@@ -1810,12 +1850,12 @@
           : (
             shouldFocusDecisionAccidentLog
               ? decisionAccidentLog
-              : (accidentLogs.find((accidentLog) => accidentLog.filename === selectedAccidentLogFilename) || accidentLogs[0])
+              : (displayedAccidentLogs.find((accidentLog) => accidentLog.filename === selectedAccidentLogFilename) || displayedAccidentLogs[0])
           );
         if (selectedAccidentLog) {
           selectedAccidentLogFilename = selectedAccidentLog.filename;
         }
-        for (const accidentLog of accidentLogs) {
+        for (const accidentLog of displayedAccidentLogs) {
           const item = document.createElement("button");
           const selected = accidentLog.filename === selectedAccidentLogFilename;
           const needsDecision = penaltyDecisionActive
@@ -5896,6 +5936,9 @@
         void clearAccidentLogs().catch((error) => {
           console.warn("Failed to clear accident logs:", error);
         });
+      });
+      filterSingleVehicleCollision.addEventListener("change", () => {
+        renderAccidentLogs({ forceDetail: true });
       });
 
       async function initializeFrontend() {
