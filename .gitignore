@@ -7,7 +7,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
-accident_logs
+race_records
 bin
 share
 lib

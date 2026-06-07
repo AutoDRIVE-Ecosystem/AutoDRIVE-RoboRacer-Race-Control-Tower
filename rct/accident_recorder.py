@@ -32,7 +32,7 @@ class AccidentLogRecord:
 
 
 class AccidentRecorder:
-    def __init__(self, output_dir: Path | str = "accident_logs") -> None:
+    def __init__(self, output_dir: Path | str = "race_records") -> None:
         self.output_dir = Path(output_dir)
         self._records: deque[AccidentBridgeRecord] = deque()
 
@@ -210,7 +210,7 @@ def accident_log_time_from_filename(filename: str) -> str:
     return filename
 
 
-def list_accident_logs(output_dir: Path | str = "accident_logs") -> list[AccidentLogRecord]:
+def list_accident_logs(output_dir: Path | str = "race_records") -> list[AccidentLogRecord]:
     directory = Path(output_dir)
     if not directory.exists():
         return []

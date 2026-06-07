@@ -187,7 +187,7 @@ class RaceControlStateTests(unittest.TestCase):
         state.add_accident_log(
             AccidentLogMonitorState(
                 filename="autodrive 2026-05-19 12:00:00:001.mcap",
-                path="accident_logs/autodrive 2026-05-19 12:00:00:001.mcap",
+                path="race_records/autodrive 2026-05-19 12:00:00:001.mcap",
                 time="2026-05-19 12:00:00:001",
                 size_bytes=123,
             )
@@ -198,7 +198,7 @@ class RaceControlStateTests(unittest.TestCase):
             [
                 {
                     "filename": "autodrive 2026-05-19 12:00:00:001.mcap",
-                    "path": "accident_logs/autodrive 2026-05-19 12:00:00:001.mcap",
+                    "path": "race_records/autodrive 2026-05-19 12:00:00:001.mcap",
                     "time": "2026-05-19 12:00:00:001",
                     "size_bytes": 123,
                     "decision_record": None,

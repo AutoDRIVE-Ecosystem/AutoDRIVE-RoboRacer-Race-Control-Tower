@@ -309,7 +309,7 @@ Response:
   "accident_logs": [
     {
       "filename": "autodrive 2026-05-19 23:20:56:540.mcap",
-      "path": "accident_logs/autodrive 2026-05-19 23:20:56:540.mcap",
+      "path": "race_records/autodrive 2026-05-19 23:20:56:540.mcap",
       "time": "2026-05-19 23:20:56:540",
       "size_bytes": 1863259,
       "decision_record": null

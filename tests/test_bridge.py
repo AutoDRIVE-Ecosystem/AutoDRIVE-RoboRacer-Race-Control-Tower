@@ -162,6 +162,11 @@ class CollisionCountTests(unittest.TestCase):
 
 
 class AccidentRecorderTests(unittest.TestCase):
+    def test_default_output_directory_is_race_records(self):
+        recorder = AccidentRecorder()
+
+        self.assertEqual(recorder.output_dir, Path("race_records"))
+
     def test_ring_buffer_keeps_pre_accident_window(self):
         recorder = AccidentRecorder()
 
