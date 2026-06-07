@@ -845,6 +845,30 @@
         color: #6c757d;
       }
 
+      .rct-race-statistics {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .rct-race-statistics-chart {
+        flex: 1 1 auto;
+        min-height: 18rem;
+        min-width: 0;
+        position: relative;
+      }
+
+      .rct-race-statistics-empty {
+        align-items: center;
+        color: #6c757d;
+        display: flex;
+        flex: 1 1 auto;
+        justify-content: center;
+        min-height: 18rem;
+        text-align: center;
+      }
+
       .rct-review-time-active {
         color: #000000;
       }
@@ -1353,7 +1377,12 @@
                     </div>
                   </div>
                 </div>
-                <div class="tab-pane fade rct-race-records-tab-pane" id="accident-statistics-tab-pane" role="tabpanel" aria-labelledby="accident-statistics-tab" tabindex="0"></div>
+                <div class="tab-pane fade rct-race-records-tab-pane" id="accident-statistics-tab-pane" role="tabpanel" aria-labelledby="accident-statistics-tab" tabindex="0">
+                  <div class="rct-race-statistics">
+                    <div id="bridgeHzStatisticsChart" class="rct-race-statistics-chart"></div>
+                    <div id="bridgeHzStatisticsEmpty" class="rct-race-statistics-empty">No bridge Hz samples in this browser session.</div>
+                  </div>
+                </div>
                 <div class="tab-pane fade rct-race-records-tab-pane" id="accident-audit-log-tab-pane" role="tabpanel" aria-labelledby="accident-audit-log-tab" tabindex="0">
                   <div id="auditLogList" class="list-group rct-audit-log-list" role="list" aria-label="Audit log"></div>
                 </div>
@@ -1610,6 +1639,8 @@
       const filterSingleVehicleCollisionControl = filterSingleVehicleCollision.closest(".form-check");
       const accidentLogsList = document.getElementById("accidentLogsList");
       const accidentLogDetail = document.getElementById("accidentLogDetail");
+      const bridgeHzStatisticsChart = document.getElementById("bridgeHzStatisticsChart");
+      const bridgeHzStatisticsEmpty = document.getElementById("bridgeHzStatisticsEmpty");
       const auditLogList = document.getElementById("auditLogList");
       const raceRecordsModal = bootstrap.Modal.getOrCreateInstance(raceRecordsDialog);
       const roboracers = {
@@ -1750,6 +1781,21 @@
         1: [],
         2: [],
       };
+      const raceStatisticsWindowSeconds = 10 * 60;
+      const raceStatisticsBridgeHzSamples = {
+        1: [],
+        2: [],
+      };
+      let raceStatisticsRecording = false;
+      let raceStatisticsStartPerformanceMs = null;
+      let raceStatisticsEndPerformanceMs = null;
+      let raceStatisticsLatestRaceTimeSeconds = null;
+      let raceStatisticsRenderAnimationFrame = null;
+      let raceStatisticsPlotInitialized = false;
+      let raceStatisticsNextAccidentMarkerId = 1;
+      let raceStatisticsPendingAccidentRaceTime = null;
+      let raceStatisticsAccidentMarkers = [];
+      const raceStatisticsAccidentLogMarkerKeys = new Set();
       let accidentLogs = [];
       let auditLog = [];
       let selectedAccidentLogFilename = null;
@@ -1896,6 +1942,445 @@
 
       function isAccidentRecordsTabActive() {
         return activeRaceRecordsTabId() === "accident-records-tab";
+      }
+
+      function isStatisticsTabActive() {
+        return activeRaceRecordsTabId() === "accident-statistics-tab";
+      }
+
+      function resetRaceStatistics() {
+        raceStatisticsBridgeHzSamples[1] = [];
+        raceStatisticsBridgeHzSamples[2] = [];
+        raceStatisticsAccidentMarkers = [];
+        raceStatisticsPendingAccidentRaceTime = null;
+        raceStatisticsAccidentLogMarkerKeys.clear();
+        raceStatisticsLatestRaceTimeSeconds = null;
+        raceStatisticsNextAccidentMarkerId = 1;
+        raceStatisticsPlotInitialized = false;
+        if (raceStatisticsRenderAnimationFrame !== null) {
+          window.cancelAnimationFrame(raceStatisticsRenderAnimationFrame);
+          raceStatisticsRenderAnimationFrame = null;
+        }
+        if (bridgeHzStatisticsChart && window.Plotly) {
+          Plotly.purge(bridgeHzStatisticsChart);
+        }
+        renderRaceStatistics();
+      }
+
+      function startRaceStatisticsRecording(now = performance.now()) {
+        raceStatisticsRecording = true;
+        raceStatisticsStartPerformanceMs = now;
+        raceStatisticsEndPerformanceMs = null;
+        resetRaceStatistics();
+      }
+
+      function stopRaceStatisticsRecording(now = performance.now()) {
+        if (!raceStatisticsRecording) {
+          return;
+        }
+        raceStatisticsRecording = false;
+        raceStatisticsEndPerformanceMs = now;
+        scheduleRaceStatisticsRender();
+      }
+
+      function raceStatisticsElapsedSeconds(now = performance.now()) {
+        if (raceStatisticsStartPerformanceMs === null) {
+          return 0;
+        }
+        return Math.max(0, (now - raceStatisticsStartPerformanceMs) / 1000);
+      }
+
+      function setRaceStatisticsLatestTimes(options = {}) {
+        const raceTimeSeconds = Number(options.raceTimeSeconds);
+        if (Number.isFinite(raceTimeSeconds)) {
+          raceStatisticsLatestRaceTimeSeconds = Math.max(0, raceTimeSeconds);
+        }
+      }
+
+      function raceStatisticsSampleTime(options = {}) {
+        setRaceStatisticsLatestTimes(options);
+        const raceTimeSeconds = Number(options.raceTimeSeconds);
+        if (Number.isFinite(raceTimeSeconds)) {
+          return Math.max(0, raceTimeSeconds);
+        }
+        if (Number.isFinite(raceStatisticsLatestRaceTimeSeconds)) {
+          return raceStatisticsLatestRaceTimeSeconds;
+        }
+        return null;
+      }
+
+      function trimRaceStatisticsSamples(currentTimeSeconds) {
+        const cutoff = Math.max(0, currentTimeSeconds - raceStatisticsWindowSeconds);
+        for (const samples of Object.values(raceStatisticsBridgeHzSamples)) {
+          while (samples.length > 0 && samples[0].time < cutoff) {
+            samples.shift();
+          }
+        }
+        raceStatisticsAccidentMarkers = raceStatisticsAccidentMarkers
+          .filter((marker) => marker.time >= cutoff);
+      }
+
+      function recordRaceStatisticsBridgeHz(vehicleId, bridgeHz, options = {}) {
+        if (!raceStatisticsRecording || raceStatisticsStartPerformanceMs === null) {
+          return;
+        }
+        const id = Number(vehicleId);
+        const value = Number(bridgeHz);
+        if (!raceStatisticsBridgeHzSamples[id] || !Number.isFinite(value)) {
+          return;
+        }
+        const time = raceStatisticsSampleTime(options);
+        if (time === null) {
+          return;
+        }
+        raceStatisticsBridgeHzSamples[id].push({ time, value });
+        trimRaceStatisticsSamples(time);
+        scheduleRaceStatisticsRender();
+      }
+
+      function latestRaceStatisticsTime() {
+        const sampleTimes = Object.values(raceStatisticsBridgeHzSamples)
+          .flatMap((samples) => samples.length > 0 ? [samples[samples.length - 1].time] : []);
+        const markerTimes = raceStatisticsAccidentMarkers.map((marker) => marker.time).filter(Number.isFinite);
+        const allTimes = [...sampleTimes, ...markerTimes];
+        if (allTimes.length > 0) {
+          return Math.max(...allTimes);
+        }
+        if (Number.isFinite(raceStatisticsLatestRaceTimeSeconds)) {
+          return raceStatisticsLatestRaceTimeSeconds;
+        }
+        if (raceStatisticsEndPerformanceMs !== null) {
+          return raceStatisticsElapsedSeconds(raceStatisticsEndPerformanceMs);
+        }
+        return 0;
+      }
+
+      function raceStatisticsVisibleCutoff() {
+        return Math.max(0, latestRaceStatisticsTime() - raceStatisticsWindowSeconds);
+      }
+
+      function nearestRaceStatisticsBridgeHz(vehicleId, time) {
+        const samples = raceStatisticsBridgeHzSamples[Number(vehicleId)] || [];
+        if (samples.length === 0 || !Number.isFinite(time)) {
+          return null;
+        }
+        let nearest = samples[0];
+        let nearestDistance = Math.abs(samples[0].time - time);
+        for (const sample of samples) {
+          const distance = Math.abs(sample.time - time);
+          if (distance < nearestDistance) {
+            nearest = sample;
+            nearestDistance = distance;
+          }
+        }
+        return nearest ? nearest.value : null;
+      }
+
+      function latestRaceStatisticsBridgeHz(vehicleId) {
+        const samples = raceStatisticsBridgeHzSamples[Number(vehicleId)] || [];
+        return samples.length > 0 ? samples[samples.length - 1].value : null;
+      }
+
+      function normalizeRaceStatisticsFaultVehicleId(value) {
+        const vehicleId = Number(value);
+        return vehicleId === 1 || vehicleId === 2 ? vehicleId : null;
+      }
+
+      function raceStatisticsFaultVehicleIdFromRecord(record) {
+        if (!record) {
+          return null;
+        }
+        const directVehicleId = normalizeRaceStatisticsFaultVehicleId(record.fault_vehicle_id || record.penalty_vehicle_id);
+        if (directVehicleId) {
+          return directVehicleId;
+        }
+        const decisionResults = record.decision_results || {};
+        for (const resultId of ["CT1", "single_vehicle_collision"]) {
+          const result = decisionResults[resultId];
+          const vehicleId = normalizeRaceStatisticsFaultVehicleId(
+            result && (result.fault_vehicle_id || result.penalty_vehicle_id),
+          );
+          if (vehicleId) {
+            return vehicleId;
+          }
+        }
+        return null;
+      }
+
+      function raceStatisticsAccidentTime(options = {}) {
+        if (raceStatisticsStartPerformanceMs === null) {
+          return null;
+        }
+        if (options.time !== null && options.time !== undefined) {
+          const explicitTime = Number(options.time);
+          if (Number.isFinite(explicitTime)) {
+            return Math.max(0, explicitTime);
+          }
+        }
+        setRaceStatisticsLatestTimes(options);
+        return Number.isFinite(raceStatisticsLatestRaceTimeSeconds)
+          ? raceStatisticsLatestRaceTimeSeconds
+          : null;
+      }
+
+      function rememberRaceStatisticsAccidentTime(options = {}) {
+        if (raceStatisticsPendingAccidentRaceTime !== null) {
+          return raceStatisticsPendingAccidentRaceTime;
+        }
+        const time = raceStatisticsAccidentTime(options);
+        if (time === null) {
+          return null;
+        }
+        raceStatisticsPendingAccidentRaceTime = time;
+        return time;
+      }
+
+      function markRaceStatisticsAccident(options = {}) {
+        const time = raceStatisticsAccidentTime(options);
+        if (time === null) {
+          return null;
+        }
+        const sourceKey = options.sourceKey || null;
+        if (sourceKey && raceStatisticsAccidentLogMarkerKeys.has(sourceKey)) {
+          return null;
+        }
+        const faultVehicleId = normalizeRaceStatisticsFaultVehicleId(options.faultVehicleId);
+        const marker = {
+          id: raceStatisticsNextAccidentMarkerId,
+          time,
+          faultVehicleId,
+          selfCollision: Boolean(options.selfCollision),
+          sourceKey,
+          bridgeHzByVehicle: {
+            1: nearestRaceStatisticsBridgeHz(1, time) ?? latestRaceStatisticsBridgeHz(1),
+            2: nearestRaceStatisticsBridgeHz(2, time) ?? latestRaceStatisticsBridgeHz(2),
+          },
+        };
+        raceStatisticsNextAccidentMarkerId += 1;
+        raceStatisticsAccidentMarkers.push(marker);
+        if (sourceKey) {
+          raceStatisticsAccidentLogMarkerKeys.add(sourceKey);
+        }
+        scheduleRaceStatisticsRender();
+        return marker;
+      }
+
+      function addRaceStatisticsDecisionMarker(recordOrVehicleId, options = {}) {
+        const faultVehicleId = typeof recordOrVehicleId === "object"
+          ? raceStatisticsFaultVehicleIdFromRecord(recordOrVehicleId)
+          : normalizeRaceStatisticsFaultVehicleId(recordOrVehicleId);
+        if (!faultVehicleId) {
+          raceStatisticsPendingAccidentRaceTime = null;
+          scheduleRaceStatisticsRender();
+          return;
+        }
+
+        const marker = markRaceStatisticsAccident({
+          faultVehicleId,
+          time: raceStatisticsPendingAccidentRaceTime,
+          selfCollision: recordOrVehicleId && typeof recordOrVehicleId === "object"
+            ? isSingleVehicleCollisionLog({ decision_record: recordOrVehicleId })
+            : false,
+          sourceKey: options.sourceKey || null,
+        });
+        if (!marker) {
+          return;
+        }
+        marker.bridgeHzByVehicle[faultVehicleId] = marker.bridgeHzByVehicle[faultVehicleId]
+          ?? nearestRaceStatisticsBridgeHz(faultVehicleId, marker.time)
+          ?? latestRaceStatisticsBridgeHz(faultVehicleId);
+        raceStatisticsPendingAccidentRaceTime = null;
+        scheduleRaceStatisticsRender();
+      }
+
+      function syncRaceStatisticsSelfCollisionMarkers(nextAccidentLogs) {
+        if (!Array.isArray(nextAccidentLogs)) {
+          return;
+        }
+        for (const accidentLog of nextAccidentLogs) {
+          if (!accidentLog || !accidentLog.filename || !isSingleVehicleCollisionLog(accidentLog)) {
+            continue;
+          }
+          const markerKey = `accident-log:${accidentLog.filename}`;
+          if (raceStatisticsAccidentLogMarkerKeys.has(markerKey)) {
+            continue;
+          }
+          const faultVehicleId = raceStatisticsFaultVehicleIdFromRecord(accidentLog.decision_record);
+          if (!faultVehicleId) {
+            continue;
+          }
+          const markerTime = Number.isFinite(raceStatisticsLatestRaceTimeSeconds)
+            ? raceStatisticsLatestRaceTimeSeconds
+            : latestRaceStatisticsTime();
+          markRaceStatisticsAccident({
+            faultVehicleId,
+            time: markerTime,
+            selfCollision: true,
+            sourceKey: markerKey,
+          });
+        }
+      }
+
+      function raceStatisticsVehicleMarkerText(vehicleId) {
+        return `(${displayRoboracerLabel(vehicleId)})`;
+      }
+
+      function formatRaceStatisticsTime(value) {
+        const totalSeconds = Math.max(0, Math.floor(Number(value) || 0));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${minutes}:${String(seconds).padStart(2, "0")}`;
+      }
+
+      function raceStatisticsTickValues(minTime, maxTime) {
+        const span = Math.max(1, maxTime - minTime);
+        const targetTicks = 8;
+        const candidates = [5, 10, 15, 30, 60, 120, 300];
+        const step = candidates.find((candidate) => span / candidate <= targetTicks) || 600;
+        const start = Math.ceil(minTime / step) * step;
+        const ticks = [];
+        for (let value = start; value <= maxTime + 0.001; value += step) {
+          ticks.push(value);
+        }
+        if (ticks.length === 0 || ticks[0] > minTime) {
+          ticks.unshift(minTime);
+        }
+        return ticks;
+      }
+
+      function raceStatisticsMarkerY(marker) {
+        const vehicleId = marker.faultVehicleId;
+        const value = vehicleId ? marker.bridgeHzByVehicle[vehicleId] : null;
+        if (Number.isFinite(Number(value))) {
+          return Number(value);
+        }
+        const allValues = Object.values(raceStatisticsBridgeHzSamples)
+          .flatMap((samples) => samples.map((sample) => sample.value))
+          .filter(Number.isFinite);
+        return allValues.length > 0 ? Math.max(...allValues) : 0;
+      }
+
+      function hasRaceStatisticsSamples() {
+        return Object.values(raceStatisticsBridgeHzSamples).some((samples) => samples.length > 0);
+      }
+
+      function scheduleRaceStatisticsRender() {
+        if (!isRaceRecordsDialogOpen() || !isStatisticsTabActive()) {
+          return;
+        }
+        if (raceStatisticsRenderAnimationFrame !== null) {
+          return;
+        }
+        raceStatisticsRenderAnimationFrame = window.requestAnimationFrame(() => {
+          raceStatisticsRenderAnimationFrame = null;
+          renderRaceStatistics();
+        });
+      }
+
+      function renderRaceStatistics() {
+        if (!bridgeHzStatisticsChart || !bridgeHzStatisticsEmpty) {
+          return;
+        }
+        const hasSamples = hasRaceStatisticsSamples();
+        bridgeHzStatisticsChart.hidden = !hasSamples;
+        bridgeHzStatisticsEmpty.hidden = hasSamples;
+        if (!hasSamples || !window.Plotly || !isRaceRecordsDialogOpen() || !isStatisticsTabActive()) {
+          return;
+        }
+
+        const cutoff = raceStatisticsVisibleCutoff();
+        const traces = [1, 2].map((vehicleId) => {
+          const samples = (raceStatisticsBridgeHzSamples[vehicleId] || [])
+            .filter((sample) => sample.time >= cutoff);
+          return {
+            x: samples.map((sample) => sample.time),
+            y: samples.map((sample) => sample.value),
+            customdata: samples.map((sample) => formatRaceStatisticsTime(sample.time)),
+            name: `${displayRoboracerLabel(vehicleId)} bridge Hz`,
+            type: "scatter",
+            mode: "lines",
+            line: { color: vehicleHistoryColors[vehicleId], width: 2 },
+            connectgaps: false,
+            hovertemplate: "%{customdata}<br>%{y:.2f} Hz<extra></extra>",
+          };
+        });
+
+        for (const vehicleId of [1, 2]) {
+          const markers = raceStatisticsAccidentMarkers
+            .filter((marker) => (
+              marker.time >= cutoff
+              && marker.faultVehicleId === vehicleId
+              && !(filterSingleVehicleCollision.checked && marker.selfCollision)
+            ));
+          if (markers.length === 0) {
+            continue;
+          }
+          traces.push({
+            x: markers.map((marker) => marker.time),
+            y: markers.map((marker) => raceStatisticsMarkerY(marker)),
+            customdata: markers.map((marker) => formatRaceStatisticsTime(marker.time)),
+            text: markers.map(() => raceStatisticsVehicleMarkerText(vehicleId)),
+            name: `${displayRoboracerLabel(vehicleId)} accident`,
+            type: "scatter",
+            mode: "markers+text",
+            marker: {
+              color: vehicleHistoryColors[vehicleId],
+              line: { color: "#ffffff", width: 2 },
+              size: 16,
+              symbol: "circle",
+            },
+            textfont: {
+              color: "#111827",
+              family: "system-ui, -apple-system, Segoe UI, sans-serif",
+              size: 11,
+            },
+            textposition: "middle center",
+            hovertemplate: "accident %{text}<br>time %{customdata}<br>bridge %{y:.2f} Hz<extra></extra>",
+            showlegend: false,
+          });
+        }
+
+        const latestTime = latestRaceStatisticsTime();
+        const visibleMaxTime = Math.max(10, latestTime);
+        const visibleMinTime = Math.max(0, visibleMaxTime - raceStatisticsWindowSeconds);
+        const tickValues = raceStatisticsTickValues(visibleMinTime, visibleMaxTime);
+        const yValues = traces
+          .flatMap((trace) => Array.isArray(trace.y) ? trace.y : [])
+          .map(Number)
+          .filter(Number.isFinite);
+        const maxY = yValues.length > 0 ? Math.max(1, ...yValues) : 1;
+        const layout = {
+          autosize: true,
+          margin: { l: 52, r: 18, t: 12, b: 54 },
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "rgba(0,0,0,0)",
+          font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", size: 11 },
+          xaxis: {
+            title: { text: "race time", font: { size: 11 } },
+            gridcolor: "#dee2e6",
+            range: [visibleMinTime, visibleMaxTime],
+            tickmode: "array",
+            tickvals: tickValues,
+            ticktext: tickValues.map(formatRaceStatisticsTime),
+            zerolinecolor: "#adb5bd",
+          },
+          yaxis: {
+            title: { text: "bridge protocol Hz", font: { size: 11 } },
+            gridcolor: "#dee2e6",
+            rangemode: "tozero",
+            range: [-maxY * 0.08, maxY * 1.15],
+            zerolinecolor: "#adb5bd",
+          },
+          legend: { orientation: "h", y: -0.22, x: 0 },
+        };
+        Plotly.react(bridgeHzStatisticsChart, traces, layout, { displayModeBar: false, displaylogo: false, responsive: true });
+        raceStatisticsPlotInitialized = true;
+      }
+
+      function resizeRaceStatisticsPlot() {
+        if (raceStatisticsPlotInitialized && bridgeHzStatisticsChart && window.Plotly) {
+          Plotly.Plots.resize(bridgeHzStatisticsChart);
+        }
       }
 
       function auditLogsEqual(leftLog, rightLog) {
@@ -2236,7 +2721,7 @@
       }
 
       function accidentLogHasVehicleFault(result) {
-        const vehicleId = Number(result && result.penalty_vehicle_id);
+        const vehicleId = Number(result && (result.fault_vehicle_id || result.penalty_vehicle_id));
         return vehicleId === 1 || vehicleId === 2;
       }
 
@@ -2281,6 +2766,7 @@
 
       function setAccidentLogs(nextAccidentLogs) {
         if (accidentLogsEqual(accidentLogs, nextAccidentLogs)) {
+          syncRaceStatisticsSelfCollisionMarkers(nextAccidentLogs);
           if (selectLatestAccidentLogForDecisionIfReady()) {
             renderAccidentLogs({ forceDetail: true });
             return true;
@@ -2288,6 +2774,7 @@
           return false;
         }
         accidentLogs = nextAccidentLogs;
+        syncRaceStatisticsSelfCollisionMarkers(nextAccidentLogs);
         const selectedLatestForDecision = selectLatestAccidentLogForDecisionIfReady();
         const filenames = new Set(accidentLogs.map((accidentLog) => accidentLog.filename));
         for (const filename of accidentLogSummaryCache.keys()) {
@@ -3214,6 +3701,9 @@
         const payload = await response.json();
         accidentLogSummaryCache.delete(accidentLog.filename);
         accidentLogSummaryInflight.delete(accidentLog.filename);
+        addRaceStatisticsDecisionMarker(payload.decision_record || command.penalty_vehicle_id || null, {
+          sourceKey: `accident-log:${accidentLog.filename}`,
+        });
         updateAccidentLogDecisionRecord(accidentLog.filename, payload.decision_record || null);
         return payload.decision_record || null;
       }
@@ -4110,6 +4600,12 @@
       function openAccidentLogsForManualDecision(options = {}) {
         if (manualDecisionSubmitInProgress) {
           return;
+        }
+        if (!penaltyDecisionActive) {
+          rememberRaceStatisticsAccidentTime({
+            raceTimeSeconds: options.raceTimeSeconds,
+            reviewTimeSeconds: options.reviewTimeSeconds,
+          });
         }
         penaltyDecisionActive = true;
         autoSelectLatestAccidentLog = true;
@@ -5126,9 +5622,11 @@
         simulatorStatusText.textContent = connected ? "Connected" : "Disconnected";
         simulatorStatusDot.className = `status-dot status-dot-${connected ? "online" : "offline"}`;
         if (connected && !wasConnected) {
+          startRaceStatisticsRecording();
           resetVehicleTraces();
         }
         if (!connected) {
+          stopRaceStatisticsRecording();
           hideAllVehicleDecisionStatuses();
         }
         setCanvasInteractionEnabled(connected);
@@ -5334,7 +5832,7 @@
         }
       }
 
-      function updateRoboracerStatusFromState(devkits) {
+      function updateRoboracerStatusFromState(devkits, options = {}) {
         if (!Array.isArray(devkits)) {
           return;
         }
@@ -5345,7 +5843,9 @@
           const roboracer = roboracers[vehicleId];
           syncRoboracerEndpointFromState(vehicleId, devkit);
           if (roboracer && Object.prototype.hasOwnProperty.call(devkit, "bridge_hz")) {
+            const bridgeHz = Number(devkit.bridge_hz);
             roboracer.bridgeHz.textContent = formatNumber(devkit.bridge_hz);
+            recordRaceStatisticsBridgeHz(vehicleId, bridgeHz, options);
           }
         }
       }
@@ -6275,6 +6775,9 @@
         const active = Boolean(raceResult && raceResult.active);
         raceResultActive = active;
         const winnerVehicleId = active ? Number(raceResult.winner_vehicle_id) : null;
+        if (active) {
+          stopRaceStatisticsRecording();
+        }
         for (const [vehicleId, roboracer] of Object.entries(roboracers)) {
           roboracer.trophy.style.display = Number(vehicleId) === winnerVehicleId ? "block" : "none";
         }
@@ -6324,13 +6827,16 @@
 
         if (message.event === "status") {
           setSimulatorStatus(Number(message.simulator_clients || 0) > 0);
+          const raceTimeSeconds = Number(message.race_time_seconds);
+          const reviewTimeSeconds = Number(message.review_time_seconds);
+          setRaceStatisticsLatestTimes({ raceTimeSeconds, reviewTimeSeconds });
           if (Object.prototype.hasOwnProperty.call(message, "race_time_seconds")) {
             updateRaceTimeDisplay(message.race_time_seconds);
           }
           if (Object.prototype.hasOwnProperty.call(message, "review_time_seconds")) {
             updateReviewTimeDisplay(message.review_time_seconds);
           }
-          updateRoboracerStatusFromState(message.devkits);
+          updateRoboracerStatusFromState(message.devkits, { raceTimeSeconds, reviewTimeSeconds });
           updateTraceLidarFromState(message.trace_lidar_vehicle_ids);
           updateVehiclePenalties(message.vehicle_penalties);
           if (message.penalty_rule) {
@@ -6421,9 +6927,9 @@
             updateRaceResult(message.race_result);
           }
           if (message.penalty_decision && message.penalty_decision.active && !penaltyDecisionActive && !manualDecisionSubmitInProgress) {
-            const reviewTimeSeconds = Number(message.review_time_seconds);
             openAccidentLogsForManualDecision({
               allowExistingLatest: Number.isFinite(reviewTimeSeconds) && reviewTimeSeconds >= 2,
+              raceTimeSeconds,
               reviewTimeSeconds,
             });
           } else if (message.penalty_decision && !message.penalty_decision.active) {
@@ -6442,6 +6948,9 @@
           }
         } else if (message.event === "telemetry") {
           recordRateSample(monitorTelemetryRateSamples);
+          const raceTimeSeconds = Number(message.race_time_seconds);
+          const reviewTimeSeconds = Number(message.review_time_seconds);
+          setRaceStatisticsLatestTimes({ raceTimeSeconds, reviewTimeSeconds });
           updateRaceTimeDisplay(message.race_time_seconds);
           if (Object.prototype.hasOwnProperty.call(message, "review_time_seconds")) {
             updateReviewTimeDisplay(message.review_time_seconds);
@@ -6457,13 +6966,19 @@
             appendAuditLogEntry(message.audit_entry);
           }
         } else if (message.event === "penalty-decision") {
+          const raceTimeSeconds = Number(message.race_time_seconds);
+          const reviewTimeSeconds = Number(message.review_time_seconds);
+          setRaceStatisticsLatestTimes({ raceTimeSeconds, reviewTimeSeconds });
           updateReviewTimeRunning(message);
           if (Object.prototype.hasOwnProperty.call(message, "review_time_seconds")) {
             updateReviewTimeDisplay(message.review_time_seconds);
           }
           handlePenaltyDecisionStatus(message);
           if (message.active && !manualDecisionSubmitInProgress) {
-            openAccidentLogsForManualDecision({ reviewTimeSeconds: message.review_time_seconds });
+            openAccidentLogsForManualDecision({
+              raceTimeSeconds,
+              reviewTimeSeconds,
+            });
           } else {
             const wasPenaltyDecisionActive = penaltyDecisionActive;
             penaltyDecisionActive = false;
@@ -7010,6 +7525,7 @@
       mainImage.addEventListener("load", drawMainCanvas);
       mainImage.src = "assets/autodrive-rct.png";
       window.addEventListener("resize", drawMainCanvas);
+      window.addEventListener("resize", resizeRaceStatisticsPlot);
       if ("ResizeObserver" in window) {
         new ResizeObserver(drawMainCanvas).observe(mainCanvas);
       }
@@ -7105,6 +7621,7 @@
         updateRaceRecordsFooterActions();
         renderAccidentLogs({ forceDetail: true });
         renderAuditLog({ scrollToBottom: isAuditLogTabActive() });
+        renderRaceStatistics();
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
         });
@@ -7119,6 +7636,8 @@
         updateRaceRecordsFooterActions();
         renderAccidentLogs();
         renderAuditLog({ scrollToBottom: isAuditLogTabActive() });
+        renderRaceStatistics();
+        resizeRaceStatisticsPlot();
       });
       raceRecordsDialog.addEventListener("hidden.bs.modal", () => {
         raceRecordsDialogVisible = false;
@@ -7139,6 +7658,7 @@
       });
       filterSingleVehicleCollision.addEventListener("change", () => {
         renderAccidentLogs({ forceDetail: true });
+        renderRaceStatistics();
       });
       raceRecordsTabButtons.forEach((button) => {
         button.addEventListener("shown.bs.tab", () => {
@@ -7148,6 +7668,9 @@
             void loadAuditLog().catch((error) => {
               console.warn("Failed to refresh audit log:", error);
             });
+          } else if (isStatisticsTabActive()) {
+            renderRaceStatistics();
+            resizeRaceStatisticsPlot();
           }
         });
       });
@@ -7157,6 +7680,7 @@
         renderTopicOptions(fallbackTopicOptions, {});
         renderAccidentLogs();
         renderAuditLog();
+        renderRaceStatistics();
         updateRaceRecordsButton();
         updateRaceRecordsFooterActions();
         void loadAccidentLogs().catch((error) => {
