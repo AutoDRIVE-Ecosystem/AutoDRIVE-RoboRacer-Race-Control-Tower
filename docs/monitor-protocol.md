@@ -415,6 +415,24 @@ Response:
 `frames` contain monitor telemetry extracted from each recorded simulator `Bridge` payload. Binary fields and non-monitor bridge fields are not returned in the summary response.
 
 ```http
+POST /monitor/REST/0.1/accident-logs/{filename}/decision-record/evaluation
+```
+
+Updates only the `evaluation` field in an existing decision record JSON next to the accident MCAP. The request body must contain all steward keys:
+
+```json
+{
+  "evaluation": {
+    "steward 1": true,
+    "steward 2": false,
+    "steward 3": true
+  }
+}
+```
+
+The response returns `ok: true` and the updated `decision_record`. RCT publishes the refreshed accident log list after the JSON update.
+
+```http
 DELETE /monitor/REST/0.1/accident-logs
 ```
 

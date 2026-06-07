@@ -591,6 +591,10 @@
         width: 2rem;
       }
 
+      .rct-accident-log-list-item.rct-accident-log-has-steward-disagreement:not(.active) {
+        color: #dc3545;
+      }
+
       .rct-foxglove-logo {
         display: block;
         height: 1.15rem;
@@ -670,6 +674,33 @@
         font-size: 1rem;
         font-weight: 600;
         line-height: 1.25;
+      }
+
+      .rct-saved-decision-title-row {
+        align-items: center;
+        display: flex;
+        gap: 0.75rem;
+        justify-content: space-between;
+      }
+
+      .rct-saved-decision-title-row .rct-manual-decision-title {
+        min-width: 0;
+      }
+
+      .rct-steward-evaluation-actions {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 0.25rem;
+      }
+
+      .rct-steward-evaluation-button {
+        align-items: center;
+        border-radius: 0.375rem;
+        display: inline-flex;
+        height: 1.75rem;
+        justify-content: center;
+        padding: 0;
+        width: 1.75rem;
       }
 
       .rct-manual-decision-title-note {
@@ -1828,6 +1859,7 @@
       let pendingAutomaticDecision = null;
       const automaticDecisionMemo = "Auto-decision made by telemetry analysis";
       const automaticDecisionSubmitFilenames = new Set();
+      const decisionEvaluationStewardKeys = ["steward 1", "steward 2", "steward 3"];
       let activePenaltyStatusSignature = null;
       let decisionStatusTimer = null;
       let reviewTimeRunning = false;
@@ -1973,6 +2005,9 @@
         raceRecordsEvaluationTabItem.hidden = !enabled;
         if (!enabled && activeRaceRecordsTabId() === "accident-evaluation-tab") {
           bootstrap.Tab.getOrCreateInstance(document.getElementById("accident-records-tab")).show();
+        }
+        if (isRaceRecordsDialogOpen() && isAccidentRecordsTabActive()) {
+          renderAccidentLogs({ forceDetail: true });
         }
         updateRaceRecordsFooterActions();
       }
@@ -2751,6 +2786,18 @@
         };
       }
 
+      function accidentLogHasStewardDisagreement(accidentLog) {
+        if (!appliedDecisionPackV2EnableEvaluation) {
+          return false;
+        }
+        const evaluation = accidentLog && accidentLog.decision_record && accidentLog.decision_record.evaluation;
+        return Boolean(
+          evaluation
+          && typeof evaluation === "object"
+          && Object.values(evaluation).some((value) => value === false)
+        );
+      }
+
       function accidentLogHasVehicleFault(result) {
         const vehicleId = Number(result && (result.fault_vehicle_id || result.penalty_vehicle_id));
         return vehicleId === 1 || vehicleId === 2;
@@ -2782,6 +2829,10 @@
       }
 
       function updateAccidentLogDecisionRecord(filename, decisionRecord) {
+        applyAccidentLogDecisionRecord(filename, decisionRecord);
+      }
+
+      function applyAccidentLogDecisionRecord(filename, decisionRecord, options = {}) {
         let changed = false;
         accidentLogs = accidentLogs.map((accidentLog) => {
           if (accidentLog.filename !== filename) {
@@ -2790,8 +2841,15 @@
           changed = true;
           return { ...accidentLog, decision_record: decisionRecord || null };
         });
+        if (currentAccidentLogSummary && currentAccidentLogSummary.filename === filename) {
+          currentAccidentLogSummary = { ...currentAccidentLogSummary, decision_record: decisionRecord || null };
+        }
+        const cachedSummary = accidentLogSummaryCache.get(filename);
+        if (cachedSummary) {
+          accidentLogSummaryCache.set(filename, { ...cachedSummary, decision_record: decisionRecord || null });
+        }
         if (changed) {
-          renderAccidentLogs();
+          renderAccidentLogs({ forceDetail: Boolean(options.forceDetail) });
         }
       }
 
@@ -2874,7 +2932,7 @@
           const needsDecision = penaltyDecisionActive
             && accidentLog.filename
             && accidentLog.filename === penaltyDecisionAccidentLogFilename;
-          item.className = `list-group-item list-group-item-action rct-accident-log-list-item${selected ? " active" : (needsDecision ? " list-group-item-danger" : "")}`;
+          item.className = `list-group-item list-group-item-action rct-accident-log-list-item${selected ? " active" : (needsDecision ? " list-group-item-danger" : "")}${accidentLogHasStewardDisagreement(accidentLog) ? " rct-accident-log-has-steward-disagreement" : ""}`;
           item.type = "button";
           item.role = "option";
           item.setAttribute("aria-selected", selected ? "true" : "false");
@@ -3744,6 +3802,27 @@
         return payload.decision_record || null;
       }
 
+      async function saveDecisionRecordEvaluation(accidentLog, evaluation) {
+        if (!accidentLog || !accidentLog.filename) {
+          return null;
+        }
+        const response = await fetch(
+          monitorRestUrl(`/accident-logs/${encodeURIComponent(accidentLog.filename)}/decision-record/evaluation`),
+          {
+            method: "POST",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ evaluation }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to save decision evaluation: ${response.status} ${response.statusText}`);
+        }
+        const payload = await response.json();
+        applyAccidentLogDecisionRecord(accidentLog.filename, payload.decision_record || null, { forceDetail: true });
+        return payload.decision_record || null;
+      }
+
       function shouldShowManualDecisionPane(accidentLog) {
         return Boolean(
           penaltyDecisionActive
@@ -4564,6 +4643,46 @@
         return manualDecision;
       }
 
+      function normalizedDecisionEvaluation(record) {
+        const source = record && record.evaluation && typeof record.evaluation === "object" ? record.evaluation : {};
+        return decisionEvaluationStewardKeys.reduce((evaluation, key) => {
+          evaluation[key] = Object.prototype.hasOwnProperty.call(source, key) ? Boolean(source[key]) : true;
+          return evaluation;
+        }, {});
+      }
+
+      function createStewardEvaluationActions(accidentLog, record) {
+        if (!appliedDecisionPackV2EnableEvaluation || !record) {
+          return null;
+        }
+        const evaluation = normalizedDecisionEvaluation(record);
+        const actions = document.createElement("div");
+        actions.className = "rct-steward-evaluation-actions";
+        for (const [index, stewardKey] of decisionEvaluationStewardKeys.entries()) {
+          const approved = Boolean(evaluation[stewardKey]);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `btn btn-sm rct-steward-evaluation-button ${approved ? "btn-success" : "btn-danger"}`;
+          button.title = `Steward ${index + 1}: ${approved ? "agree" : "disagree"}`;
+          button.setAttribute("aria-label", button.title);
+          button.innerHTML = `<i class="bi ${approved ? "bi-hand-thumbs-up-fill" : "bi-hand-thumbs-down-fill"}" aria-hidden="true"></i>`;
+          button.addEventListener("click", () => {
+            const nextEvaluation = { ...evaluation, [stewardKey]: !approved };
+            for (const item of actions.querySelectorAll("button")) {
+              item.disabled = true;
+            }
+            void saveDecisionRecordEvaluation(accidentLog, nextEvaluation).catch((error) => {
+              console.warn("Failed to update steward evaluation:", error);
+              for (const item of actions.querySelectorAll("button")) {
+                item.disabled = false;
+              }
+            });
+          });
+          actions.appendChild(button);
+        }
+        return actions;
+      }
+
       function renderSavedDecisionPane(container, accidentLog, summary, renderToken) {
         container.innerHTML = "";
         const record = summary && summary.decision_record;
@@ -4579,7 +4698,14 @@
           ? "Final decision: No Decision"
           : `Final decision: Fault Vehicle ${displayRoboracerLabel(faultVehicleId)}`;
         title.textContent = decisionText;
-        pane.append(title);
+        const titleRow = document.createElement("div");
+        titleRow.className = "rct-saved-decision-title-row";
+        titleRow.append(title);
+        const stewardEvaluationActions = createStewardEvaluationActions(accidentLog, record);
+        if (stewardEvaluationActions) {
+          titleRow.append(stewardEvaluationActions);
+        }
+        pane.append(titleRow);
         const penalty = record.penalty || null;
         const penaltyText = document.createElement("div");
         penaltyText.className = "rct-sw-analysis-result-opinion";

@@ -35,6 +35,7 @@ from .bridge import (
 from .config import Settings, load_settings
 from .decision import (
     DEFAULT_DECISION_EVALUATION,
+    decision_record_path,
     load_decision_record,
     save_decision_record,
 )
@@ -992,6 +993,10 @@ class RaceControlTower:
             "/monitor/REST/{version}/accident-logs/{filename}/decision-record",
             self.handle_monitor_accident_log_decision_record_post,
         )
+        app.router.add_post(
+            "/monitor/REST/{version}/accident-logs/{filename}/decision-record/evaluation",
+            self.handle_monitor_accident_log_decision_record_evaluation_post,
+        )
         app.router.add_delete(
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_delete,
@@ -1621,6 +1626,49 @@ class RaceControlTower:
             record,
             decision_mode=decision_mode,
         )
+        return web.json_response({"ok": True, "decision_record": record})
+
+    async def handle_monitor_accident_log_decision_record_evaluation_post(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        try:
+            path = self.accident_log_path_from_filename(request.match_info["filename"])
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return web.json_response({"error": "request body must be JSON"}, status=400)
+
+        evaluation = body.get("evaluation")
+        if (
+            not isinstance(evaluation, dict)
+            or set(evaluation) != set(DEFAULT_DECISION_EVALUATION)
+            or not all(isinstance(evaluation[key], bool) for key in DEFAULT_DECISION_EVALUATION)
+        ):
+            return web.json_response({"error": "evaluation must contain boolean steward 1, steward 2, and steward 3 values"}, status=400)
+        evaluation = {key: evaluation[key] for key in DEFAULT_DECISION_EVALUATION}
+
+        record = await asyncio.to_thread(load_decision_record, path)
+        if record is None:
+            return web.json_response({"error": "decision record not found"}, status=404)
+        record["evaluation"] = evaluation
+
+        try:
+            await asyncio.to_thread(
+                decision_record_path(path).write_text,
+                json.dumps(record, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        except Exception:
+            LOGGER.exception("failed to update decision record evaluation for %s", path)
+            return web.json_response({"error": "failed to update decision record evaluation"}, status=500)
+
+        self.refresh_accident_logs_from_disk()
+        await self.publish_accident_logs()
         return web.json_response({"ok": True, "decision_record": record})
 
     async def handle_monitor_accident_logs_delete(self, request: web.Request) -> web.Response:
