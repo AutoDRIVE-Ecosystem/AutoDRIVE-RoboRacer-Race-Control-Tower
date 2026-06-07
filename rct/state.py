@@ -71,6 +71,22 @@ class AccidentLogMonitorState:
 
 
 @dataclass
+class AuditLogMonitorState:
+    index: int
+    timestamp_ns: int
+    time: str
+    event_type: str
+    text: str
+    race_number: int = 1
+    kind: str = "Others"
+    accident_log_filename: str | None = None
+    accident_log_time: str | None = None
+    decision_mode: str | None = None
+    decision_result: dict[str, Any] | None = None
+    memo: str | None = None
+
+
+@dataclass
 class PenaltyDecisionMonitorState:
     active: bool = False
     collision_vehicle_ids: list[int] | None = None
@@ -108,6 +124,7 @@ class RaceControlState:
             "celebration_with_confetti": True,
         }
         self._accident_logs: list[AccidentLogMonitorState] = []
+        self._audit_log: list[AuditLogMonitorState] = []
         self._penalty_decision = PenaltyDecisionMonitorState(
             collision_vehicle_ids=[],
             filtered_vehicle_ids=[],
@@ -393,6 +410,26 @@ class RaceControlState:
         with self._lock:
             return [asdict(accident_log) for accident_log in self._accident_logs]
 
+    def set_audit_log(self, audit_log: Iterable[AuditLogMonitorState]) -> None:
+        next_log = list(audit_log)
+        with self._lock:
+            if self._audit_log == next_log:
+                return
+            self._audit_log = next_log
+            self._revision += 1
+
+    def add_audit_log(self, audit_log: AuditLogMonitorState) -> None:
+        with self._lock:
+            self._audit_log = [
+                *self._audit_log,
+                audit_log,
+            ]
+            self._revision += 1
+
+    def audit_log(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [asdict(audit_log) for audit_log in self._audit_log]
+
     def set_penalty_decision(
         self,
         *,
@@ -475,6 +512,7 @@ class RaceControlState:
                 "penalty_rule": self.penalty_rule_settings(),
                 "racing_rule": dict(self._racing_rule_settings),
                 "accident_logs": [asdict(accident_log) for accident_log in self._accident_logs],
+                "audit_log": [asdict(audit_log) for audit_log in self._audit_log],
                 "penalty_decision": asdict(self._penalty_decision),
                 "vehicle_penalties": {str(vehicle_id): count for vehicle_id, count in sorted(self._vehicle_penalties.items())},
                 "race_result": dict(self._race_result),

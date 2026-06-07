@@ -8,7 +8,7 @@ import gzip
 import inspect
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
@@ -20,6 +20,7 @@ from socketio import packet as socketio_packet
 from aiohttp import WSMsgType, web
 
 from .accident_recorder import AccidentRecorder, list_accident_logs
+from .audit_recorder import AuditLogRecord, AuditRecorder, list_audit_logs
 from .accident_summary import accident_log_compact_summary_from_mcap, accident_log_summary_from_mcap, replay_lidar_ranges_payload
 from .bridge import (
     BridgeHistory,
@@ -56,6 +57,7 @@ from .state import (
     DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS,
     DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS,
     AccidentLogMonitorState,
+    AuditLogMonitorState,
     DevKitMonitorState,
     RaceControlState,
 )
@@ -358,6 +360,23 @@ def rewrite_args_for_simulator(args: tuple[Any, ...], vehicle_id: int) -> tuple[
     return tuple(rewrite_devkit_payload_to_simulator(arg, vehicle_id) for arg in args)
 
 
+def audit_monitor_state_from_record(record: AuditLogRecord) -> AuditLogMonitorState:
+    return AuditLogMonitorState(
+        index=record.index,
+        timestamp_ns=record.timestamp_ns,
+        time=record.time,
+        event_type=record.event_type,
+        text=record.text,
+        race_number=record.race_number,
+        kind=record.kind,
+        accident_log_filename=record.accident_log_filename,
+        accident_log_time=record.accident_log_time,
+        decision_mode=record.decision_mode,
+        decision_result=record.decision_result,
+        memo=record.memo,
+    )
+
+
 def devkit_url_from_host_port(host: str, port: int) -> str:
     return f"ws://{host}:{port}"
 
@@ -627,6 +646,7 @@ class RaceControlTower:
         self.monitor_hub = MonitorEventHub()
         self.bridge_history = BridgeHistory(settings.bridge_history_seconds)
         self.accident_recorder = AccidentRecorder()
+        self.audit_recorder = AuditRecorder(self.accident_recorder.output_dir)
         self.control_cache = ControlCache()
         self.bridge_rates = BridgeRateTracker()
         self.latest_front_camera_fields: dict[str, Any] = {}
@@ -640,6 +660,7 @@ class RaceControlTower:
         self.bridge_rate_refresh_interval = 0.25
         self._monitor_stream_task: asyncio.Task[None] | None = None
         self._bridge_rate_refresh_task: asyncio.Task[None] | None = None
+        self._audit_lock = asyncio.Lock()
         self.sio = socketio.AsyncServer(
             async_mode="aiohttp",
             cors_allowed_origins="*",
@@ -677,6 +698,7 @@ class RaceControlTower:
         )
         self.state.set_topic_selections(default_topic_selections())
         self.refresh_accident_logs_from_disk()
+        self.refresh_audit_log_from_disk()
         self._register_socketio_handlers()
         self._register_engineio_compat_handlers()
 
@@ -818,6 +840,10 @@ class RaceControlTower:
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_delete,
         )
+        app.router.add_get(
+            "/monitor/REST/{version}/audit-log",
+            self.handle_monitor_audit_log_get,
+        )
         app.router.add_post(
             "/monitor/REST/{version}/devkits/{vehicle_id}/endpoint",
             self.handle_monitor_devkit_endpoint_command,
@@ -858,6 +884,10 @@ class RaceControlTower:
             self.state.set_simulator_clients(len(self.simulator_sids))
             if first_simulator:
                 self.state.start_race_time()
+                await self.record_audit_event(
+                    event_type="race_start",
+                    text="Race started: simulator connected.",
+                )
             reset_penalty_decision = self.reset_penalty_decision_for_simulator_session()
             LOGGER.info("simulator connected via Socket.IO sid=%s", sid)
             if reset_penalty_decision:
@@ -897,8 +927,14 @@ class RaceControlTower:
             self.state.set_simulator_clients(len(self.simulator_sids))
             LOGGER.info("simulator disconnected sid=%s reason=%s", sid, reason)
             if not self.simulator_sids:
+                race_ended_by_disconnect = not self.state.race_result().get("active")
                 self.state.stop_race_time()
                 self.state.stop_review_time()
+                if race_ended_by_disconnect:
+                    await self.record_audit_event(
+                        event_type="race_end",
+                        text="Race ended: simulator disconnected.",
+                    )
                 await self.disconnect_all_devkits()
             await self.publish_status()
 
@@ -1322,6 +1358,9 @@ class RaceControlTower:
         memo = body.get("memo", "")
         if not isinstance(memo, str):
             return web.json_response({"error": "memo must be a string"}, status=400)
+        decision_mode = body.get("decision_mode", "manual")
+        if decision_mode not in {"manual", "auto"}:
+            return web.json_response({"error": "decision_mode must be manual or auto"}, status=400)
         no_decision = bool(body.get("no_decision", False))
         penalty_vehicle_id = body.get("penalty_vehicle_id")
         fault_vehicle_id = body.get("fault_vehicle_id", penalty_vehicle_id)
@@ -1372,6 +1411,11 @@ class RaceControlTower:
 
         self.refresh_accident_logs_from_disk()
         await self.publish_accident_logs()
+        await self.record_decision_audit(
+            path,
+            record,
+            decision_mode=decision_mode,
+        )
         return web.json_response({"ok": True, "decision_record": record})
 
     async def handle_monitor_accident_logs_delete(self, request: web.Request) -> web.Response:
@@ -1401,6 +1445,20 @@ class RaceControlTower:
                 "ok": True,
                 "deleted": deleted,
                 "accident_logs": self.state.accident_logs(),
+            }
+        )
+
+    async def handle_monitor_audit_log_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        self.refresh_audit_log_from_disk()
+        return web.json_response(
+            {
+                "protocol": "autodrive-rct-monitor",
+                "version": MONITOR_PROTOCOL_VERSION,
+                "audit_log": self.state.audit_log(),
             }
         )
 
@@ -2152,6 +2210,14 @@ class RaceControlTower:
         )
         self.state.stop_race_time()
         LOGGER.info("race finished: winner=V%s loser=V%s reason=%s", winner_vehicle_id, loser_vehicle_id, reason)
+        await self.record_audit_event(
+            event_type="race_end",
+            text=self.race_end_audit_text(
+                winner_vehicle_id=winner_vehicle_id,
+                loser_vehicle_id=loser_vehicle_id,
+                reason=reason,
+            ),
+        )
         await self.publish_status()
         await self.broadcast_monitor(
             envelope(
@@ -2255,6 +2321,22 @@ class RaceControlTower:
         self.state.add_accident_log(monitor_log)
         await self.publish_accident_logs()
         await self.publish_status()
+        await self.record_audit_event(
+            event_type="accident_record",
+            text=(
+                "Accident record created: "
+                f"{self.accident_record_audit_time(accident_log.time)} "
+                f"(trigger V{trigger_vehicle_id}, collision count {collision_count})."
+            ),
+            accident_log_filename=accident_log.filename,
+            accident_log_time=accident_log.time,
+        )
+        if decision_record is not None:
+            await self.record_decision_audit(
+                Path(accident_log.path),
+                decision_record,
+                decision_mode="auto",
+            )
 
     def _log_accident_record_save_failure(self, task: asyncio.Task[None]) -> None:
         try:
@@ -2523,6 +2605,13 @@ class RaceControlTower:
             accident_logs=self.state.accident_logs(),
         )
 
+    def audit_log_entry_message(self, record: AuditLogRecord) -> str:
+        return envelope(
+            "audit-log",
+            source="rct",
+            audit_entry=asdict(audit_monitor_state_from_record(record)),
+        )
+
     def cached_telemetry_message(self) -> str | None:
         if not self.monitor_vehicle_telemetry:
             return None
@@ -2558,6 +2647,95 @@ class RaceControlTower:
     async def publish_accident_logs(self) -> None:
         await self.broadcast_monitor(self.accident_logs_message())
 
+    async def publish_audit_log_entry(self, record: AuditLogRecord) -> None:
+        await self.broadcast_monitor(self.audit_log_entry_message(record))
+
+    async def record_audit_event(
+        self,
+        *,
+        event_type: str,
+        text: str,
+        accident_log_filename: str | None = None,
+        accident_log_time: str | None = None,
+        decision_mode: str | None = None,
+        decision_result: dict[str, Any] | None = None,
+        memo: str | None = None,
+    ) -> None:
+        self.audit_recorder.output_dir = self.accident_recorder.output_dir
+        async with self._audit_lock:
+            try:
+                record = await asyncio.to_thread(
+                    self.audit_recorder.append,
+                    event_type=event_type,
+                    text=text,
+                    accident_log_filename=accident_log_filename,
+                    accident_log_time=accident_log_time,
+                    decision_mode=decision_mode,
+                    decision_result=decision_result,
+                    memo=memo,
+                )
+            except ModuleNotFoundError:
+                LOGGER.exception("mcap package is not installed; cannot save audit log")
+                return
+            except Exception:
+                LOGGER.exception("failed to save audit log")
+                return
+
+        self.state.add_audit_log(audit_monitor_state_from_record(record))
+        await self.publish_audit_log_entry(record)
+
+    async def record_decision_audit(
+        self,
+        accident_log_path: Path,
+        decision_record: dict[str, Any],
+        *,
+        decision_mode: str,
+    ) -> None:
+        await self.record_audit_event(
+            event_type="decision",
+            text=self.decision_audit_text(decision_record, decision_mode=decision_mode),
+            accident_log_filename=accident_log_path.name,
+            accident_log_time=accident_log_path.stem.removeprefix("autodrive "),
+            decision_mode=decision_mode,
+            decision_result={
+                "fault_vehicle_id": decision_record.get("fault_vehicle_id"),
+                "penalty_vehicle_id": decision_record.get("penalty_vehicle_id"),
+                "no_decision": bool(decision_record.get("no_decision")),
+                "decision_package_ids": decision_record.get("decision_package_ids", []),
+            },
+            memo=decision_record.get("memo") if isinstance(decision_record.get("memo"), str) else None,
+        )
+
+    def race_end_audit_text(self, *, winner_vehicle_id: int, loser_vehicle_id: int, reason: str) -> str:
+        if reason == "total_lap_count":
+            reason_text = "reached total lap count"
+        elif reason == "maximum_penalty_count":
+            reason_text = "reached maximum penalty count"
+        else:
+            reason_text = reason.replace("_", " ")
+        return f"Race ended: {reason_text}. Winner V{winner_vehicle_id}, loser V{loser_vehicle_id}."
+
+    def decision_audit_text(self, decision_record: dict[str, Any], *, decision_mode: str) -> str:
+        mode_label = "auto" if decision_mode == "auto" else "manual"
+        if decision_record.get("no_decision"):
+            result = "no decision"
+        else:
+            penalty_vehicle_id = decision_record.get("penalty_vehicle_id")
+            fault_vehicle_id = decision_record.get("fault_vehicle_id")
+            if penalty_vehicle_id is not None:
+                result = f"penalty V{penalty_vehicle_id}"
+            elif fault_vehicle_id is not None:
+                result = f"fault V{fault_vehicle_id}"
+            else:
+                result = "decision recorded"
+        memo = decision_record.get("memo")
+        memo_text = f" Note: {memo}" if isinstance(memo, str) and memo else ""
+        return f"Decision recorded ({mode_label}): {result}.{memo_text}"
+
+    def accident_record_audit_time(self, accident_log_time: str) -> str:
+        parts = accident_log_time.split(" ", 1)
+        return parts[1] if len(parts) == 2 else accident_log_time
+
     def refresh_bridge_rates(self, now: float | None = None) -> bool:
         current_snapshot = {
             devkit_snapshot["name"]: (devkit_snapshot["bridge_hz"], devkit_snapshot["bridge_per_minute"])
@@ -2582,6 +2760,7 @@ class RaceControlTower:
         snapshot = self.state.snapshot()
         snapshot.pop("topic_selections", None)
         snapshot.pop("accident_logs", None)
+        snapshot.pop("audit_log", None)
         snapshot.pop("race_time_seconds", None)
 
         if not full:
@@ -2624,6 +2803,18 @@ class RaceControlTower:
             for accident_log in list_accident_logs(self.accident_recorder.output_dir)
         ]
         self.state.set_accident_logs(accident_logs)
+
+    def refresh_audit_log_from_disk(self) -> None:
+        self.audit_recorder.output_dir = self.accident_recorder.output_dir
+        try:
+            audit_log = [
+                audit_monitor_state_from_record(audit_record)
+                for audit_record in list_audit_logs(self.audit_recorder.output_dir)
+            ]
+        except ModuleNotFoundError:
+            LOGGER.exception("mcap package is not installed; cannot read audit log")
+            audit_log = []
+        self.state.set_audit_log(audit_log)
 
     def accident_log_path_from_filename(self, filename: str) -> Path:
         if Path(filename).name != filename:

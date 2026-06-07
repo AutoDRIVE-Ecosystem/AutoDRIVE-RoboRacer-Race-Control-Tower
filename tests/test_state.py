@@ -2,7 +2,7 @@
 
 import unittest
 
-from rct.state import AccidentLogMonitorState, DevKitMonitorState, RaceControlState
+from rct.state import AccidentLogMonitorState, AuditLogMonitorState, DevKitMonitorState, RaceControlState
 
 
 class RaceControlStateTests(unittest.TestCase):
@@ -202,6 +202,40 @@ class RaceControlStateTests(unittest.TestCase):
                     "time": "2026-05-19 12:00:00:001",
                     "size_bytes": 123,
                     "decision_record": None,
+                }
+            ],
+        )
+
+    def test_snapshot_tracks_audit_log(self):
+        state = RaceControlState()
+        state.add_audit_log(
+            AuditLogMonitorState(
+                index=0,
+                timestamp_ns=1_000_000_000,
+                time="1970-01-01 09:00:01:000",
+                event_type="race_start",
+                text="Race started: simulator connected.",
+                race_number=1,
+                kind="Race Start",
+            )
+        )
+
+        self.assertEqual(
+            state.snapshot()["audit_log"],
+            [
+                {
+                    "index": 0,
+                    "timestamp_ns": 1_000_000_000,
+                    "time": "1970-01-01 09:00:01:000",
+                    "event_type": "race_start",
+                    "text": "Race started: simulator connected.",
+                    "race_number": 1,
+                    "kind": "Race Start",
+                    "accident_log_filename": None,
+                    "accident_log_time": None,
+                    "decision_mode": None,
+                    "decision_result": None,
+                    "memo": None,
                 }
             ],
         )

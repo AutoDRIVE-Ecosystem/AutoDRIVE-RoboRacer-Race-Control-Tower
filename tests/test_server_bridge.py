@@ -12,6 +12,7 @@ from time import monotonic
 from urllib.parse import quote
 
 from rct.accident_recorder import AccidentBridgeRecord
+from rct.audit_recorder import AuditLogRecord
 from rct.config import Settings
 from rct.decision import save_decision_record
 
@@ -66,6 +67,38 @@ def test_settings() -> Settings:
 class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
     def load_bridge_sample(self):
         return json.loads(BRIDGE_SAMPLE_PATH.read_text())
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    def test_audit_log_ws_message_contains_only_new_entry(self):
+        tower = RaceControlTower(test_settings())
+        message = json.loads(
+            tower.audit_log_entry_message(
+                AuditLogRecord(
+                    index=0,
+                    timestamp_ns=1_000_000_000,
+                    time="1970-01-01 09:00:01:000",
+                    event_type="race_start",
+                    text="Race started: simulator connected.",
+                    kind="Race Start",
+                )
+            )
+        )
+
+        self.assertEqual(message["event"], "audit-log")
+        self.assertIn("audit_entry", message)
+        self.assertNotIn("audit_log", message)
+        self.assertEqual(message["audit_entry"]["event_type"], "race_start")
+        self.assertEqual(message["audit_entry"]["race_number"], 1)
+        self.assertEqual(message["audit_entry"]["kind"], "Race Start")
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    def test_accident_record_audit_time_omits_date(self):
+        tower = RaceControlTower(test_settings())
+
+        self.assertEqual(
+            tower.accident_record_audit_time("2026-06-07 11:51:20:443"),
+            "11:51:20:443",
+        )
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_emit_to_simulators_avoids_socketio_4_asyncio_wait_coroutine_bug(self):
@@ -513,6 +546,40 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["deleted"], 2)
         self.assertEqual(payload["accident_logs"], [])
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    @unittest.skipIf(not AIOHTTP_AVAILABLE, "aiohttp is not installed")
+    @unittest.skipIf(not MCAP_AVAILABLE, "mcap is not installed")
+    async def test_monitor_audit_log_get_returns_files_from_recorder_directory(self):
+        tower = RaceControlTower(test_settings())
+        with TemporaryDirectory() as temporary_directory:
+            tower.accident_recorder.output_dir = Path(temporary_directory)
+            tower.audit_recorder.output_dir = Path(temporary_directory)
+            tower.audit_recorder.append(
+                event_type="race_start",
+                text="Race started: simulator connected.",
+                timestamp_ns=1_000_000_000,
+            )
+            tower_app = tower.create_app()
+            tower_runner = web.AppRunner(tower_app)
+            await tower_runner.setup()
+            tower_site = web.TCPSite(tower_runner, "127.0.0.1", 0)
+            await tower_site.start()
+            tower_port = tower_runner.addresses[0][1]
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    response = await session.get(
+                        f"http://127.0.0.1:{tower_port}/monitor/REST/latest/audit-log?ts=123",
+                    )
+                    self.assertEqual(response.status, 200)
+                    payload = await response.json()
+            finally:
+                await tower_runner.cleanup()
+
+        self.assertEqual(len(payload["audit_log"]), 1)
+        self.assertEqual(payload["audit_log"][0]["event_type"], "race_start")
+        self.assertEqual(payload["audit_log"][0]["text"], "Race started: simulator connected.")
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_presplit_bridge_payload_filters_disabled_topics_and_keeps_enabled_inputs(self):

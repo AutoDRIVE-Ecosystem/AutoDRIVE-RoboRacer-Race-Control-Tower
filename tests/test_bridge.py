@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 
 from rct.accident_recorder import AccidentBridgeRecord, AccidentRecorder, accident_log_filename, list_accident_logs
 from rct.accident_summary import accident_log_compact_summary_from_mcap
+from rct.audit_recorder import AuditRecorder, list_audit_logs
 from rct.bridge import (
     BridgeHistory,
     BridgeRateTracker,
@@ -258,6 +259,45 @@ class AccidentRecorderTests(unittest.TestCase):
         self.assertEqual(summary["frames"], [])
         self.assertEqual(summary["metadata"]["trigger_vehicle_id"], 1)
         self.assertEqual(summary["decision_record"]["fault_vehicle_id"], 1)
+
+
+class AuditRecorderTests(unittest.TestCase):
+    def test_default_output_directory_is_race_records(self):
+        recorder = AuditRecorder()
+
+        self.assertEqual(recorder.output_dir, Path("race_records"))
+
+    def test_append_rewrites_audit_mcap_with_existing_records(self):
+        with TemporaryDirectory() as temporary_directory:
+            recorder = AuditRecorder(temporary_directory)
+
+            first = recorder.append(
+                event_type="race_start",
+                text="Race started: simulator connected.",
+                timestamp_ns=1_000_000_000,
+            )
+            second = recorder.append(
+                event_type="accident_record",
+                text="Accident record created: 01:02:03:456.",
+                accident_log_filename="autodrive 2026-05-19 01:02:03:456.mcap",
+                accident_log_time="2026-05-19 01:02:03:456",
+                timestamp_ns=2_000_000_000,
+            )
+            third = recorder.append(
+                event_type="race_start",
+                text="Race started: simulator connected.",
+                timestamp_ns=3_000_000_000,
+            )
+
+            logs = list_audit_logs(temporary_directory)
+
+        self.assertEqual(first.index, 0)
+        self.assertEqual(second.index, 1)
+        self.assertEqual(third.index, 2)
+        self.assertEqual([log.event_type for log in logs], ["race_start", "accident_record", "race_start"])
+        self.assertEqual([log.race_number for log in logs], [1, 1, 2])
+        self.assertEqual([log.kind for log in logs], ["Race Start", "Accident", "Race Start"])
+        self.assertEqual(logs[1].accident_log_filename, "autodrive 2026-05-19 01:02:03:456.mcap")
 
     def test_lists_accident_logs_newest_first(self):
         with TemporaryDirectory() as temporary_directory:

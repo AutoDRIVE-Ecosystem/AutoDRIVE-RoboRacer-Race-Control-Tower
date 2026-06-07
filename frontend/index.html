@@ -459,6 +459,42 @@
         overflow-y: auto;
       }
 
+      .rct-audit-log-list {
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .rct-audit-log-row {
+        display: grid;
+        gap: 0.5rem;
+        grid-template-columns: 2.25rem 7.25rem 5.75rem minmax(0, 1fr);
+        text-align: left;
+      }
+
+      .rct-audit-log-race,
+      .rct-audit-log-time {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .rct-audit-log-race,
+      .rct-audit-log-kind {
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      .rct-audit-log-time {
+        text-align: center;
+      }
+
+      .rct-audit-log-text {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
       .rct-accident-replay {
         display: flex;
         flex-direction: column;
@@ -1230,7 +1266,9 @@
                   </div>
                 </div>
                 <div class="tab-pane fade rct-race-records-tab-pane" id="accident-statistics-tab-pane" role="tabpanel" aria-labelledby="accident-statistics-tab" tabindex="0"></div>
-                <div class="tab-pane fade rct-race-records-tab-pane" id="accident-audit-log-tab-pane" role="tabpanel" aria-labelledby="accident-audit-log-tab" tabindex="0"></div>
+                <div class="tab-pane fade rct-race-records-tab-pane" id="accident-audit-log-tab-pane" role="tabpanel" aria-labelledby="accident-audit-log-tab" tabindex="0">
+                  <div id="auditLogList" class="list-group rct-audit-log-list" role="list" aria-label="Audit log"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -1461,6 +1499,7 @@
       const filterSingleVehicleCollisionControl = filterSingleVehicleCollision.closest(".form-check");
       const accidentLogsList = document.getElementById("accidentLogsList");
       const accidentLogDetail = document.getElementById("accidentLogDetail");
+      const auditLogList = document.getElementById("auditLogList");
       const raceRecordsModal = bootstrap.Modal.getOrCreateInstance(raceRecordsDialog);
       const roboracers = {
         1: {
@@ -1597,6 +1636,7 @@
         2: [],
       };
       let accidentLogs = [];
+      let auditLog = [];
       let selectedAccidentLogFilename = null;
       let renderedAccidentLogDetailKey = null;
       let raceRecordsDialogVisible = false;
@@ -1728,6 +1768,210 @@
         const isAuditLogTab = activeTabId === "accident-audit-log-tab";
         filterSingleVehicleCollisionControl.hidden = isAuditLogTab;
         clearAccidentLogsButton.hidden = isStatisticsTab || isAuditLogTab;
+      }
+
+      function activeRaceRecordsTabId() {
+        const activeTabButton = raceRecordsTabButtons.find((button) => button.classList.contains("active"));
+        return activeTabButton ? activeTabButton.id : "accident-records-tab";
+      }
+
+      function isAuditLogTabActive() {
+        return activeRaceRecordsTabId() === "accident-audit-log-tab";
+      }
+
+      function isAccidentRecordsTabActive() {
+        return activeRaceRecordsTabId() === "accident-records-tab";
+      }
+
+      function auditLogsEqual(leftLog, rightLog) {
+        if (leftLog.length !== rightLog.length) {
+          return false;
+        }
+        return leftLog.every((leftEntry, index) => {
+          const rightEntry = rightLog[index];
+          return Boolean(rightEntry)
+            && leftEntry.index === rightEntry.index
+            && leftEntry.timestamp_ns === rightEntry.timestamp_ns
+            && leftEntry.time === rightEntry.time
+            && leftEntry.event_type === rightEntry.event_type
+            && leftEntry.text === rightEntry.text
+            && leftEntry.race_number === rightEntry.race_number
+            && leftEntry.kind === rightEntry.kind
+            && leftEntry.accident_log_filename === rightEntry.accident_log_filename
+            && leftEntry.accident_log_time === rightEntry.accident_log_time
+            && leftEntry.decision_mode === rightEntry.decision_mode;
+        });
+      }
+
+      function setAuditLog(nextAuditLog) {
+        if (auditLogsEqual(auditLog, nextAuditLog)) {
+          return false;
+        }
+        const hadEntries = auditLog.length > 0;
+        auditLog = nextAuditLog;
+        renderAuditLog({ scrollToBottom: hadEntries || isAuditLogTabActive() });
+        return true;
+      }
+
+      function auditLogEntryKey(entry) {
+        if (!entry) {
+          return "";
+        }
+        return [
+          entry.index,
+          entry.timestamp_ns,
+          entry.race_number,
+          entry.event_type,
+          entry.text,
+          entry.accident_log_filename,
+        ].join("\u0000");
+      }
+
+      function appendAuditLogEntry(entry) {
+        if (!entry || typeof entry !== "object") {
+          return false;
+        }
+        const nextKey = auditLogEntryKey(entry);
+        if (auditLog.some((existingEntry) => auditLogEntryKey(existingEntry) === nextKey)) {
+          return false;
+        }
+        auditLog = [...auditLog, entry];
+        renderAuditLog({ scrollToBottom: true });
+        return true;
+      }
+
+      function auditLogLinkedAccidentLog(entry) {
+        if (!entry) {
+          return null;
+        }
+        if (entry.accident_log_filename) {
+          const byFilename = accidentLogs.find((accidentLog) => accidentLog.filename === entry.accident_log_filename);
+          if (byFilename) {
+            return byFilename;
+          }
+        }
+        if (entry.accident_log_time) {
+          return accidentLogs.find((accidentLog) => accidentLog.time === entry.accident_log_time) || null;
+        }
+        return null;
+      }
+
+      function openAuditLogAccidentRecord(entry) {
+        const accidentLog = auditLogLinkedAccidentLog(entry);
+        if (!accidentLog) {
+          return;
+        }
+        bootstrap.Tab.getOrCreateInstance(document.getElementById("accident-records-tab")).show();
+        selectAccidentLog(accidentLog.filename);
+      }
+
+      function auditLogKind(entry) {
+        return entry.kind || {
+          race_start: "Race Start",
+          race_end: "Race End",
+          accident_record: "Accident",
+          decision: "Decision",
+        }[entry.event_type] || "Others";
+      }
+
+      function auditLogDisplayTime(entry) {
+        const time = String(entry.time || "-");
+        const parts = time.split(" ");
+        return parts.length > 1 ? parts.slice(1).join(" ") : time;
+      }
+
+      function ordinalRaceNumber(value) {
+        const number = Number(value);
+        if (!Number.isInteger(number) || number <= 0) {
+          return "";
+        }
+        const mod100 = number % 100;
+        if (mod100 >= 11 && mod100 <= 13) {
+          return `${number}th`;
+        }
+        return `${number}${{ 1: "st", 2: "nd", 3: "rd" }[number % 10] || "th"}`;
+      }
+
+      function renderAuditLogText(entry, textCell) {
+        const text = String(entry.text || "-");
+        const kind = auditLogKind(entry);
+        const accidentLog = kind === "Accident" || kind === "Decision" ? auditLogLinkedAccidentLog(entry) : null;
+        if (!accidentLog) {
+          textCell.textContent = text;
+          return;
+        }
+
+        const link = document.createElement("a");
+        link.href = "#";
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          openAuditLogAccidentRecord(entry);
+        });
+
+        if (kind === "Accident") {
+          const match = text.match(/^(Accident record created:\s+)(.*?)(\s+\(trigger\b.*)$/);
+          if (!match) {
+            textCell.textContent = text;
+            return;
+          }
+          link.textContent = match[2];
+          textCell.append(match[1], link, match[3]);
+          return;
+        }
+
+        link.textContent = auditLogDisplayTime({ time: entry.accident_log_time || accidentLog.time || "" });
+        const decisionMatch = text.match(/^(Decision recorded \([^)]+\):\s+)(.*)$/);
+        if (!decisionMatch) {
+          textCell.append(text, " (", link, ")");
+          return;
+        }
+        textCell.append(decisionMatch[1], link, " - ", decisionMatch[2]);
+      }
+
+      function renderAuditLog(options = {}) {
+        const scrollToBottom = Boolean(options.scrollToBottom);
+        auditLogList.innerHTML = "";
+        if (auditLog.length === 0) {
+          const emptyItem = document.createElement("div");
+          emptyItem.className = "list-group-item text-body-secondary";
+          emptyItem.textContent = "No audit log";
+          auditLogList.appendChild(emptyItem);
+          return;
+        }
+        for (const entry of auditLog) {
+          const item = document.createElement("div");
+          item.className = "list-group-item rct-audit-log-row";
+          item.role = "listitem";
+          const kind = auditLogKind(entry);
+          const raceCell = document.createElement("span");
+          raceCell.className = "rct-audit-log-race";
+          raceCell.textContent = kind === "Race Start" ? ordinalRaceNumber(entry.race_number || 1) : "";
+          const timeCell = document.createElement("span");
+          timeCell.className = "rct-audit-log-time";
+          timeCell.textContent = auditLogDisplayTime(entry);
+          const kindCell = document.createElement("span");
+          kindCell.className = "rct-audit-log-kind";
+          kindCell.textContent = kind;
+          const textCell = document.createElement("span");
+          textCell.className = "rct-audit-log-text";
+          renderAuditLogText(entry, textCell);
+          item.append(raceCell, timeCell, kindCell, textCell);
+          auditLogList.appendChild(item);
+        }
+        if (scrollToBottom && isAuditLogTabActive()) {
+          auditLogList.scrollTop = auditLogList.scrollHeight;
+        }
+      }
+
+      async function loadAuditLog() {
+        const response = await fetch(monitorRestUrl(`/audit-log?ts=${Date.now()}`), {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to load audit log: ${response.status} ${response.statusText}`);
+        }
+        const payload = await response.json();
+        setAuditLog(Array.isArray(payload.audit_log) ? payload.audit_log : []);
       }
 
       function accidentLogsEqual(leftLogs, rightLogs) {
@@ -1945,6 +2189,7 @@
           }
         }
         renderAccidentLogs({ forceDetail: selectedLatestForDecision });
+        renderAuditLog();
         return true;
       }
 
@@ -2748,7 +2993,7 @@
         manualDecisionSubmitInProgress = true;
         try {
           const memoInput = accidentLogDetail.querySelector(".rct-manual-decision-memo");
-          await saveDecisionRecord(accidentLog, command, memoInput ? memoInput.value : automaticDecisionMemo);
+          await saveDecisionRecord(accidentLog, command, memoInput ? memoInput.value : automaticDecisionMemo, "auto");
         } catch (error) {
           manualDecisionSubmitInProgress = false;
           automaticDecisionSubmitFilenames.delete(accidentLog.filename);
@@ -2761,7 +3006,9 @@
         penaltyDecisionAccidentLogFilename = null;
         clearPendingAutomaticDecision(accidentLog.filename);
         stopAutoSelectingLatestAccidentLog();
-        raceRecordsModal.hide();
+        if (isAccidentRecordsTabActive()) {
+          raceRecordsModal.hide();
+        }
       }
 
       function automaticDecisionCommand(summary) {
@@ -2815,7 +3062,7 @@
         return automaticDecisionCommand(currentAccidentLogSummary);
       }
 
-      async function saveDecisionRecord(accidentLog, command, memo) {
+      async function saveDecisionRecord(accidentLog, command, memo, decisionMode = "manual") {
         if (!accidentLog || !accidentLog.filename) {
           return;
         }
@@ -2838,6 +3085,7 @@
               decision_package_ids: selectedSwAnalysisOptions.map((option) => option.id),
               decision_io_version: window.RCTDecisionPacks.VERSION,
               decision_results: decisionResults,
+              decision_mode: decisionMode,
               memo,
             }),
           },
@@ -5731,6 +5979,10 @@
             setAccidentLogs(message.accident_logs);
             updateRaceRecordsButton();
           }
+        } else if (message.event === "audit-log") {
+          if (message.audit_entry && isRaceRecordsDialogOpen() && isAuditLogTabActive()) {
+            appendAuditLogEntry(message.audit_entry);
+          }
         } else if (message.event === "penalty-decision") {
           updateReviewTimeRunning(message);
           if (Object.prototype.hasOwnProperty.call(message, "review_time_seconds")) {
@@ -6367,14 +6619,21 @@
         raceRecordsDialogVisible = true;
         updateRaceRecordsFooterActions();
         renderAccidentLogs({ forceDetail: true });
+        renderAuditLog({ scrollToBottom: isAuditLogTabActive() });
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
         });
+        if (isAuditLogTabActive()) {
+          void loadAuditLog().catch((error) => {
+            console.warn("Failed to refresh audit log:", error);
+          });
+        }
       });
       raceRecordsDialog.addEventListener("shown.bs.modal", () => {
         raceRecordsDialogVisible = true;
         updateRaceRecordsFooterActions();
         renderAccidentLogs();
+        renderAuditLog({ scrollToBottom: isAuditLogTabActive() });
       });
       raceRecordsDialog.addEventListener("hidden.bs.modal", () => {
         raceRecordsDialogVisible = false;
@@ -6397,13 +6656,22 @@
         renderAccidentLogs({ forceDetail: true });
       });
       raceRecordsTabButtons.forEach((button) => {
-        button.addEventListener("shown.bs.tab", updateRaceRecordsFooterActions);
+        button.addEventListener("shown.bs.tab", () => {
+          updateRaceRecordsFooterActions();
+          if (isAuditLogTabActive()) {
+            renderAuditLog({ scrollToBottom: true });
+            void loadAuditLog().catch((error) => {
+              console.warn("Failed to refresh audit log:", error);
+            });
+          }
+        });
       });
 
       async function initializeFrontend() {
         loadExperimentsFrontendSettings();
         renderTopicOptions(fallbackTopicOptions, {});
         renderAccidentLogs();
+        renderAuditLog();
         updateRaceRecordsButton();
         updateRaceRecordsFooterActions();
         void loadAccidentLogs().catch((error) => {
