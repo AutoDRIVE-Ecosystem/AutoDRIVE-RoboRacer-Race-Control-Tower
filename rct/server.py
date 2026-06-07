@@ -34,6 +34,7 @@ from .bridge import (
 )
 from .config import Settings, load_settings
 from .decision import (
+    DEFAULT_DECISION_EVALUATION,
     load_decision_record,
     save_decision_record,
 )
@@ -1544,6 +1545,17 @@ class RaceControlTower:
         decision_results = body.get("decision_results", {})
         if not isinstance(decision_results, dict):
             return web.json_response({"error": "decision_results must be an object"}, status=400)
+        evaluation = body.get("evaluation")
+        if evaluation is None:
+            evaluation = dict(DEFAULT_DECISION_EVALUATION)
+        elif (
+            not isinstance(evaluation, dict)
+            or set(evaluation) != set(DEFAULT_DECISION_EVALUATION)
+            or not all(isinstance(evaluation[key], bool) for key in DEFAULT_DECISION_EVALUATION)
+        ):
+            return web.json_response({"error": "evaluation must contain boolean steward 1, steward 2, and steward 3 values"}, status=400)
+        else:
+            evaluation = {key: evaluation[key] for key in DEFAULT_DECISION_EVALUATION}
         decision_io_version = body.get("decision_io_version", "0.1")
         if decision_io_version != "0.1":
             return web.json_response({"error": "unsupported decision_io_version"}, status=400)
@@ -1594,6 +1606,7 @@ class RaceControlTower:
                 no_decision=no_decision,
                 decision_package_ids=package_ids,
                 decision_results=decision_results,
+                evaluation=evaluation,
                 memo=memo,
                 decision_io_version=decision_io_version,
             )

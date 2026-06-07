@@ -11,6 +11,11 @@ from .common import DecisionRecord
 
 DECISION_RECORD_SCHEMA_VERSION = "0.1"
 DECISION_IO_VERSION = "0.1"
+DEFAULT_DECISION_EVALUATION = {
+    "steward 1": True,
+    "steward 2": True,
+    "steward 3": True,
+}
 
 
 def decision_record_path(mcap_path: Path) -> Path:
@@ -27,6 +32,10 @@ def load_decision_record(mcap_path: Path) -> dict[str, Any] | None:
         return None
 
 
+def default_decision_evaluation() -> dict[str, bool]:
+    return dict(DEFAULT_DECISION_EVALUATION)
+
+
 def save_decision_record(
     mcap_path: Path,
     *,
@@ -36,6 +45,7 @@ def save_decision_record(
     no_decision: bool = False,
     decision_package_ids: list[str] | None = None,
     decision_results: dict[str, Any] | None = None,
+    evaluation: dict[str, bool] | None = None,
     memo: str = "",
     schema_version: str = DECISION_RECORD_SCHEMA_VERSION,
     decision_io_version: str = DECISION_IO_VERSION,
@@ -51,6 +61,7 @@ def save_decision_record(
         no_decision=no_decision,
         decision_package_ids=decision_package_ids or [],
         decision_results=decision_results or {},
+        evaluation=dict(evaluation) if evaluation is not None else default_decision_evaluation(),
         memo=memo,
     )
     payload = {
@@ -64,6 +75,7 @@ def save_decision_record(
         "no_decision": record.no_decision,
         "decision_package_ids": record.decision_package_ids,
         "decision_results": record.decision_results,
+        "evaluation": record.evaluation,
         "memo": record.memo,
     }
     decision_record_path(mcap_path).write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

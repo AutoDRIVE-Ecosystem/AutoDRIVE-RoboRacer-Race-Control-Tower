@@ -18,4 +18,5 @@ class DecisionRecord:
     no_decision: bool
     decision_package_ids: list[str]
     decision_results: dict[str, Any]
+    evaluation: dict[str, bool]
     memo: str

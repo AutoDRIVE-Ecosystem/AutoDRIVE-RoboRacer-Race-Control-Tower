@@ -451,8 +451,40 @@ class AuditRecorderTests(unittest.TestCase):
 
             self.assertEqual(record["schema_version"], "0.1")
             self.assertEqual(record["decision_io_version"], "0.1")
+            self.assertEqual(
+                record["evaluation"],
+                {
+                    "steward 1": True,
+                    "steward 2": True,
+                    "steward 3": True,
+                },
+            )
             self.assertIn("decision_results", record)
             self.assertNotIn("rct_git_revision", record)
+
+    def test_decision_record_accepts_evaluation_override(self):
+        with TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "autodrive 2026-05-19 01:02:03:456.mcap"
+            path.write_bytes(b"")
+
+            record = save_decision_record(
+                path,
+                fault_vehicle_id=1,
+                evaluation={
+                    "steward 1": False,
+                    "steward 2": True,
+                    "steward 3": False,
+                },
+            )
+
+            self.assertEqual(
+                record["evaluation"],
+                {
+                    "steward 1": False,
+                    "steward 2": True,
+                    "steward 3": False,
+                },
+            )
 
 
 class MonitorTelemetryTests(unittest.TestCase):
