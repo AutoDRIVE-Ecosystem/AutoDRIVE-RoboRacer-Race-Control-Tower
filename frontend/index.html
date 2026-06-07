@@ -2926,6 +2926,7 @@
         if (selectedAccidentLog) {
           selectedAccidentLogFilename = selectedAccidentLog.filename;
         }
+        let selectedAccidentLogItem = null;
         for (const accidentLog of displayedAccidentLogs) {
           const item = document.createElement("button");
           const selected = accidentLog.filename === selectedAccidentLogFilename;
@@ -2938,6 +2939,7 @@
           item.setAttribute("aria-selected", selected ? "true" : "false");
           if (selected) {
             item.setAttribute("aria-current", "true");
+            selectedAccidentLogItem = item;
           }
           const timeText = accidentLogListTime(accidentLog);
           const timeLabel = document.createElement("span");
@@ -2960,6 +2962,9 @@
             selectAccidentLog(accidentLog.filename);
           });
           accidentLogsList.appendChild(item);
+        }
+        if (selectedAccidentLogItem) {
+          selectedAccidentLogItem.scrollIntoView({ block: "nearest" });
         }
         const detailKey = accidentLogDetailKey(selectedAccidentLog);
         if (!isRaceRecordsDialogOpen()) {
@@ -2989,6 +2994,72 @@
         }
         selectedAccidentLogFilename = filename;
         renderAccidentLogs({ forceDetail: true });
+      }
+
+      function selectedVisibleAccidentLog() {
+        return visibleAccidentLogs().find((accidentLog) => accidentLog.filename === selectedAccidentLogFilename) || null;
+      }
+
+      function moveSelectedAccidentLog(delta) {
+        const displayedAccidentLogs = visibleAccidentLogs();
+        if (displayedAccidentLogs.length === 0) {
+          return false;
+        }
+        const currentIndex = displayedAccidentLogs.findIndex((accidentLog) => accidentLog.filename === selectedAccidentLogFilename);
+        const nextIndex = currentIndex === -1
+          ? (delta > 0 ? 0 : displayedAccidentLogs.length - 1)
+          : Math.max(0, Math.min(displayedAccidentLogs.length - 1, currentIndex + delta));
+        const nextAccidentLog = displayedAccidentLogs[nextIndex];
+        if (!nextAccidentLog || nextAccidentLog.filename === selectedAccidentLogFilename) {
+          return true;
+        }
+        selectAccidentLog(nextAccidentLog.filename);
+        return true;
+      }
+
+      function toggleSelectedStewardEvaluation(stewardIndex) {
+        if (!appliedDecisionPackV2EnableEvaluation) {
+          return false;
+        }
+        const accidentLog = selectedVisibleAccidentLog();
+        const record = accidentLog && accidentLog.decision_record;
+        const stewardKey = decisionEvaluationStewardKeys[stewardIndex];
+        if (!accidentLog || !record || !stewardKey) {
+          return false;
+        }
+        const nextEvaluation = normalizedDecisionEvaluation(record);
+        nextEvaluation[stewardKey] = !nextEvaluation[stewardKey];
+        void saveDecisionRecordEvaluation(accidentLog, nextEvaluation).catch((error) => {
+          console.warn("Failed to update steward evaluation:", error);
+        });
+        return true;
+      }
+
+      function shouldIgnoreRaceRecordsShortcut(event) {
+        if (!isRaceRecordsDialogOpen() || !isAccidentRecordsTabActive() || event.altKey || event.ctrlKey || event.metaKey) {
+          return true;
+        }
+        const target = event.target;
+        return Boolean(
+          target
+          && target.closest
+          && target.closest("input, textarea, select, [contenteditable='true']")
+        );
+      }
+
+      function handleRaceRecordsShortcut(event) {
+        if (shouldIgnoreRaceRecordsShortcut(event)) {
+          return;
+        }
+        if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+          event.preventDefault();
+          moveSelectedAccidentLog(event.key === "ArrowUp" ? -1 : 1);
+          return;
+        }
+        if (appliedDecisionPackV2EnableEvaluation && ["1", "2", "3"].includes(event.key)) {
+          event.preventDefault();
+          toggleSelectedStewardEvaluation(Number(event.key) - 1);
+        }
       }
 
       function accidentLogDetailKey(accidentLog) {
@@ -7795,6 +7866,7 @@
       settingsDialog.addEventListener("shown.bs.modal", () => {
         ensureActiveSettingsTabVisible();
       });
+      document.addEventListener("keydown", handleRaceRecordsShortcut);
       raceRecordsDialog.addEventListener("show.bs.modal", () => {
         raceRecordsDialogVisible = true;
         updateRaceRecordsFooterActions();
