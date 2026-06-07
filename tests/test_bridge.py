@@ -276,12 +276,22 @@ class AuditRecorderTests(unittest.TestCase):
                 text="Race started: simulator connected.",
                 timestamp_ns=1_000_000_000,
             )
+            vehicle_connect = recorder.append(
+                event_type="vehicle_connect",
+                text="Vehicle A connected to RCT (127.0.0.1:4568).",
+                timestamp_ns=1_500_000_000,
+            )
             second = recorder.append(
                 event_type="accident_record",
                 text="Accident record created: 01:02:03:456.",
                 accident_log_filename="autodrive 2026-05-19 01:02:03:456.mcap",
                 accident_log_time="2026-05-19 01:02:03:456",
                 timestamp_ns=2_000_000_000,
+            )
+            vehicle_disconnect = recorder.append(
+                event_type="vehicle_disconnect",
+                text="Vehicle A disconnected from RCT (127.0.0.1:4568).",
+                timestamp_ns=2_500_000_000,
             )
             third = recorder.append(
                 event_type="race_start",
@@ -292,12 +302,20 @@ class AuditRecorderTests(unittest.TestCase):
             logs = list_audit_logs(temporary_directory)
 
         self.assertEqual(first.index, 0)
-        self.assertEqual(second.index, 1)
-        self.assertEqual(third.index, 2)
-        self.assertEqual([log.event_type for log in logs], ["race_start", "accident_record", "race_start"])
-        self.assertEqual([log.race_number for log in logs], [1, 1, 2])
-        self.assertEqual([log.kind for log in logs], ["Race Start", "Accident", "Race Start"])
-        self.assertEqual(logs[1].accident_log_filename, "autodrive 2026-05-19 01:02:03:456.mcap")
+        self.assertEqual(vehicle_connect.index, 1)
+        self.assertEqual(second.index, 2)
+        self.assertEqual(vehicle_disconnect.index, 3)
+        self.assertEqual(third.index, 4)
+        self.assertEqual(
+            [log.event_type for log in logs],
+            ["race_start", "vehicle_connect", "accident_record", "vehicle_disconnect", "race_start"],
+        )
+        self.assertEqual([log.race_number for log in logs], [1, 1, 1, 1, 2])
+        self.assertEqual(
+            [log.kind for log in logs],
+            ["Race Start", "Vehicle Connected", "Accident", "Vehicle Disconnected", "Race Start"],
+        )
+        self.assertEqual(logs[2].accident_log_filename, "autodrive 2026-05-19 01:02:03:456.mcap")
 
     def test_lists_accident_logs_newest_first(self):
         with TemporaryDirectory() as temporary_directory:

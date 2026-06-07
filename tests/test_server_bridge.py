@@ -101,6 +101,37 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_devkit_connection_audit_records_vehicle_kind_and_text(self):
+        tower = RaceControlTower(test_settings())
+        events = []
+
+        async def record_audit_event(**kwargs):
+            events.append(kwargs)
+
+        tower.record_audit_event = record_audit_event
+        devkit = tower.devkits[0]
+        devkit.host = "127.0.0.1"
+        devkit.port = 4568
+
+        await tower.record_devkit_connection_audit(devkit, connected=True)
+        await tower.record_devkit_connection_audit(devkit, connected=False)
+
+        self.assertEqual(events[0]["event_type"], "vehicle_connect")
+        self.assertEqual(events[0]["text"], "Vehicle A connected to RCT (127.0.0.1:4568).")
+        self.assertEqual(events[1]["event_type"], "vehicle_disconnect")
+        self.assertEqual(events[1]["text"], "Vehicle A disconnected from RCT (127.0.0.1:4568).")
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    def test_set_devkit_connected_reports_only_state_changes(self):
+        tower = RaceControlTower(test_settings())
+        devkit = tower.devkits[0]
+
+        self.assertTrue(tower.set_devkit_connected(devkit, True))
+        self.assertFalse(tower.set_devkit_connected(devkit, True))
+        self.assertTrue(tower.set_devkit_connected(devkit, False))
+        self.assertFalse(tower.set_devkit_connected(devkit, False))
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_emit_to_simulators_avoids_socketio_4_asyncio_wait_coroutine_bug(self):
         received = []
         received_event = asyncio.Event()

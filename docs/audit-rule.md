@@ -18,7 +18,7 @@ Each audit message includes:
 - `race_number`: one-based race count since `audit.mcap` was created
 - `timestamp_ns`: event timestamp in nanoseconds
 - `time`: display time
-- `kind`: display category, one of `Race Start`, `Race End`, `Accident`, `Decision`, or `Others`
+- `kind`: display category, one of `Race Start`, `Race End`, `Vehicle Connected`, `Vehicle Disconnected`, `Accident`, `Decision`, or `Others`
 - `event_type`: audit event category
 - `text`: human-readable audit text
 - `accident_log_filename`: related accident MCAP filename, when applicable
@@ -32,6 +32,8 @@ Each audit message includes:
 RCT records these audit events:
 
 - Race start when the first simulator Socket.IO client connects.
+- Vehicle connect when an RCT DevKit bridge slot for a vehicle connects.
+- Vehicle disconnect when an RCT DevKit bridge slot for a vehicle disconnects.
 - Race end when the last simulator client disconnects before a race result.
 - Race end when a vehicle reaches the configured total lap count.
 - Race end when a vehicle reaches the configured maximum penalty count.

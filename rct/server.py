@@ -486,15 +486,18 @@ class DevKitConnection:
 
     def _register_handlers(self) -> None:
         async def on_connect() -> None:
-            self.tower.set_devkit_connected(self, True)
+            connected_changed = self.tower.set_devkit_connected(self, True)
             LOGGER.info("%s connected to %s", self.name, self.url)
+            if connected_changed:
+                await self.tower.record_devkit_connection_audit(self, connected=True)
             self.awaiting_initial_bridge = not await self.tower.send_cached_incoming_bridge(self)
             await self.tower.publish_status()
 
         async def on_disconnect(*_: Any) -> None:
-            if self.connected:
-                self.tower.set_devkit_connected(self, False)
+            connected_changed = self.tower.set_devkit_connected(self, False)
+            if connected_changed:
                 LOGGER.info("%s disconnected from %s", self.name, self.url)
+                await self.tower.record_devkit_connection_audit(self, connected=False)
                 await self.tower.publish_status()
 
         async def on_message(data: Any) -> None:
@@ -564,7 +567,9 @@ class DevKitConnection:
         self._control_task = None
         self.awaiting_initial_bridge = False
         if self.connected:
-            self.tower.set_devkit_connected(self, False)
+            connected_changed = self.tower.set_devkit_connected(self, False)
+            if connected_changed:
+                await self.tower.record_devkit_connection_audit(self, connected=False)
             await self.tower.publish_status()
 
     async def enqueue(self, event: str, args: tuple[Any, ...]) -> None:
@@ -2686,6 +2691,28 @@ class RaceControlTower:
         self.state.add_audit_log(audit_monitor_state_from_record(record))
         await self.publish_audit_log_entry(record)
 
+    async def record_devkit_connection_audit(self, devkit: DevKitConnection, *, connected: bool) -> None:
+        event_type = "vehicle_connect" if connected else "vehicle_disconnect"
+        action = "connected to" if connected else "disconnected from"
+        endpoint = self.devkit_audit_endpoint(devkit)
+        endpoint_text = f" ({endpoint})" if endpoint else ""
+        await self.record_audit_event(
+            event_type=event_type,
+            text=f"{self.vehicle_audit_label(devkit.vehicle_id)} {action} RCT{endpoint_text}.",
+        )
+
+    def devkit_audit_endpoint(self, devkit: DevKitConnection) -> str:
+        if devkit.host and devkit.port is not None:
+            return f"{devkit.host}:{devkit.port}"
+        return devkit.url
+
+    def vehicle_audit_label(self, vehicle_id: int) -> str:
+        if vehicle_id == 1:
+            return "Vehicle A"
+        if vehicle_id == 2:
+            return "Vehicle B"
+        return f"Vehicle {vehicle_id}"
+
     async def record_decision_audit(
         self,
         accident_log_path: Path,
@@ -2973,10 +3000,14 @@ class RaceControlTower:
         selections.update(self.state.topic_selections())
         return selections
 
-    def set_devkit_connected(self, devkit: DevKitConnection, connected: bool) -> None:
+    def set_devkit_connected(self, devkit: DevKitConnection, connected: bool) -> bool:
+        if devkit.connected == connected:
+            self.update_devkit_queue(devkit)
+            return False
         devkit.connected = connected
         self.state.set_devkit_connected(devkit.name, connected)
         self.update_devkit_queue(devkit)
+        return True
 
     def update_devkit_queue(self, devkit: DevKitConnection) -> None:
         self.state.set_devkit_queue_size(devkit.name, devkit.queue.qsize())
