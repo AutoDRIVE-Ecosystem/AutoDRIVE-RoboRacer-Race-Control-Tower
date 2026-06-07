@@ -114,6 +114,7 @@ class RaceControlState:
             "sw_analysis": dict(DEFAULT_PENALTY_SW_ANALYSIS_SETTINGS),
             "decision_pack_v2": {
                 "automatic_decision": False,
+                "enable_evaluation": False,
                 "graphs": dict(DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS),
                 "collision_types": dict(DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS),
             },
@@ -335,8 +336,10 @@ class RaceControlState:
         next_graphs = dict(DEFAULT_DECISION_PACK_V2_GRAPH_SETTINGS)
         next_collision_types = dict(DEFAULT_DECISION_PACK_V2_COLLISION_TYPE_SETTINGS)
         next_automatic_decision = False
+        next_enable_evaluation = False
         if decision_pack_v2 is not None:
             next_automatic_decision = bool(decision_pack_v2.get("automatic_decision", False))
+            next_enable_evaluation = bool(decision_pack_v2.get("enable_evaluation", False))
             graph_settings = decision_pack_v2.get("graphs", {})
             if isinstance(graph_settings, Mapping):
                 next_graphs.update(graph_settings)
@@ -349,6 +352,7 @@ class RaceControlState:
             "sw_analysis": next_sw_analysis,
             "decision_pack_v2": {
                 "automatic_decision": next_automatic_decision,
+                "enable_evaluation": next_enable_evaluation,
                 "graphs": next_graphs,
                 "collision_types": next_collision_types,
             },
@@ -368,6 +372,7 @@ class RaceControlState:
                 v2_settings = {}
             settings["decision_pack_v2"] = {
                 "automatic_decision": bool(v2_settings.get("automatic_decision", False)),
+                "enable_evaluation": bool(v2_settings.get("enable_evaluation", False)),
                 "graphs": dict(v2_settings.get("graphs", {})),
                 "collision_types": dict(v2_settings.get("collision_types", {})),
             }

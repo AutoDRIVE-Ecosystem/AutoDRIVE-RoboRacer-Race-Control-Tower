@@ -1118,6 +1118,10 @@
                     <input id="decisionPackV2AutomaticDecision" class="form-check-input" type="checkbox">
                     <label class="form-check-label" for="decisionPackV2AutomaticDecision">Automatic Decision</label>
                   </div>
+                  <div class="form-check mb-3">
+                    <input id="decisionPackV2EnableEvaluation" class="form-check-input" type="checkbox">
+                    <label class="form-check-label" for="decisionPackV2EnableEvaluation">Enable 3 Human Steward Post-Evaluation for Auto Decisions</label>
+                  </div>
                   <div class="rct-settings-subtitle">Decision Pack v2 Graph Renderer</div>
                   <div class="d-flex flex-wrap gap-3 mb-3">
                     <div class="form-check">
@@ -1360,6 +1364,9 @@
                   <li class="nav-item" role="presentation">
                     <button class="nav-link" id="accident-statistics-tab" data-bs-toggle="tab" data-bs-target="#accident-statistics-tab-pane" type="button" role="tab" aria-controls="accident-statistics-tab-pane" aria-selected="false">Statistics</button>
                   </li>
+                  <li class="nav-item" id="accident-evaluation-tab-item" role="presentation" hidden>
+                    <button class="nav-link" id="accident-evaluation-tab" data-bs-toggle="tab" data-bs-target="#accident-evaluation-tab-pane" type="button" role="tab" aria-controls="accident-evaluation-tab-pane" aria-selected="false">Post Evaluation</button>
+                  </li>
                   <li class="nav-item" role="presentation">
                     <button class="nav-link" id="accident-audit-log-tab" data-bs-toggle="tab" data-bs-target="#accident-audit-log-tab-pane" type="button" role="tab" aria-controls="accident-audit-log-tab-pane" aria-selected="false">Audit Log</button>
                   </li>
@@ -1383,6 +1390,7 @@
                     <div id="bridgeHzStatisticsEmpty" class="rct-race-statistics-empty">No bridge Hz samples in this browser session.</div>
                   </div>
                 </div>
+                <div class="tab-pane fade rct-race-records-tab-pane" id="accident-evaluation-tab-pane" role="tabpanel" aria-labelledby="accident-evaluation-tab" tabindex="0"></div>
                 <div class="tab-pane fade rct-race-records-tab-pane" id="accident-audit-log-tab-pane" role="tabpanel" aria-labelledby="accident-audit-log-tab" tabindex="0">
                   <div id="auditLogList" class="list-group rct-audit-log-list" role="list" aria-label="Audit log"></div>
                 </div>
@@ -1589,6 +1597,7 @@
       const decisionPackV1Options = document.getElementById("decisionPackV1Options");
       const decisionPackV2Options = document.getElementById("decisionPackV2Options");
       const decisionPackV2AutomaticDecisionCheckbox = document.getElementById("decisionPackV2AutomaticDecision");
+      const decisionPackV2EnableEvaluationCheckbox = document.getElementById("decisionPackV2EnableEvaluation");
       const decisionPackV2GraphRendererRadios = Array.from(document.querySelectorAll(".decision-pack-v2-graph-renderer-radio"));
       const swAnalysisCheckboxes = Array.from(document.querySelectorAll(".sw-analysis-checkbox"));
       const defaultPenaltySwAnalysis = swAnalysisCheckboxes.reduce((settings, checkbox) => {
@@ -1611,6 +1620,7 @@
         penaltyRestartDelaySeconds: 2,
         decisionPackVersion: "v2",
         decisionPackV2AutomaticDecision: false,
+        decisionPackV2EnableEvaluation: false,
         decisionPackV2GraphRenderer: "plotly",
         showCanvasFpsOverlay: false,
         totalLapCount: 10,
@@ -1633,6 +1643,7 @@
       const raceRecordsButton = document.getElementById("raceRecordsButton");
       const raceRecordsButtonText = document.getElementById("raceRecordsButtonText");
       const raceRecordsTabButtons = Array.from(document.querySelectorAll("#raceRecordsTabs [data-bs-toggle='tab']"));
+      const raceRecordsEvaluationTabItem = document.getElementById("accident-evaluation-tab-item");
       const accidentRecordsTabCount = document.getElementById("accidentRecordsTabCount");
       const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
       const filterSingleVehicleCollision = document.getElementById("filterSingleVehicleCollision");
@@ -1759,6 +1770,7 @@
       let appliedDecisionPackVersion = "v2";
       let appliedPenaltySwAnalysis = { ...defaultPenaltySwAnalysis };
       let appliedDecisionPackV2AutomaticDecision = false;
+      let appliedDecisionPackV2EnableEvaluation = false;
       let appliedDecisionPackV2CollisionTypes = { ...defaultDecisionPackV2CollisionTypes };
       let appliedDecisionPackV2Graphs = { ...defaultDecisionPackV2Graphs };
       let appliedDecisionPackV2GraphRenderer = "plotly";
@@ -1932,9 +1944,10 @@
         const activeTabButton = raceRecordsTabButtons.find((button) => button.classList.contains("active"));
         const activeTabId = activeTabButton ? activeTabButton.id : "accident-records-tab";
         const isStatisticsTab = activeTabId === "accident-statistics-tab";
+        const isEvaluationTab = activeTabId === "accident-evaluation-tab";
         const isAuditLogTab = activeTabId === "accident-audit-log-tab";
-        filterSingleVehicleCollisionControl.hidden = isAuditLogTab;
-        clearAccidentLogsButton.hidden = isStatisticsTab;
+        filterSingleVehicleCollisionControl.hidden = isAuditLogTab || isEvaluationTab;
+        clearAccidentLogsButton.hidden = isStatisticsTab || isEvaluationTab;
         updateClearRaceRecordsButtonState();
       }
 
@@ -1953,6 +1966,15 @@
 
       function isStatisticsTabActive() {
         return activeRaceRecordsTabId() === "accident-statistics-tab";
+      }
+
+      function updateRaceRecordsEvaluationTabVisibility() {
+        const enabled = Boolean(appliedDecisionPackV2EnableEvaluation);
+        raceRecordsEvaluationTabItem.hidden = !enabled;
+        if (!enabled && activeRaceRecordsTabId() === "accident-evaluation-tab") {
+          bootstrap.Tab.getOrCreateInstance(document.getElementById("accident-records-tab")).show();
+        }
+        updateRaceRecordsFooterActions();
       }
 
       function resetRaceStatistics() {
@@ -4719,6 +4741,7 @@
           || selectedDecisionPackVersion() !== appliedDecisionPackVersion
           || JSON.stringify(collectPenaltySwAnalysisSettings()) !== JSON.stringify(appliedPenaltySwAnalysis)
           || decisionPackV2AutomaticDecisionCheckbox.checked !== appliedDecisionPackV2AutomaticDecision
+          || decisionPackV2EnableEvaluationCheckbox.checked !== appliedDecisionPackV2EnableEvaluation
           || JSON.stringify(collectDecisionPackV2Settings().collision_types) !== JSON.stringify(appliedDecisionPackV2CollisionTypes)
           || JSON.stringify(collectDecisionPackV2Settings().graphs) !== JSON.stringify(appliedDecisionPackV2Graphs)
         );
@@ -4731,6 +4754,7 @@
           || selectedDecisionPackVersion() !== defaultSettings.decisionPackVersion
           || JSON.stringify(collectPenaltySwAnalysisSettings()) !== JSON.stringify(defaultPenaltySwAnalysis)
           || decisionPackV2AutomaticDecisionCheckbox.checked !== defaultSettings.decisionPackV2AutomaticDecision
+          || decisionPackV2EnableEvaluationCheckbox.checked !== defaultSettings.decisionPackV2EnableEvaluation
           || JSON.stringify(decisionPackV2Settings.collision_types) !== JSON.stringify(defaultDecisionPackV2CollisionTypes)
           || JSON.stringify(decisionPackV2Settings.graphs) !== JSON.stringify(defaultDecisionPackV2Graphs)
         );
@@ -4856,6 +4880,7 @@
       function collectDecisionPackV2Settings() {
         return {
           automatic_decision: decisionPackV2AutomaticDecisionCheckbox.checked,
+          enable_evaluation: decisionPackV2EnableEvaluationCheckbox.checked,
           collision_types: decisionPackV2CollisionTypeCheckboxes.reduce((settings, checkbox) => {
             settings[checkbox.dataset.analysisId] = checkbox.checked;
             return settings;
@@ -4892,6 +4917,7 @@
       function normalizeDecisionPackV2Settings(settings) {
         const normalized = {
           automatic_decision: false,
+          enable_evaluation: false,
           collision_types: { ...defaultDecisionPackV2CollisionTypes },
           graphs: { ...defaultDecisionPackV2Graphs },
         };
@@ -4900,6 +4926,9 @@
         }
         if (Object.prototype.hasOwnProperty.call(settings, "automatic_decision")) {
           normalized.automatic_decision = Boolean(settings.automatic_decision);
+        }
+        if (Object.prototype.hasOwnProperty.call(settings, "enable_evaluation")) {
+          normalized.enable_evaluation = Boolean(settings.enable_evaluation);
         }
         const collisionTypes = settings.collision_types && typeof settings.collision_types === "object" ? settings.collision_types : {};
         const graphs = settings.graphs && typeof settings.graphs === "object" ? settings.graphs : {};
@@ -4921,15 +4950,18 @@
       function syncDecisionPackV2Settings(settings) {
         const normalized = normalizeDecisionPackV2Settings(settings);
         appliedDecisionPackV2AutomaticDecision = normalized.automatic_decision;
+        appliedDecisionPackV2EnableEvaluation = normalized.enable_evaluation;
         appliedDecisionPackV2CollisionTypes = normalized.collision_types;
         appliedDecisionPackV2Graphs = normalized.graphs;
         decisionPackV2AutomaticDecisionCheckbox.checked = appliedDecisionPackV2AutomaticDecision;
+        decisionPackV2EnableEvaluationCheckbox.checked = appliedDecisionPackV2EnableEvaluation;
         for (const checkbox of decisionPackV2CollisionTypeCheckboxes) {
           checkbox.checked = Boolean(appliedDecisionPackV2CollisionTypes[checkbox.dataset.analysisId]);
         }
         for (const checkbox of decisionPackV2GraphCheckboxes) {
           checkbox.checked = Boolean(appliedDecisionPackV2Graphs[checkbox.dataset.graphId]);
         }
+        updateRaceRecordsEvaluationTabVisibility();
       }
 
       function selectedPenaltySwAnalysisOptions() {
@@ -5548,6 +5580,7 @@
           checkbox.checked = Boolean(defaultPenaltySwAnalysis[checkbox.dataset.analysisId]);
         }
         decisionPackV2AutomaticDecisionCheckbox.checked = defaultSettings.decisionPackV2AutomaticDecision;
+        decisionPackV2EnableEvaluationCheckbox.checked = defaultSettings.decisionPackV2EnableEvaluation;
         for (const checkbox of decisionPackV2CollisionTypeCheckboxes) {
           checkbox.checked = Boolean(defaultDecisionPackV2CollisionTypes[checkbox.dataset.analysisId]);
         }
@@ -6870,6 +6903,7 @@
             appliedPenaltySwAnalysis = normalizePenaltySwAnalysisSettings(settings.sw_analysis);
             const normalizedV2 = normalizeDecisionPackV2Settings(settings.decision_pack_v2);
             appliedDecisionPackV2AutomaticDecision = normalizedV2.automatic_decision;
+            appliedDecisionPackV2EnableEvaluation = normalizedV2.enable_evaluation;
             appliedDecisionPackV2CollisionTypes = normalizedV2.collision_types;
             appliedDecisionPackV2Graphs = normalizedV2.graphs;
             if (!hasPendingPenaltyRuleChanges) {
@@ -6877,6 +6911,7 @@
                 checkbox.checked = Boolean(appliedPenaltySwAnalysis[checkbox.dataset.analysisId]);
               }
               decisionPackV2AutomaticDecisionCheckbox.checked = appliedDecisionPackV2AutomaticDecision;
+              decisionPackV2EnableEvaluationCheckbox.checked = appliedDecisionPackV2EnableEvaluation;
               for (const checkbox of decisionPackV2CollisionTypeCheckboxes) {
                 checkbox.checked = Boolean(appliedDecisionPackV2CollisionTypes[checkbox.dataset.analysisId]);
               }
@@ -6884,6 +6919,7 @@
                 checkbox.checked = Boolean(appliedDecisionPackV2Graphs[checkbox.dataset.graphId]);
               }
             }
+            updateRaceRecordsEvaluationTabVisibility();
             updateSettingsApplyState();
           }
           if (message.racing_rule) {
@@ -7574,6 +7610,7 @@
         });
       });
       decisionPackV2AutomaticDecisionCheckbox.addEventListener("change", updateSettingsApplyState);
+      decisionPackV2EnableEvaluationCheckbox.addEventListener("change", updateSettingsApplyState);
       decisionPackV2GraphRendererRadios.forEach((radio) => {
         radio.addEventListener("change", () => {
           if (selectedDecisionPackV2GraphRenderer() === "matplotlib" && window.RCTMatplotlibRenderer) {
@@ -7699,6 +7736,7 @@
         renderRaceStatistics();
         updateRaceRecordsButton();
         updateRaceRecordsFooterActions();
+        updateRaceRecordsEvaluationTabVisibility();
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to load accident logs:", error);
         });

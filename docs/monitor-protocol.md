@@ -176,6 +176,7 @@ Response:
     },
     "decision_pack_v2": {
       "automatic_decision": false,
+      "enable_evaluation": false,
       "graphs": {
         "G01": true,
         "G02": true,
@@ -228,6 +229,7 @@ Request:
   },
   "decision_pack_v2": {
     "automatic_decision": true,
+    "enable_evaluation": true,
     "graphs": {
       "G01": true,
       "G02": true,
@@ -258,7 +260,7 @@ Request:
 }
 ```
 
-`restart_delay_seconds` must be a number from `0` to `60`. `decision_pack_version` must be `v1` or `v2`. `sw_analysis` must be an object of supported software-analysis option booleans. `decision_pack_v2.automatic_decision`, `decision_pack_v2.graphs`, and `decision_pack_v2.collision_types` configure experimental Decision Pack v2 behavior. When `restart_delay_seconds` is greater than `0`, a vehicle that receives a manual penalty stays command-filtered for that duration after the decision while the other vehicle is released immediately. When set to `0`, both vehicles are released immediately after the decision. The response returns `ok: true` and the applied `penalty_rule` settings. RCT publishes an updated `status` event after the settings change.
+`restart_delay_seconds` must be a number from `0` to `60`. `decision_pack_version` must be `v1` or `v2`. `sw_analysis` must be an object of supported software-analysis option booleans. `decision_pack_v2.automatic_decision`, `decision_pack_v2.enable_evaluation`, `decision_pack_v2.graphs`, and `decision_pack_v2.collision_types` configure experimental Decision Pack v2 behavior. When `restart_delay_seconds` is greater than `0`, a vehicle that receives a manual penalty stays command-filtered for that duration after the decision while the other vehicle is released immediately. When set to `0`, both vehicles are released immediately after the decision. The response returns `ok: true` and the applied `penalty_rule` settings. RCT publishes an updated `status` event after the settings change.
 
 Racing rule settings:
 
@@ -467,6 +469,7 @@ Initial event:
     },
     "decision_pack_v2": {
       "automatic_decision": false,
+      "enable_evaluation": false,
       "graphs": {
         "G01": true,
         "G02": true,
