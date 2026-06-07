@@ -1915,11 +1915,17 @@
         const totalCount = accidentLogs.length;
         const visibleCount = visibleAccidentLogs().length;
         raceRecordsButton.disabled = false;
-        clearAccidentLogsButton.disabled = totalCount === 0;
+        updateClearRaceRecordsButtonState();
         accidentRecordsTabCount.textContent = String(visibleCount);
         raceRecordsButtonText.textContent = visibleCount > 0
           ? `Open Race Records (${visibleCount})`
           : "Open Race Records";
+      }
+
+      function updateClearRaceRecordsButtonState() {
+        clearAccidentLogsButton.disabled = isAuditLogTabActive()
+          ? auditLog.length === 0 && accidentLogs.length === 0
+          : accidentLogs.length === 0;
       }
 
       function updateRaceRecordsFooterActions() {
@@ -1928,7 +1934,8 @@
         const isStatisticsTab = activeTabId === "accident-statistics-tab";
         const isAuditLogTab = activeTabId === "accident-audit-log-tab";
         filterSingleVehicleCollisionControl.hidden = isAuditLogTab;
-        clearAccidentLogsButton.hidden = isStatisticsTab || isAuditLogTab;
+        clearAccidentLogsButton.hidden = isStatisticsTab;
+        updateClearRaceRecordsButtonState();
       }
 
       function activeRaceRecordsTabId() {
@@ -2410,6 +2417,7 @@
         const hadEntries = auditLog.length > 0;
         auditLog = nextAuditLog;
         renderAuditLog({ scrollToBottom: hadEntries || isAuditLogTabActive() });
+        updateClearRaceRecordsButtonState();
         return true;
       }
 
@@ -2437,6 +2445,7 @@
         }
         auditLog = [...auditLog, entry];
         renderAuditLog({ scrollToBottom: true });
+        updateClearRaceRecordsButtonState();
         return true;
       }
 
@@ -3471,6 +3480,10 @@
       }
 
       async function clearAccidentLogs() {
+        const confirmed = window.confirm("Clear accident records and audit log MCAP files?");
+        if (!confirmed) {
+          return;
+        }
         const keepFilename = simulatorConnected && penaltyDecisionActive && penaltyDecisionAccidentLogFilename
           ? penaltyDecisionAccidentLogFilename
           : "";
@@ -3484,6 +3497,7 @@
         }
         const payload = await response.json();
         setAccidentLogs(Array.isArray(payload.accident_logs) ? payload.accident_logs : []);
+        setAuditLog(Array.isArray(payload.audit_log) ? payload.audit_log : []);
         updateRaceRecordsButton();
       }
 
@@ -6964,6 +6978,8 @@
         } else if (message.event === "audit-log") {
           if (message.audit_entry && isRaceRecordsDialogOpen() && isAuditLogTabActive()) {
             appendAuditLogEntry(message.audit_entry);
+          } else if (Array.isArray(message.audit_log)) {
+            setAuditLog(message.audit_log);
           }
         } else if (message.event === "penalty-decision") {
           const raceTimeSeconds = Number(message.race_time_seconds);

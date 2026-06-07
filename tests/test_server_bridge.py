@@ -12,7 +12,7 @@ from time import monotonic
 from urllib.parse import quote
 
 from rct.accident_recorder import AccidentBridgeRecord
-from rct.audit_recorder import AuditLogRecord
+from rct.audit_recorder import AUDIT_FILENAME, AuditLogRecord
 from rct.config import Settings
 from rct.decision import save_decision_record
 
@@ -552,8 +552,10 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
             tower.accident_recorder.output_dir = Path(temporary_directory)
             first_log = tower.accident_recorder.output_dir / "autodrive 2026-05-19 01:02:03:456.mcap"
             second_log = tower.accident_recorder.output_dir / "autodrive 2026-05-19 01:02:04:000.mcap"
+            audit_log = tower.accident_recorder.output_dir / AUDIT_FILENAME
             first_log.write_bytes(b"mcap")
             second_log.write_bytes(b"mcap")
+            audit_log.write_bytes(b"mcap")
             tower_app = tower.create_app()
             tower_runner = web.AppRunner(tower_app)
             await tower_runner.setup()
@@ -573,10 +575,12 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertFalse(first_log.exists())
             self.assertFalse(second_log.exists())
+            self.assertFalse(audit_log.exists())
 
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["deleted"], 2)
+        self.assertEqual(payload["deleted"], 3)
         self.assertEqual(payload["accident_logs"], [])
+        self.assertEqual(payload["audit_log"], [])
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     @unittest.skipIf(not AIOHTTP_AVAILABLE, "aiohttp is not installed")

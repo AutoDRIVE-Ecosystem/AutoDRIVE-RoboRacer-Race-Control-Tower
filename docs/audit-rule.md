@@ -98,9 +98,10 @@ The response body contains:
 ```
 
 Monitor WebSocket clients receive an `audit-log` event whenever a new audit
-record is created. The event carries only the new `audit_entry`; it does not
-carry the full audit array. Clients should load the full list through REST when
-they need to render the Audit Log tab.
+record is created. New-record events carry only the new `audit_entry`; clients
+should load the full list through REST when they need to render the Audit Log
+tab. Clear operations can publish an `audit-log` event with `audit_log`
+containing the refreshed full list.
 
 ## Frontend
 

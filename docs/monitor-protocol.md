@@ -416,13 +416,14 @@ Response:
 DELETE /monitor/REST/0.1/accident-logs
 ```
 
-Deletes `autodrive *.mcap` files from the recorder output directory, refreshes shared monitor state, publishes a `status` event, and returns:
+Deletes `autodrive *.mcap` accident files and `audit.mcap` from the recorder output directory, refreshes shared monitor state, publishes a `status` event, and returns:
 
 ```json
 {
   "ok": true,
-  "deleted": 2,
-  "accident_logs": []
+  "deleted": 3,
+  "accident_logs": [],
+  "audit_log": []
 }
 ```
 

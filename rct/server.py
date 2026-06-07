@@ -21,7 +21,7 @@ from socketio import packet as socketio_packet
 from aiohttp import WSMsgType, web
 
 from .accident_recorder import AccidentRecorder, list_accident_logs
-from .audit_recorder import AuditLogRecord, AuditRecorder, list_audit_logs
+from .audit_recorder import AUDIT_FILENAME, AuditLogRecord, AuditRecorder, list_audit_logs
 from .accident_summary import accident_log_compact_summary_from_mcap, accident_log_summary_from_mcap, replay_lidar_ranges_payload
 from .bridge import (
     BridgeHistory,
@@ -1629,14 +1629,21 @@ class RaceControlTower:
                 if decision_path.is_file():
                     decision_path.unlink()
                 deleted += 1
+            audit_path = output_dir / AUDIT_FILENAME
+            if audit_path.is_file():
+                audit_path.unlink()
+                deleted += 1
         self.refresh_accident_logs_from_disk()
+        self.refresh_audit_log_from_disk()
         await self.publish_accident_logs()
+        await self.publish_audit_log()
         await self.publish_status()
         return web.json_response(
             {
                 "ok": True,
                 "deleted": deleted,
                 "accident_logs": self.state.accident_logs(),
+                "audit_log": self.state.audit_log(),
             }
         )
 
@@ -2806,6 +2813,13 @@ class RaceControlTower:
             audit_entry=asdict(audit_monitor_state_from_record(record)),
         )
 
+    def audit_log_message(self) -> str:
+        return envelope(
+            "audit-log",
+            source="rct",
+            audit_log=self.state.audit_log(),
+        )
+
     def cached_telemetry_message(self) -> str | None:
         if not self.monitor_vehicle_telemetry:
             return None
@@ -2840,6 +2854,9 @@ class RaceControlTower:
 
     async def publish_accident_logs(self) -> None:
         await self.broadcast_monitor(self.accident_logs_message())
+
+    async def publish_audit_log(self) -> None:
+        await self.broadcast_monitor(self.audit_log_message())
 
     async def publish_audit_log_entry(self, record: AuditLogRecord) -> None:
         await self.broadcast_monitor(self.audit_log_entry_message(record))
