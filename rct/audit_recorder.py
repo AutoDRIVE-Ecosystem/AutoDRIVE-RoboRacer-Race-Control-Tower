@@ -139,6 +139,7 @@ def audit_kind(event_type: str) -> str:
         "race_end": "Race End",
         "vehicle_connect": "Vehicle Connected",
         "vehicle_disconnect": "Vehicle Disconnected",
+        "bridge_hz": "Bridge Hz",
         "accident_record": "Accident",
         "decision": "Decision",
     }.get(event_type, "Others")

@@ -123,6 +123,11 @@ class RaceControlState:
             "maximum_penalty_count": 0,
             "celebration_with_confetti": True,
         }
+        self._audit_rule_settings: dict[str, float | bool] = {
+            "bridge_hz_maximum": 120.0,
+            "bridge_hz_minimum": 20.0,
+            "bridge_hz_spike_percent": 25.0,
+        }
         self._accident_logs: list[AccidentLogMonitorState] = []
         self._audit_log: list[AuditLogMonitorState] = []
         self._penalty_decision = PenaltyDecisionMonitorState(
@@ -390,6 +395,28 @@ class RaceControlState:
         with self._lock:
             return dict(self._racing_rule_settings)
 
+    def set_audit_rule_settings(
+        self,
+        *,
+        bridge_hz_maximum: float,
+        bridge_hz_minimum: float,
+        bridge_hz_spike_percent: float,
+    ) -> None:
+        next_settings = {
+            "bridge_hz_maximum": float(bridge_hz_maximum),
+            "bridge_hz_minimum": float(bridge_hz_minimum),
+            "bridge_hz_spike_percent": float(bridge_hz_spike_percent),
+        }
+        with self._lock:
+            if self._audit_rule_settings == next_settings:
+                return
+            self._audit_rule_settings = next_settings
+            self._revision += 1
+
+    def audit_rule_settings(self) -> dict[str, float | bool]:
+        with self._lock:
+            return dict(self._audit_rule_settings)
+
     def set_accident_logs(self, accident_logs: Iterable[AccidentLogMonitorState]) -> None:
         next_logs = list(accident_logs)
         with self._lock:
@@ -511,6 +538,7 @@ class RaceControlState:
                 "accident_recorder": dict(self._accident_recorder_settings),
                 "penalty_rule": self.penalty_rule_settings(),
                 "racing_rule": dict(self._racing_rule_settings),
+                "audit_rule": dict(self._audit_rule_settings),
                 "accident_logs": [asdict(accident_log) for accident_log in self._accident_logs],
                 "audit_log": [asdict(audit_log) for audit_log in self._audit_log],
                 "penalty_decision": asdict(self._penalty_decision),

@@ -8,6 +8,7 @@ import gzip
 import inspect
 import json
 import logging
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,6 +69,9 @@ FRONTEND_ROOT = Path(__file__).resolve().parent.parent / "frontend"
 SOCKETIO_PATH = "socket.io"
 BRIDGE_OMITTED_KEY_PARTS = ("lidar", "camera", "array", "image")
 FRONT_CAMERA_IMAGE_KEYS = ("V1 Front Camera Image", "V2 Front Camera Image")
+DEFAULT_BRIDGE_HZ_SPIKE_PERCENT = 25.0
+BRIDGE_HZ_SPIKE_LOOKBACK_SECONDS = 1.0
+BRIDGE_HZ_AUDIT_HISTORY_SECONDS = 3.0
 WHITE_FRONT_CAMERA_JPEG_BASE64 = (
 "/9j/4AAQSkZJRgABAQEBLAEsAAD/2wBDAP//////////////////////////////////////////"
 "////////////////////////////////////////////2wBDAf//////////////////////////"
@@ -455,6 +459,123 @@ def mcap_range_response(body: bytes, request: web.Request, headers: dict[str, st
 
 
 @dataclass
+class BridgeHzAuditVehicleState:
+    history: deque[tuple[float, float]] = field(default_factory=deque)
+    high_active: bool = False
+    low_active: bool = False
+    spike_direction: str | None = None
+
+
+@dataclass(frozen=True)
+class BridgeHzAuditEvent:
+    event_type: str
+    text: str
+
+
+class BridgeHzAuditTracker:
+    def __init__(
+        self,
+        *,
+        history_seconds: float = BRIDGE_HZ_AUDIT_HISTORY_SECONDS,
+        spike_lookback_seconds: float = BRIDGE_HZ_SPIKE_LOOKBACK_SECONDS,
+    ) -> None:
+        self.history_seconds = history_seconds
+        self.spike_lookback_seconds = spike_lookback_seconds
+        self._states: dict[int, BridgeHzAuditVehicleState] = {}
+
+    def evaluate(
+        self,
+        *,
+        vehicle_id: int,
+        vehicle_label: str,
+        bridge_hz: float,
+        connected: bool,
+        settings: dict[str, Any],
+        now: float,
+    ) -> list[BridgeHzAuditEvent]:
+        state = self._states.setdefault(vehicle_id, BridgeHzAuditVehicleState())
+        if not connected:
+            state.history.clear()
+            state.high_active = False
+            state.low_active = False
+            state.spike_direction = None
+            return []
+
+        maximum = float(settings["bridge_hz_maximum"])
+        minimum = float(settings["bridge_hz_minimum"])
+        spike_ratio = float(settings["bridge_hz_spike_percent"]) / 100.0
+        events: list[BridgeHzAuditEvent] = []
+
+        if bridge_hz >= maximum:
+            if not state.high_active:
+                events.append(
+                    BridgeHzAuditEvent(
+                        "bridge_hz",
+                        f"Bridge Hz above maximum: {vehicle_label} {bridge_hz:.1f} Hz >= {maximum:.1f} Hz.",
+                    )
+                )
+            state.high_active = True
+        else:
+            state.high_active = False
+
+        if bridge_hz <= minimum:
+            if not state.low_active:
+                events.append(
+                    BridgeHzAuditEvent(
+                        "bridge_hz",
+                        f"Bridge Hz below minimum: {vehicle_label} {bridge_hz:.1f} Hz <= {minimum:.1f} Hz.",
+                    )
+                )
+            state.low_active = True
+        else:
+            state.low_active = False
+
+        baseline = self._sample_at_or_before(state.history, now - self.spike_lookback_seconds)
+        if baseline is not None:
+            baseline_time, baseline_hz = baseline
+            if now - baseline_time >= self.spike_lookback_seconds * 0.75 and baseline_hz > 0:
+                delta = bridge_hz - baseline_hz
+                ratio = abs(delta) / baseline_hz
+                direction = "increase" if delta > 0 else "decrease"
+                if ratio >= spike_ratio and direction != state.spike_direction:
+                    events.append(
+                        BridgeHzAuditEvent(
+                            "bridge_hz",
+                            (
+                                f"Bridge Hz spike: {vehicle_label} {baseline_hz:.1f} Hz -> "
+                                f"{bridge_hz:.1f} Hz ({delta / baseline_hz:+.1%}) over {now - baseline_time:.1f}s."
+                            ),
+                        )
+                    )
+                    state.spike_direction = direction
+                elif ratio < spike_ratio:
+                    state.spike_direction = None
+            else:
+                state.spike_direction = None
+
+        state.history.append((now, bridge_hz))
+        self._prune(state.history, now)
+        return events
+
+    def _sample_at_or_before(
+        self,
+        history: deque[tuple[float, float]],
+        target_time: float,
+    ) -> tuple[float, float] | None:
+        sample = None
+        for entry in history:
+            if entry[0] > target_time:
+                break
+            sample = entry
+        return sample
+
+    def _prune(self, history: deque[tuple[float, float]], now: float) -> None:
+        cutoff = now - self.history_seconds
+        while history and history[0][0] < cutoff:
+            history.popleft()
+
+
+@dataclass
 class DevKitConnection:
     name: str
     vehicle_id: int
@@ -654,6 +775,7 @@ class RaceControlTower:
         self.audit_recorder = AuditRecorder(self.accident_recorder.output_dir)
         self.control_cache = ControlCache()
         self.bridge_rates = BridgeRateTracker()
+        self.bridge_hz_audit = BridgeHzAuditTracker()
         self.latest_front_camera_fields: dict[str, Any] = {}
         self.collision_counts: dict[int, int] = {}
         self.filtered_control_vehicle_ids: set[int] = set()
@@ -740,7 +862,9 @@ class RaceControlTower:
     async def bridge_rate_refresh_loop(self) -> None:
         while True:
             await asyncio.sleep(self.bridge_rate_refresh_interval)
-            changed = self.refresh_bridge_rates()
+            now = monotonic()
+            changed = self.refresh_bridge_rates(now=now)
+            await self.audit_bridge_rates(now=now)
             if changed and self.monitor_hub.client_count:
                 await self.publish_status()
 
@@ -796,6 +920,14 @@ class RaceControlTower:
         app.router.add_post(
             "/monitor/REST/{version}/racing-rule",
             self.handle_monitor_racing_rule_post,
+        )
+        app.router.add_get(
+            "/monitor/REST/{version}/audit-rule",
+            self.handle_monitor_audit_rule_get,
+        )
+        app.router.add_post(
+            "/monitor/REST/{version}/audit-rule",
+            self.handle_monitor_audit_rule_post,
         )
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs",
@@ -1204,6 +1336,43 @@ class RaceControlTower:
             {
                 "ok": True,
                 "racing_rule": self.state.racing_rule_settings(),
+            }
+        )
+
+    async def handle_monitor_audit_rule_get(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        return web.json_response(
+            {
+                "protocol": "autodrive-rct-monitor",
+                "version": MONITOR_PROTOCOL_VERSION,
+                "audit_rule": self.state.audit_rule_settings(),
+            }
+        )
+
+    async def handle_monitor_audit_rule_post(self, request: web.Request) -> web.Response:
+        version_path = f"/monitor/REST/{request.match_info['version']}"
+        if not is_monitor_rest_path(version_path):
+            return web.json_response({"error": "unsupported monitor protocol version"}, status=404)
+
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            body = {}
+
+        try:
+            settings = self.validate_audit_rule_settings(body)
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        self.state.set_audit_rule_settings(**settings)
+        await self.publish_full_status()
+        return web.json_response(
+            {
+                "ok": True,
+                "audit_rule": self.state.audit_rule_settings(),
             }
         )
 
@@ -2784,6 +2953,25 @@ class RaceControlTower:
             changed = True
         return changed
 
+    async def audit_bridge_rates(self, now: float | None = None) -> None:
+        now = monotonic() if now is None else now
+        settings = self.state.audit_rule_settings()
+        for devkit in self.devkits:
+            rates = self.bridge_rates.rates(devkit.vehicle_id, now=now)
+            events = self.bridge_hz_audit.evaluate(
+                vehicle_id=devkit.vehicle_id,
+                vehicle_label=self.vehicle_audit_label(devkit.vehicle_id),
+                bridge_hz=float(rates["bridge_hz"]),
+                connected=devkit.connected,
+                settings=settings,
+                now=now,
+            )
+            for event in events:
+                await self.record_audit_event(
+                    event_type=event.event_type,
+                    text=event.text,
+                )
+
     def status_payload(self, *, full: bool = False) -> dict[str, Any]:
         self.refresh_bridge_rates()
         snapshot = self.state.snapshot()
@@ -2796,6 +2984,7 @@ class RaceControlTower:
             snapshot.pop("accident_recorder", None)
             snapshot.pop("penalty_rule", None)
             snapshot.pop("racing_rule", None)
+            snapshot.pop("audit_rule", None)
             snapshot["devkits"] = [
                 {
                     "name": devkit["name"],
@@ -2993,6 +3182,36 @@ class RaceControlTower:
             "total_lap_count": total_lap_count,
             "maximum_penalty_count": maximum_penalty_count,
             "celebration_with_confetti": celebration_with_confetti,
+        }
+
+    def validate_audit_rule_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
+        bridge_hz_maximum = settings.get("bridge_hz_maximum", 120.0)
+        if isinstance(bridge_hz_maximum, bool) or not isinstance(bridge_hz_maximum, int | float):
+            raise ValueError("bridge_hz_maximum must be a number")
+        bridge_hz_maximum = float(bridge_hz_maximum)
+        if bridge_hz_maximum <= 0 or bridge_hz_maximum > 1000:
+            raise ValueError("bridge_hz_maximum must be greater than 0 and less than or equal to 1000")
+
+        bridge_hz_minimum = settings.get("bridge_hz_minimum", 20.0)
+        if isinstance(bridge_hz_minimum, bool) or not isinstance(bridge_hz_minimum, int | float):
+            raise ValueError("bridge_hz_minimum must be a number")
+        bridge_hz_minimum = float(bridge_hz_minimum)
+        if bridge_hz_minimum < 0 or bridge_hz_minimum > 1000:
+            raise ValueError("bridge_hz_minimum must be between 0 and 1000")
+        if bridge_hz_minimum >= bridge_hz_maximum:
+            raise ValueError("bridge_hz_minimum must be less than bridge_hz_maximum")
+
+        bridge_hz_spike_percent = settings.get("bridge_hz_spike_percent", DEFAULT_BRIDGE_HZ_SPIKE_PERCENT)
+        if isinstance(bridge_hz_spike_percent, bool) or not isinstance(bridge_hz_spike_percent, int | float):
+            raise ValueError("bridge_hz_spike_percent must be a number")
+        bridge_hz_spike_percent = float(bridge_hz_spike_percent)
+        if bridge_hz_spike_percent < 5 or bridge_hz_spike_percent > 50:
+            raise ValueError("bridge_hz_spike_percent must be between 5 and 50")
+
+        return {
+            "bridge_hz_maximum": bridge_hz_maximum,
+            "bridge_hz_minimum": bridge_hz_minimum,
+            "bridge_hz_spike_percent": bridge_hz_spike_percent,
         }
 
     def resolved_topic_selections(self) -> dict[str, bool]:

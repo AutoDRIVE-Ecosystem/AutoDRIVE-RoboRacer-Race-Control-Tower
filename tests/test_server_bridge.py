@@ -678,6 +678,108 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["bridge_per_minute"], 0)
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_bridge_hz_audit_records_threshold_crossing_once(self):
+        tower = RaceControlTower(test_settings())
+        devkit = tower.devkits[0]
+        devkit.connected = True
+        tower.state.set_audit_rule_settings(
+            bridge_hz_maximum=120.0,
+            bridge_hz_minimum=20.0,
+            bridge_hz_spike_percent=25.0,
+        )
+        events = []
+        current_hz = 121.0
+
+        def rates(_vehicle_id, now=None):
+            return {"bridge_hz": current_hz, "bridge_per_minute": round(current_hz * 60)}
+
+        async def record_audit_event(**kwargs):
+            events.append(kwargs)
+
+        tower.bridge_rates.rates = rates
+        tower.record_audit_event = record_audit_event
+
+        await tower.audit_bridge_rates(now=1.0)
+        await tower.audit_bridge_rates(now=1.25)
+        current_hz = 119.0
+        await tower.audit_bridge_rates(now=1.5)
+        current_hz = 122.0
+        await tower.audit_bridge_rates(now=1.75)
+
+        self.assertEqual([event["event_type"] for event in events], ["bridge_hz", "bridge_hz"])
+        self.assertIn("above maximum", events[0]["text"])
+        self.assertIn("Vehicle A", events[0]["text"])
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_bridge_hz_audit_records_spike_when_enabled(self):
+        tower = RaceControlTower(test_settings())
+        devkit = tower.devkits[0]
+        devkit.connected = True
+        tower.state.set_audit_rule_settings(
+            bridge_hz_maximum=120.0,
+            bridge_hz_minimum=0.0,
+            bridge_hz_spike_percent=25.0,
+        )
+        events = []
+        current_hz = 40.0
+
+        def rates(_vehicle_id, now=None):
+            return {"bridge_hz": current_hz, "bridge_per_minute": round(current_hz * 60)}
+
+        async def record_audit_event(**kwargs):
+            events.append(kwargs)
+
+        tower.bridge_rates.rates = rates
+        tower.record_audit_event = record_audit_event
+
+        await tower.audit_bridge_rates(now=1.0)
+        current_hz = 52.0
+        await tower.audit_bridge_rates(now=2.0)
+        await tower.audit_bridge_rates(now=2.25)
+        current_hz = 35.0
+        await tower.audit_bridge_rates(now=3.0)
+
+        spike_events = [event for event in events if "spike" in event["text"]]
+        self.assertEqual(len(spike_events), 2)
+        self.assertIn("40.0 Hz -> 52.0 Hz", spike_events[0]["text"])
+        self.assertIn("52.0 Hz -> 35.0 Hz", spike_events[1]["text"])
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    def test_validate_audit_rule_settings(self):
+        tower = RaceControlTower(test_settings())
+
+        self.assertEqual(
+            tower.validate_audit_rule_settings(
+                {
+                    "bridge_hz_maximum": 100,
+                    "bridge_hz_minimum": 10,
+                    "bridge_hz_spike_percent": 30,
+                }
+            ),
+            {
+                "bridge_hz_maximum": 100.0,
+                "bridge_hz_minimum": 10.0,
+                "bridge_hz_spike_percent": 30.0,
+            },
+        )
+        with self.assertRaises(ValueError):
+            tower.validate_audit_rule_settings(
+                {
+                    "bridge_hz_maximum": 20,
+                    "bridge_hz_minimum": 20,
+                    "bridge_hz_spike_percent": 25,
+                }
+            )
+        with self.assertRaises(ValueError):
+            tower.validate_audit_rule_settings(
+                {
+                    "bridge_hz_maximum": 100,
+                    "bridge_hz_minimum": 10,
+                    "bridge_hz_spike_percent": 4,
+                }
+            )
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_simulator_bridge_immediately_echoes_latest_control_cache(self):
         tower = RaceControlTower(test_settings())
         emitted_to_simulator = []
@@ -1041,11 +1143,13 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("penalty_rule", lightweight)
         self.assertNotIn("racing_rule", lightweight)
+        self.assertNotIn("audit_rule", lightweight)
         self.assertNotIn("accident_recorder", lightweight)
         self.assertNotIn("race_time_seconds", lightweight)
         self.assertNotIn("race_time_seconds", full)
         self.assertIn("penalty_rule", full)
         self.assertIn("racing_rule", full)
+        self.assertIn("audit_rule", full)
         self.assertIn("accident_recorder", full)
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")

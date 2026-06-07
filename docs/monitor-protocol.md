@@ -93,6 +93,8 @@ GET  /monitor/REST/0.1/penalty-rule
 POST /monitor/REST/0.1/penalty-rule
 GET  /monitor/REST/0.1/racing-rule
 POST /monitor/REST/0.1/racing-rule
+GET  /monitor/REST/0.1/audit-rule
+POST /monitor/REST/0.1/audit-rule
 GET  /monitor/REST/0.1/accident-logs
 GET  /monitor/REST/0.1/accident-logs/{filename}/summary
 DELETE /monitor/REST/0.1/accident-logs
@@ -294,6 +296,42 @@ Request:
 
 `total_lap_count` must be a number from `1` to `1000`. The first vehicle to reach this lap count wins. `maximum_penalty_count` must be a number from `0` to `1000`; `0` disables penalty-count loss, and a value greater than `0` makes a vehicle lose immediately when its RCT penalty count reaches that value. `celebration_with_confetti` must be a boolean. The response returns `ok: true` and the applied `racing_rule` settings. RCT publishes an updated `status` event after the settings change.
 
+Audit rule:
+
+```http
+GET /monitor/REST/0.1/audit-rule
+```
+
+Response:
+
+```json
+{
+  "protocol": "autodrive-rct-monitor",
+  "version": "0.1",
+  "audit_rule": {
+    "bridge_hz_maximum": 120.0,
+    "bridge_hz_minimum": 20.0,
+    "bridge_hz_spike_percent": 25.0
+  }
+}
+```
+
+```http
+POST /monitor/REST/0.1/audit-rule
+```
+
+Request:
+
+```json
+{
+  "bridge_hz_maximum": 120.0,
+  "bridge_hz_minimum": 20.0,
+  "bridge_hz_spike_percent": 25.0
+}
+```
+
+`bridge_hz_maximum` must be a positive number up to `1000`. `bridge_hz_minimum` must be a number from `0` to `1000` and less than `bridge_hz_maximum`. `bridge_hz_spike_percent` must be a number from `5` to `50`; the default is `25`. RCT records Bridge Hz audit entries when a connected vehicle crosses the high or low thresholds. RCT records spike entries when the current Bridge Hz differs from the sample about one second earlier by at least the configured percentage.
+
 Accident logs:
 
 ```http
@@ -460,6 +498,11 @@ Initial event:
     "total_lap_count": 10,
     "maximum_penalty_count": 0,
     "celebration_with_confetti": true
+  },
+  "audit_rule": {
+    "bridge_hz_maximum": 120.0,
+    "bridge_hz_minimum": 20.0,
+    "bridge_hz_spike_percent": 25.0
   },
   "vehicle_penalties": {
     "1": 0,

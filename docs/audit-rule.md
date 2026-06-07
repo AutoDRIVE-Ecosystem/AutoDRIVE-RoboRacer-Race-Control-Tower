@@ -18,7 +18,7 @@ Each audit message includes:
 - `race_number`: one-based race count since `audit.mcap` was created
 - `timestamp_ns`: event timestamp in nanoseconds
 - `time`: display time
-- `kind`: display category, one of `Race Start`, `Race End`, `Vehicle Connected`, `Vehicle Disconnected`, `Accident`, `Decision`, or `Others`
+- `kind`: display category, one of `Race Start`, `Race End`, `Vehicle Connected`, `Vehicle Disconnected`, `Bridge Hz`, `Accident`, `Decision`, or `Others`
 - `event_type`: audit event category
 - `text`: human-readable audit text
 - `accident_log_filename`: related accident MCAP filename, when applicable
@@ -34,6 +34,7 @@ RCT records these audit events:
 - Race start when the first simulator Socket.IO client connects.
 - Vehicle connect when an RCT DevKit bridge slot for a vehicle connects.
 - Vehicle disconnect when an RCT DevKit bridge slot for a vehicle disconnects.
+- Bridge protocol Hz anomalies when Audit Rule thresholds are crossed or a spike is detected.
 - Race end when the last simulator client disconnects before a race result.
 - Race end when a vehicle reaches the configured total lap count.
 - Race end when a vehicle reaches the configured maximum penalty count.
@@ -47,6 +48,25 @@ recent race number.
 
 Accident and decision audit events include the related accident log filename and
 time so the frontend can cross-select the matching Accident Records item.
+
+Bridge Hz audit events are intended to capture race-affecting runtime symptoms.
+Very high, very low, or suddenly changing bridge protocol rates can indicate that
+the runtime environment could not support the race reliably, which can help a
+race director decide whether a rerun is justified.
+
+Audit Rule settings:
+
+- `bridge_hz_maximum`: default `120`. RCT records one audit event when a
+  vehicle's Bridge Hz enters `>= bridge_hz_maximum`. It does not keep appending
+  while the value remains above the threshold; it records again only after the
+  value returns below the maximum and crosses the threshold again.
+- `bridge_hz_minimum`: default `20`. RCT records one audit event when a
+  connected vehicle's Bridge Hz enters `<= bridge_hz_minimum`. It records again
+  only after the value returns above the minimum and crosses the threshold again.
+- `bridge_hz_spike_percent`: default `25`. RCT keeps a short per-vehicle Hz
+  history and records a spike when the current Bridge Hz differs from the sample
+  about one second earlier by at least this percentage. The allowed range is
+  `5` to `50`. Repeated oscillations can produce repeated spike audit events.
 
 ## Monitor API
 

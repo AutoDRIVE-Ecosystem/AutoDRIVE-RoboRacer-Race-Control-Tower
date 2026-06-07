@@ -906,6 +906,9 @@
                 <button class="nav-link" id="racing-rule-tab" data-bs-toggle="tab" data-bs-target="#racing-rule-tab-pane" type="button" role="tab" aria-controls="racing-rule-tab-pane" aria-selected="false">Racing Rule</button>
               </li>
               <li class="nav-item" role="presentation">
+                <button class="nav-link" id="audit-rule-tab" data-bs-toggle="tab" data-bs-target="#audit-rule-tab-pane" type="button" role="tab" aria-controls="audit-rule-tab-pane" aria-selected="false">Audit Rule</button>
+              </li>
+              <li class="nav-item" role="presentation">
                 <button class="nav-link" id="experiments-tab" data-bs-toggle="tab" data-bs-target="#experiments-tab-pane" type="button" role="tab" aria-controls="experiments-tab-pane" aria-selected="false">Experiments</button>
               </li>
               <li class="nav-item" role="presentation">
@@ -1191,6 +1194,23 @@
                 <div class="d-flex justify-content-start align-items-center gap-2 mt-2">
                   <label for="celebrationWithConfetti" class="col-form-label">Celebration with Confetti:</label>
                   <input id="celebrationWithConfetti" class="form-check-input mt-0" type="checkbox" checked>
+                </div>
+              </div>
+              <div class="tab-pane fade" id="audit-rule-tab-pane" role="tabpanel" aria-labelledby="audit-rule-tab" tabindex="0">
+                <p class="rct-settings-description">
+                  Bridge protocol Hz anomalies can affect race fairness and vehicle control quality. Keeping these events in the audit log is recommended because sudden drops, spikes, or unstable rates can help decide whether the environment could not support the race and whether a rerun is justified.
+                </p>
+                <div class="d-flex justify-content-start align-items-center gap-2">
+                  <label for="auditBridgeHzMaximum" class="col-form-label">Upper Bridge Protocol Hz Boundary:</label>
+                  <input id="auditBridgeHzMaximum" class="form-control form-control-sm rct-pre-accident-input" type="number" min="1" max="1000" step="1" value="120">
+                </div>
+                <div class="d-flex justify-content-start align-items-center gap-2 mt-2">
+                  <label for="auditBridgeHzMinimum" class="col-form-label">Lower Bridge Protocol Hz Boundary:</label>
+                  <input id="auditBridgeHzMinimum" class="form-control form-control-sm rct-pre-accident-input" type="number" min="0" max="1000" step="1" value="20">
+                </div>
+                <div class="d-flex justify-content-start align-items-center gap-2 mt-2">
+                  <label for="auditBridgeHzSpikePercent" class="col-form-label">Bridge Protocol Hz Spike (%):</label>
+                  <input id="auditBridgeHzSpikePercent" class="form-control form-control-sm rct-pre-accident-input" type="number" min="5" max="50" step="1" value="25">
                 </div>
               </div>
               <div class="tab-pane fade" id="experiments-tab-pane" role="tabpanel" aria-labelledby="experiments-tab" tabindex="0">
@@ -1490,6 +1510,9 @@
       const totalLapCountInput = document.getElementById("totalLapCount");
       const maximumPenaltyCountInput = document.getElementById("maximumPenaltyCount");
       const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
+      const auditBridgeHzMaximumInput = document.getElementById("auditBridgeHzMaximum");
+      const auditBridgeHzMinimumInput = document.getElementById("auditBridgeHzMinimum");
+      const auditBridgeHzSpikePercentInput = document.getElementById("auditBridgeHzSpikePercent");
       const raceRecordsButton = document.getElementById("raceRecordsButton");
       const raceRecordsButtonText = document.getElementById("raceRecordsButtonText");
       const raceRecordsTabButtons = Array.from(document.querySelectorAll("#raceRecordsTabs [data-bs-toggle='tab']"));
@@ -1610,6 +1633,7 @@
       let accidentRecorderSettingsSaveChain = Promise.resolve();
       let penaltyRuleSettingsSaveChain = Promise.resolve();
       let racingRuleSettingsSaveChain = Promise.resolve();
+      let auditRuleSettingsSaveChain = Promise.resolve();
       let appliedPreAccidentSeconds = 5;
       let appliedIncludeCamera = false;
       let appliedPenaltyRestartDelaySeconds = 2;
@@ -1624,6 +1648,9 @@
       let appliedTotalLapCount = 10;
       let appliedMaximumPenaltyCount = 0;
       let appliedCelebrationWithConfetti = true;
+      let appliedAuditBridgeHzMaximum = 120;
+      let appliedAuditBridgeHzMinimum = 20;
+      let appliedAuditBridgeHzSpikePercent = 25;
       let raceResultActive = false;
       let confettiTimer = null;
       let simulatorConnected = false;
@@ -1871,6 +1898,7 @@
           race_end: "Race End",
           vehicle_connect: "Vehicle Connected",
           vehicle_disconnect: "Vehicle Disconnected",
+          bridge_hz: "Bridge Hz",
           accident_record: "Accident",
           decision: "Decision",
         }[entry.event_type] || "Others";
@@ -4295,6 +4323,14 @@
         );
       }
 
+      function auditRuleSettingsChanged() {
+        return (
+          auditBridgeHzMaximumValue() !== appliedAuditBridgeHzMaximum
+          || auditBridgeHzMinimumValue() !== appliedAuditBridgeHzMinimum
+          || auditBridgeHzSpikePercentValue() !== appliedAuditBridgeHzSpikePercent
+        );
+      }
+
       function totalLapCountValue() {
         const parsed = Number.parseInt(totalLapCountInput.value, 10);
         return Number.isFinite(parsed) ? parsed : NaN;
@@ -4303,6 +4339,37 @@
       function maximumPenaltyCountValue() {
         const parsed = Number.parseInt(maximumPenaltyCountInput.value, 10);
         return Number.isFinite(parsed) ? parsed : NaN;
+      }
+
+      function auditBridgeHzMaximumValue() {
+        const parsed = Number(auditBridgeHzMaximumInput.value);
+        return Number.isFinite(parsed) ? parsed : NaN;
+      }
+
+      function auditBridgeHzMinimumValue() {
+        const parsed = Number(auditBridgeHzMinimumInput.value);
+        return Number.isFinite(parsed) ? parsed : NaN;
+      }
+
+      function auditBridgeHzSpikePercentValue() {
+        const parsed = Number(auditBridgeHzSpikePercentInput.value);
+        return Number.isFinite(parsed) ? parsed : NaN;
+      }
+
+      function auditRuleSettingsValid() {
+        const maximum = auditBridgeHzMaximumValue();
+        const minimum = auditBridgeHzMinimumValue();
+        const spikePercent = auditBridgeHzSpikePercentValue();
+        return (
+          Number.isFinite(maximum)
+          && Number.isFinite(minimum)
+          && Number.isFinite(spikePercent)
+          && maximum > 0
+          && minimum >= 0
+          && minimum < maximum
+          && spikePercent >= 5
+          && spikePercent <= 50
+        );
       }
 
       function syncTopicSelectionsFromState(nextTopicSelections) {
@@ -4430,6 +4497,31 @@
         }
         appliedCelebrationWithConfetti = Boolean(settings.celebration_with_confetti);
         celebrationWithConfettiCheckbox.checked = appliedCelebrationWithConfetti;
+        updateSettingsApplyState();
+      }
+
+      async function loadAuditRuleSettings() {
+        const response = await fetch(monitorRestUrl("/audit-rule"));
+        if (!response.ok) {
+          throw new Error(`Failed to load audit rule settings: ${response.status} ${response.statusText}`);
+        }
+        const payload = await response.json();
+        const settings = payload.audit_rule || {};
+        const maximum = Number(settings.bridge_hz_maximum);
+        if (Number.isFinite(maximum)) {
+          appliedAuditBridgeHzMaximum = maximum;
+          auditBridgeHzMaximumInput.value = String(maximum);
+        }
+        const minimum = Number(settings.bridge_hz_minimum);
+        if (Number.isFinite(minimum)) {
+          appliedAuditBridgeHzMinimum = minimum;
+          auditBridgeHzMinimumInput.value = String(minimum);
+        }
+        const spikePercent = Number(settings.bridge_hz_spike_percent);
+        if (Number.isFinite(spikePercent)) {
+          appliedAuditBridgeHzSpikePercent = spikePercent;
+          auditBridgeHzSpikePercentInput.value = String(spikePercent);
+        }
         updateSettingsApplyState();
       }
 
@@ -4630,11 +4722,63 @@
         return racingRuleSettingsSaveChain;
       }
 
+      async function postAuditRuleSettings() {
+        const response = await fetch(monitorRestUrl("/audit-rule"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            bridge_hz_maximum: auditBridgeHzMaximumValue(),
+            bridge_hz_minimum: auditBridgeHzMinimumValue(),
+            bridge_hz_spike_percent: auditBridgeHzSpikePercentValue(),
+          }),
+        });
+        if (!response.ok) {
+          let errorText = `${response.status} ${response.statusText}`;
+          try {
+            const errorBody = await response.json();
+            if (errorBody && typeof errorBody.error === "string") {
+              errorText = errorBody.error;
+            }
+          } catch (error) {
+            // ignore JSON parse failures and keep the HTTP status text
+          }
+          throw new Error(errorText);
+        }
+        return response.json();
+      }
+
+      function saveAuditRuleSettings() {
+        auditRuleSettingsSaveChain = auditRuleSettingsSaveChain
+          .catch(() => {})
+          .then(async () => {
+            if (!rctSocket || rctSocket.readyState !== WebSocket.OPEN) {
+              throw new Error("RCT monitor websocket is disconnected");
+            }
+            const payload = await postAuditRuleSettings();
+            const settings = payload.audit_rule || {};
+            appliedAuditBridgeHzMaximum = Number(settings.bridge_hz_maximum);
+            appliedAuditBridgeHzMinimum = Number(settings.bridge_hz_minimum);
+            appliedAuditBridgeHzSpikePercent = Number(settings.bridge_hz_spike_percent);
+            auditBridgeHzMaximumInput.value = String(appliedAuditBridgeHzMaximum);
+            auditBridgeHzMinimumInput.value = String(appliedAuditBridgeHzMinimum);
+            auditBridgeHzSpikePercentInput.value = String(appliedAuditBridgeHzSpikePercent);
+            updateSettingsApplyState();
+            return payload;
+          })
+          .catch((error) => {
+            console.warn("Audit rule settings save failed:", error);
+          });
+        return auditRuleSettingsSaveChain;
+      }
+
       function updateSettingsApplyState() {
         const topicsTabButton = document.getElementById("topics-tab");
         const accidentRecorderTabButton = document.getElementById("accident-recorder-tab");
         const penaltyRuleTabButton = document.getElementById("penalty-rule-tab");
         const racingRuleTabButton = document.getElementById("racing-rule-tab");
+        const auditRuleTabButton = document.getElementById("audit-rule-tab");
         const experimentsTabButton = document.getElementById("experiments-tab");
         const topicsChanged = topicSelectionsChanged();
         const accidentRecorderChanged = accidentRecorderSettingsChanged();
@@ -4644,6 +4788,8 @@
         const experimentsFrontendChanged = experimentsFrontendSettingsChanged();
         const racingRuleChanged = racingRuleSettingsChanged();
         const racingRuleValid = Number.isFinite(totalLapCountValue()) && Number.isFinite(maximumPenaltyCountValue());
+        const auditRuleChanged = auditRuleSettingsChanged();
+        const auditRuleValid = auditRuleSettingsValid();
         const wsConnected = Boolean(rctSocket && rctSocket.readyState === WebSocket.OPEN);
         const experimentsActive = experimentsTabButton.classList.contains("active");
         const activeTabChanged = (
@@ -4651,6 +4797,7 @@
           || (accidentRecorderTabButton.classList.contains("active") && accidentRecorderChanged && accidentRecorderValid)
           || (penaltyRuleTabButton.classList.contains("active") && penaltyRuleChanged && penaltyRuleValid)
           || (racingRuleTabButton.classList.contains("active") && racingRuleChanged && racingRuleValid)
+          || (auditRuleTabButton.classList.contains("active") && auditRuleChanged && auditRuleValid)
           || (experimentsActive && (experimentsFrontendChanged || (penaltyRuleChanged && penaltyRuleValid)))
         );
         const activeTabNeedsWebSocket = !experimentsActive || penaltyRuleChanged;
@@ -5946,6 +6093,32 @@
             }
             updateSettingsApplyState();
           }
+          if (message.audit_rule) {
+            const hasPendingAuditRuleChanges = auditRuleSettingsChanged();
+            const settings = message.audit_rule;
+            const maximum = Number(settings.bridge_hz_maximum);
+            if (Number.isFinite(maximum)) {
+              appliedAuditBridgeHzMaximum = maximum;
+              if (!hasPendingAuditRuleChanges) {
+                auditBridgeHzMaximumInput.value = String(maximum);
+              }
+            }
+            const minimum = Number(settings.bridge_hz_minimum);
+            if (Number.isFinite(minimum)) {
+              appliedAuditBridgeHzMinimum = minimum;
+              if (!hasPendingAuditRuleChanges) {
+                auditBridgeHzMinimumInput.value = String(minimum);
+              }
+            }
+            const spikePercent = Number(settings.bridge_hz_spike_percent);
+            if (Number.isFinite(spikePercent)) {
+              appliedAuditBridgeHzSpikePercent = spikePercent;
+              if (!hasPendingAuditRuleChanges) {
+                auditBridgeHzSpikePercentInput.value = String(spikePercent);
+              }
+            }
+            updateSettingsApplyState();
+          }
           if (message.race_result) {
             updateRaceResult(message.race_result);
           }
@@ -6583,6 +6756,9 @@
       totalLapCountInput.addEventListener("input", updateSettingsApplyState);
       maximumPenaltyCountInput.addEventListener("input", updateSettingsApplyState);
       celebrationWithConfettiCheckbox.addEventListener("change", updateSettingsApplyState);
+      auditBridgeHzMaximumInput.addEventListener("input", updateSettingsApplyState);
+      auditBridgeHzMinimumInput.addEventListener("input", updateSettingsApplyState);
+      auditBridgeHzSpikePercentInput.addEventListener("input", updateSettingsApplyState);
       settingsApplyButton.addEventListener("click", () => {
         const activeTabButton = document.querySelector("#settingsTabs .nav-link.active");
         if (activeTabButton && activeTabButton.id === "accident-recorder-tab") {
@@ -6596,6 +6772,8 @@
           }
         } else if (activeTabButton && activeTabButton.id === "racing-rule-tab") {
           void saveRacingRuleSettings();
+        } else if (activeTabButton && activeTabButton.id === "audit-rule-tab") {
+          void saveAuditRuleSettings();
         } else {
           void saveTopicSelections();
         }
@@ -6615,6 +6793,9 @@
         });
         void loadRacingRuleSettings().catch((error) => {
           console.warn("Failed to refresh racing rule settings:", error);
+        });
+        void loadAuditRuleSettings().catch((error) => {
+          console.warn("Failed to refresh audit rule settings:", error);
         });
       });
       raceRecordsDialog.addEventListener("show.bs.modal", () => {
