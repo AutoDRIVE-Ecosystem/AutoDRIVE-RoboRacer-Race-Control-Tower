@@ -1772,7 +1772,7 @@ class RaceControlTower:
                 continue
             devkit.awaiting_initial_bridge = not await self.send_cached_incoming_bridge(devkit)
         await self.publish_simulator_telemetry(payload, "Bridge")
-        if collision_triggers:
+        if collision_triggers and not self.state.race_result().get("active"):
             await self.handle_collision_triggers(collision_triggers, pre_accident_seconds)
         await self.emit_control_cache_to_simulator()
 
@@ -1978,6 +1978,8 @@ class RaceControlTower:
         collision_triggers: list[tuple[int, int]],
         pre_accident_seconds: float,
     ) -> None:
+        if self.state.race_result().get("active"):
+            return
         if self.state.penalty_decision().get("active"):
             return
 

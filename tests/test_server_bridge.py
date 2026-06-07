@@ -854,6 +854,45 @@ class ServerBridgeFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[0]["V2 Steering"], "0.0")
 
     @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
+    async def test_bridge_lap_finish_does_not_start_accident_record_from_same_payload(self):
+        tower = RaceControlTower(test_settings())
+
+        async def broadcast_monitor(_message):
+            return None
+
+        async def emit_to_simulators(_event, _args):
+            return None
+
+        async def record_audit_event(**_kwargs):
+            return None
+
+        started_records = []
+
+        def start_accident_record_save(*args, **kwargs):
+            started_records.append((args, kwargs))
+
+        tower.broadcast_monitor = broadcast_monitor
+        tower.emit_to_simulators = emit_to_simulators
+        tower.record_audit_event = record_audit_event
+        tower.start_accident_record_save = start_accident_record_save
+        tower.state.set_racing_rule_settings(
+            total_lap_count=1,
+            maximum_penalty_count=0,
+            celebration_with_confetti=False,
+        )
+        tower.collision_counts = {1: 0}
+
+        await tower.handle_simulator_bridge_event(
+            "simulator",
+            ({"V1 Lap Count": "1", "V1 Collision Count": "1"},),
+        )
+
+        race_result = tower.state.race_result()
+        self.assertTrue(race_result["active"])
+        self.assertEqual(race_result["reason"], "total_lap_count")
+        self.assertEqual(started_records, [])
+
+    @unittest.skipIf(not SOCKETIO_AVAILABLE, "python-socketio is not installed")
     async def test_maximum_penalty_count_finishes_race(self):
         tower = RaceControlTower(test_settings())
 
