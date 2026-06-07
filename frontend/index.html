@@ -1711,12 +1711,13 @@
       }
 
       function updateRaceRecordsButton() {
-        const count = accidentLogs.length;
+        const totalCount = accidentLogs.length;
+        const visibleCount = visibleAccidentLogs().length;
         raceRecordsButton.disabled = false;
-        clearAccidentLogsButton.disabled = count === 0;
-        accidentRecordsTabCount.textContent = String(count);
-        raceRecordsButtonText.textContent = count > 0
-          ? `Open Race Records (${count})`
+        clearAccidentLogsButton.disabled = totalCount === 0;
+        accidentRecordsTabCount.textContent = String(visibleCount);
+        raceRecordsButtonText.textContent = visibleCount > 0
+          ? `Open Race Records (${visibleCount})`
           : "Open Race Records";
       }
 
@@ -1950,6 +1951,7 @@
       function renderAccidentLogs(options = {}) {
         const forceDetail = Boolean(options.forceDetail);
         const displayedAccidentLogs = visibleAccidentLogs();
+        updateRaceRecordsButton();
         accidentLogsList.innerHTML = "";
         if (displayedAccidentLogs.length === 0) {
           selectedAccidentLogFilename = null;
