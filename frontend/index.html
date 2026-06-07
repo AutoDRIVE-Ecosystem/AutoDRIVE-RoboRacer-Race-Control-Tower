@@ -1394,7 +1394,7 @@
           <strong id="simulatorStatusText">Disconnected</strong>
         </div>
         <button id="accidentLogsButton" class="btn btn-sm btn-light rct-accident-logs-button position-absolute start-50 translate-middle-x" type="button" data-bs-toggle="modal" data-bs-target="#accidentLogsDialog">
-          <span id="accidentLogsButtonText">Open Accident logs</span>
+          <span id="accidentLogsButtonText">Open Race Records</span>
         </button>
         <div class="status-indicator">
           <span>RCT Server</span>
@@ -1716,8 +1716,8 @@
         clearAccidentLogsButton.disabled = count === 0;
         accidentRecordsTabCount.textContent = String(count);
         accidentLogsButtonText.textContent = count > 0
-          ? `Open Accident logs (${count})`
-          : "Open Accident logs";
+          ? `Open Race Records (${count})`
+          : "Open Race Records";
       }
 
       function accidentLogsEqual(leftLogs, rightLogs) {
