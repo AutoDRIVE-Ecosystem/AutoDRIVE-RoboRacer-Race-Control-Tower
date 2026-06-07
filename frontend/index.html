@@ -355,6 +355,50 @@
         overflow: hidden;
       }
 
+      .rct-accident-logs-tabs,
+      .rct-accident-logs-tab-content,
+      .rct-accident-logs-tab-pane {
+        min-height: 0;
+      }
+
+      .rct-accident-logs-tabs {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      .rct-accident-logs-tab-content {
+        flex: 1 1 auto;
+        overflow: hidden;
+      }
+
+      .rct-accident-logs-tab-bar {
+        align-items: center;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+      }
+
+      .rct-accident-logs-tab-bar .nav-tabs {
+        border-bottom: 0;
+        flex: 1 1 auto;
+        margin-bottom: 0;
+        min-width: 0;
+      }
+
+      .rct-accident-logs-tab-bar .btn-close {
+        flex: 0 0 auto;
+        margin-bottom: 0.5rem;
+      }
+
+      .rct-accident-logs-tab-pane.active {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        height: 100%;
+      }
+
       .rct-accident-logs-dialog .row,
       .rct-accident-logs-dialog [class^="col-"],
       .rct-accident-logs-dialog [class*=" col-"] {
@@ -365,12 +409,13 @@
         display: grid;
         gap: 1rem;
         grid-template-columns: 11.25rem minmax(0, 1fr);
+        min-height: 0;
       }
 
       .rct-accident-logs-list {
         border: 1px solid #dee2e6;
         border-radius: 0.5rem;
-        max-height: calc(100vh - 16rem);
+        max-height: calc(100vh - 19rem);
         min-height: 20rem;
         overflow: auto;
       }
@@ -396,10 +441,18 @@
         margin-right: auto;
       }
 
+      .rct-accident-logs-actions {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        justify-content: flex-end;
+      }
+
       .rct-accident-logs-detail {
         border: 1px solid #dee2e6;
         border-radius: 0.5rem;
-        max-height: calc(100vh - 16rem);
+        max-height: calc(100vh - 19rem);
         min-height: 20rem;
         min-width: 0;
         overflow-x: hidden;
@@ -1146,29 +1199,49 @@
         </div>
       </div>
     </div>
-    <div class="modal fade" id="accidentLogsDialog" tabindex="-1" aria-labelledby="accidentLogsDialogLabel" aria-hidden="true">
+    <div class="modal fade" id="accidentLogsDialog" tabindex="-1" aria-label="Accident Logs" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered modal-lg rct-accident-logs-dialog">
         <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title" id="accidentLogsDialogLabel">Accident Logs</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
           <div class="modal-body">
-            <div class="rct-accident-logs-layout">
-              <div>
-                <div id="accidentLogsList" class="list-group rct-accident-logs-list" role="listbox" aria-label="Accident log times"></div>
+            <div class="rct-accident-logs-tabs">
+              <div class="rct-accident-logs-tab-bar">
+                <ul class="nav nav-tabs" id="accidentLogsTabs" role="tablist">
+                  <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="accident-records-tab" data-bs-toggle="tab" data-bs-target="#accident-records-tab-pane" type="button" role="tab" aria-controls="accident-records-tab-pane" aria-selected="true">Accident Records (<span id="accidentRecordsTabCount">0</span>)</button>
+                  </li>
+                  <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="accident-statistics-tab" data-bs-toggle="tab" data-bs-target="#accident-statistics-tab-pane" type="button" role="tab" aria-controls="accident-statistics-tab-pane" aria-selected="false">Statistics</button>
+                  </li>
+                  <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="accident-audit-log-tab" data-bs-toggle="tab" data-bs-target="#accident-audit-log-tab-pane" type="button" role="tab" aria-controls="accident-audit-log-tab-pane" aria-selected="false">Audit Log</button>
+                  </li>
+                </ul>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
               </div>
-              <div>
-                <div id="accidentLogDetail" class="rct-accident-logs-detail p-3 text-body-secondary">To be defined</div>
+              <div class="tab-content rct-accident-logs-tab-content" id="accidentLogsTabContent">
+                <div class="tab-pane fade show active rct-accident-logs-tab-pane" id="accident-records-tab-pane" role="tabpanel" aria-labelledby="accident-records-tab" tabindex="0">
+                  <div class="rct-accident-logs-layout">
+                    <div>
+                      <div id="accidentLogsList" class="list-group rct-accident-logs-list" role="listbox" aria-label="Accident log times"></div>
+                    </div>
+                    <div>
+                      <div id="accidentLogDetail" class="rct-accident-logs-detail p-3 text-body-secondary">To be defined</div>
+                    </div>
+                  </div>
+                  <div class="rct-accident-logs-actions">
+                    <div class="form-check rct-accident-logs-filter">
+                      <input id="filterSingleVehicleCollision" class="form-check-input" type="checkbox">
+                      <label class="form-check-label" for="filterSingleVehicleCollision">filter single vehicle collision</label>
+                    </div>
+                    <button id="clearAccidentLogsButton" type="button" class="btn btn-outline-danger">Clear</button>
+                  </div>
+                </div>
+                <div class="tab-pane fade rct-accident-logs-tab-pane" id="accident-statistics-tab-pane" role="tabpanel" aria-labelledby="accident-statistics-tab" tabindex="0"></div>
+                <div class="tab-pane fade rct-accident-logs-tab-pane" id="accident-audit-log-tab-pane" role="tabpanel" aria-labelledby="accident-audit-log-tab" tabindex="0"></div>
               </div>
             </div>
           </div>
           <div class="modal-footer">
-            <div class="form-check rct-accident-logs-filter">
-              <input id="filterSingleVehicleCollision" class="form-check-input" type="checkbox">
-              <label class="form-check-label" for="filterSingleVehicleCollision">filter single vehicle collision</label>
-            </div>
-            <button id="clearAccidentLogsButton" type="button" class="btn btn-outline-danger">Clear</button>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
           </div>
         </div>
@@ -1383,6 +1456,7 @@
       const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
       const accidentLogsButton = document.getElementById("accidentLogsButton");
       const accidentLogsButtonText = document.getElementById("accidentLogsButtonText");
+      const accidentRecordsTabCount = document.getElementById("accidentRecordsTabCount");
       const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
       const filterSingleVehicleCollision = document.getElementById("filterSingleVehicleCollision");
       const accidentLogsList = document.getElementById("accidentLogsList");
@@ -1640,6 +1714,7 @@
         const count = accidentLogs.length;
         accidentLogsButton.disabled = false;
         clearAccidentLogsButton.disabled = count === 0;
+        accidentRecordsTabCount.textContent = String(count);
         accidentLogsButtonText.textContent = count > 0
           ? `Open Accident logs (${count})`
           : "Open Accident logs";
