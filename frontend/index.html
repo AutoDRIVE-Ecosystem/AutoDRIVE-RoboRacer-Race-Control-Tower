@@ -1316,7 +1316,8 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button id="settingsApplyButton" type="button" class="btn btn-primary" data-bs-dismiss="modal">Apply</button>
+            <button id="settingsApplyButton" type="button" class="btn btn-primary">Apply</button>
+            <button id="settingsResetButton" type="button" class="btn btn-outline-secondary" disabled>Reset</button>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
           </div>
         </div>
@@ -1541,6 +1542,7 @@
       const settingsDialog = document.getElementById("settingsDialog");
       const raceRecordsDialog = document.getElementById("raceRecordsDialog");
       const settingsApplyButton = document.getElementById("settingsApplyButton");
+      const settingsResetButton = document.getElementById("settingsResetButton");
       const allRestrictedTopicsCheckbox = document.getElementById("allRestrictedTopics");
       const topicsTableBody = document.getElementById("topicsTableBody");
       const settingsTabsWrapper = document.getElementById("settingsTabsWrapper");
@@ -1574,6 +1576,21 @@
         settings[checkbox.dataset.graphId] = checkbox.checked;
         return settings;
       }, {});
+      const defaultSettings = {
+        preAccidentSeconds: 5,
+        includeCamera: false,
+        penaltyRestartDelaySeconds: 2,
+        decisionPackVersion: "v2",
+        decisionPackV2AutomaticDecision: false,
+        decisionPackV2GraphRenderer: "plotly",
+        showCanvasFpsOverlay: false,
+        totalLapCount: 10,
+        maximumPenaltyCount: 0,
+        celebrationWithConfetti: true,
+        auditBridgeHzMaximum: 120,
+        auditBridgeHzMinimum: 20,
+        auditBridgeHzDropPercent: 25,
+      };
       const canvasFpsOverlayStorageKey = "rct.showCanvasFpsOverlay";
       const canvasFpsOverlayStorageVersion = "2";
       const canvasFpsOverlayStorageVersionKey = `${canvasFpsOverlayStorageKey}.version`;
@@ -4151,8 +4168,20 @@
         return nextTopicSelections;
       }
 
+      function collectDefaultTopicSelections(options = topicOptions) {
+        const selections = {};
+        for (const option of options) {
+          selections[option.topic] = Boolean(option.checked);
+        }
+        return selections;
+      }
+
       function topicSelectionsChanged() {
         return JSON.stringify(topicSelections) !== JSON.stringify(appliedTopicSelections);
+      }
+
+      function topicSelectionsDefaultChanged() {
+        return JSON.stringify(collectTopicSelections()) !== JSON.stringify(collectDefaultTopicSelections());
       }
 
       function preAccidentSecondsValue() {
@@ -4161,9 +4190,16 @@
 
       function accidentRecorderSettingsChanged() {
         const preAccidentSeconds = preAccidentSecondsValue();
-        return Number.isFinite(preAccidentSeconds) && (
+        return (
           preAccidentSeconds !== appliedPreAccidentSeconds
           || includeCameraCheckbox.checked !== appliedIncludeCamera
+        );
+      }
+
+      function accidentRecorderSettingsDefaultChanged() {
+        return (
+          preAccidentSecondsValue() !== defaultSettings.preAccidentSeconds
+          || includeCameraCheckbox.checked !== defaultSettings.includeCamera
         );
       }
 
@@ -4178,10 +4214,29 @@
         );
       }
 
+      function penaltyRuleSettingsDefaultChanged() {
+        const decisionPackV2Settings = collectDecisionPackV2Settings();
+        return (
+          penaltyRestartDelaySecondsValue() !== defaultSettings.penaltyRestartDelaySeconds
+          || selectedDecisionPackVersion() !== defaultSettings.decisionPackVersion
+          || JSON.stringify(collectPenaltySwAnalysisSettings()) !== JSON.stringify(defaultPenaltySwAnalysis)
+          || decisionPackV2AutomaticDecisionCheckbox.checked !== defaultSettings.decisionPackV2AutomaticDecision
+          || JSON.stringify(decisionPackV2Settings.collision_types) !== JSON.stringify(defaultDecisionPackV2CollisionTypes)
+          || JSON.stringify(decisionPackV2Settings.graphs) !== JSON.stringify(defaultDecisionPackV2Graphs)
+        );
+      }
+
       function experimentsFrontendSettingsChanged() {
         return (
           showCanvasFpsOverlayCheckbox.checked !== appliedShowCanvasFpsOverlay
           || selectedDecisionPackV2GraphRenderer() !== appliedDecisionPackV2GraphRenderer
+        );
+      }
+
+      function experimentsFrontendSettingsDefaultChanged() {
+        return (
+          showCanvasFpsOverlayCheckbox.checked !== defaultSettings.showCanvasFpsOverlay
+          || selectedDecisionPackV2GraphRenderer() !== defaultSettings.decisionPackV2GraphRenderer
         );
       }
 
@@ -4394,11 +4449,27 @@
         );
       }
 
+      function racingRuleSettingsDefaultChanged() {
+        return (
+          totalLapCountValue() !== defaultSettings.totalLapCount
+          || maximumPenaltyCountValue() !== defaultSettings.maximumPenaltyCount
+          || celebrationWithConfettiCheckbox.checked !== defaultSettings.celebrationWithConfetti
+        );
+      }
+
       function auditRuleSettingsChanged() {
         return (
           auditBridgeHzMaximumValue() !== appliedAuditBridgeHzMaximum
           || auditBridgeHzMinimumValue() !== appliedAuditBridgeHzMinimum
           || auditBridgeHzDropPercentValue() !== appliedAuditBridgeHzDropPercent
+        );
+      }
+
+      function auditRuleSettingsDefaultChanged() {
+        return (
+          auditBridgeHzMaximumValue() !== defaultSettings.auditBridgeHzMaximum
+          || auditBridgeHzMinimumValue() !== defaultSettings.auditBridgeHzMinimum
+          || auditBridgeHzDropPercentValue() !== defaultSettings.auditBridgeHzDropPercent
         );
       }
 
@@ -4844,13 +4915,7 @@
         return auditRuleSettingsSaveChain;
       }
 
-      function updateSettingsApplyState() {
-        const topicsTabButton = document.getElementById("topics-tab");
-        const accidentRecorderTabButton = document.getElementById("accident-recorder-tab");
-        const penaltyRuleTabButton = document.getElementById("penalty-rule-tab");
-        const racingRuleTabButton = document.getElementById("racing-rule-tab");
-        const auditRuleTabButton = document.getElementById("audit-rule-tab");
-        const experimentsTabButton = document.getElementById("experiments-tab");
+      function collectSettingsChangeState() {
         const topicsChanged = topicSelectionsChanged();
         const accidentRecorderChanged = accidentRecorderSettingsChanged();
         const accidentRecorderValid = Number.isFinite(preAccidentSecondsValue());
@@ -4862,17 +4927,54 @@
         const auditRuleChanged = auditRuleSettingsChanged();
         const auditRuleValid = auditRuleSettingsValid();
         const wsConnected = Boolean(rctSocket && rctSocket.readyState === WebSocket.OPEN);
-        const experimentsActive = experimentsTabButton.classList.contains("active");
-        const activeTabChanged = (
-          (topicsTabButton.classList.contains("active") && topicsChanged)
-          || (accidentRecorderTabButton.classList.contains("active") && accidentRecorderChanged && accidentRecorderValid)
-          || (penaltyRuleTabButton.classList.contains("active") && penaltyRuleChanged && penaltyRuleValid)
-          || (racingRuleTabButton.classList.contains("active") && racingRuleChanged && racingRuleValid)
-          || (auditRuleTabButton.classList.contains("active") && auditRuleChanged && auditRuleValid)
-          || (experimentsActive && (experimentsFrontendChanged || (penaltyRuleChanged && penaltyRuleValid)))
+        const backendChanged = (
+          topicsChanged
+          || accidentRecorderChanged
+          || penaltyRuleChanged
+          || racingRuleChanged
+          || auditRuleChanged
         );
-        const activeTabNeedsWebSocket = !experimentsActive || penaltyRuleChanged;
-        settingsApplyButton.disabled = !activeTabChanged || (activeTabNeedsWebSocket && !wsConnected);
+        const anyChanged = backendChanged || experimentsFrontendChanged;
+        const changedSettingsValid = (
+          (!accidentRecorderChanged || accidentRecorderValid)
+          && (!penaltyRuleChanged || penaltyRuleValid)
+          && (!racingRuleChanged || racingRuleValid)
+          && (!auditRuleChanged || auditRuleValid)
+        );
+
+        return {
+          topicsChanged,
+          accidentRecorderChanged,
+          penaltyRuleChanged,
+          experimentsFrontendChanged,
+          racingRuleChanged,
+          auditRuleChanged,
+          backendChanged,
+          anyChanged,
+          changedSettingsValid,
+          wsConnected,
+        };
+      }
+
+      function settingsDefaultsChanged() {
+        return (
+          topicSelectionsDefaultChanged()
+          || accidentRecorderSettingsDefaultChanged()
+          || penaltyRuleSettingsDefaultChanged()
+          || experimentsFrontendSettingsDefaultChanged()
+          || racingRuleSettingsDefaultChanged()
+          || auditRuleSettingsDefaultChanged()
+        );
+      }
+
+      function updateSettingsApplyState() {
+        const state = collectSettingsChangeState();
+        settingsApplyButton.disabled = (
+          !state.anyChanged
+          || !state.changedSettingsValid
+          || (state.backendChanged && !state.wsConnected)
+        );
+        settingsResetButton.disabled = !settingsDefaultsChanged();
       }
 
       function updateSettingsTabsScrollControls() {
@@ -4911,6 +5013,93 @@
           inline: "nearest",
         });
         window.requestAnimationFrame(updateSettingsTabsScrollControls);
+      }
+
+      function resetTopicSelectionsToDefaults() {
+        const defaultTopicSelections = collectDefaultTopicSelections();
+        for (const checkbox of topicsTableBody.querySelectorAll(".topic-checkbox[data-topic]")) {
+          if (Object.prototype.hasOwnProperty.call(defaultTopicSelections, checkbox.dataset.topic)) {
+            checkbox.checked = Boolean(defaultTopicSelections[checkbox.dataset.topic]);
+          }
+        }
+        topicSelections = collectTopicSelections();
+        updateAllRestrictedCheckboxState();
+      }
+
+      function resetAccidentRecorderSettingsToDefaults() {
+        preAccidentSecondsInput.value = String(defaultSettings.preAccidentSeconds);
+        includeCameraCheckbox.checked = defaultSettings.includeCamera;
+      }
+
+      function resetPenaltyRuleSettingsToDefaults() {
+        penaltyRestartDelaySecondsInput.value = String(defaultSettings.penaltyRestartDelaySeconds);
+        setDecisionPackVersion(defaultSettings.decisionPackVersion);
+        for (const checkbox of swAnalysisCheckboxes) {
+          checkbox.checked = Boolean(defaultPenaltySwAnalysis[checkbox.dataset.analysisId]);
+        }
+        decisionPackV2AutomaticDecisionCheckbox.checked = defaultSettings.decisionPackV2AutomaticDecision;
+        for (const checkbox of decisionPackV2CollisionTypeCheckboxes) {
+          checkbox.checked = Boolean(defaultDecisionPackV2CollisionTypes[checkbox.dataset.analysisId]);
+        }
+        for (const checkbox of decisionPackV2GraphCheckboxes) {
+          checkbox.checked = Boolean(defaultDecisionPackV2Graphs[checkbox.dataset.graphId]);
+        }
+      }
+
+      function resetExperimentsFrontendSettingsToDefaults() {
+        showCanvasFpsOverlayCheckbox.checked = defaultSettings.showCanvasFpsOverlay;
+        setDecisionPackV2GraphRenderer(defaultSettings.decisionPackV2GraphRenderer);
+      }
+
+      function resetRacingRuleSettingsToDefaults() {
+        totalLapCountInput.value = String(defaultSettings.totalLapCount);
+        maximumPenaltyCountInput.value = String(defaultSettings.maximumPenaltyCount);
+        celebrationWithConfettiCheckbox.checked = defaultSettings.celebrationWithConfetti;
+      }
+
+      function resetAuditRuleSettingsToDefaults() {
+        auditBridgeHzMaximumInput.value = String(defaultSettings.auditBridgeHzMaximum);
+        auditBridgeHzMinimumInput.value = String(defaultSettings.auditBridgeHzMinimum);
+        auditBridgeHzDropPercentInput.value = String(defaultSettings.auditBridgeHzDropPercent);
+      }
+
+      function resetSettingsToDefaults() {
+        resetTopicSelectionsToDefaults();
+        resetAccidentRecorderSettingsToDefaults();
+        resetPenaltyRuleSettingsToDefaults();
+        resetExperimentsFrontendSettingsToDefaults();
+        resetRacingRuleSettingsToDefaults();
+        resetAuditRuleSettingsToDefaults();
+        updateSettingsApplyState();
+      }
+
+      function applyChangedSettings() {
+        const state = collectSettingsChangeState();
+        if (
+          !state.anyChanged
+          || !state.changedSettingsValid
+          || (state.backendChanged && !state.wsConnected)
+        ) {
+          return;
+        }
+        if (state.experimentsFrontendChanged) {
+          saveExperimentsFrontendSettings();
+        }
+        if (state.topicsChanged) {
+          void saveTopicSelections();
+        }
+        if (state.accidentRecorderChanged) {
+          void saveAccidentRecorderSettings();
+        }
+        if (state.penaltyRuleChanged) {
+          void savePenaltyRuleSettings();
+        }
+        if (state.racingRuleChanged) {
+          void saveRacingRuleSettings();
+        }
+        if (state.auditRuleChanged) {
+          void saveAuditRuleSettings();
+        }
       }
 
       function setCanvasInteractionEnabled(enabled) {
@@ -6879,25 +7068,12 @@
       auditBridgeHzMaximumInput.addEventListener("input", updateSettingsApplyState);
       auditBridgeHzMinimumInput.addEventListener("input", updateSettingsApplyState);
       auditBridgeHzDropPercentInput.addEventListener("input", updateSettingsApplyState);
-      settingsApplyButton.addEventListener("click", () => {
-        const activeTabButton = document.querySelector("#settingsTabs .nav-link.active");
-        if (activeTabButton && activeTabButton.id === "accident-recorder-tab") {
-          void saveAccidentRecorderSettings();
-        } else if (activeTabButton && activeTabButton.id === "penalty-rule-tab") {
-          void savePenaltyRuleSettings();
-        } else if (activeTabButton && activeTabButton.id === "experiments-tab") {
-          saveExperimentsFrontendSettings();
-          if (penaltyRuleSettingsChanged()) {
-            void savePenaltyRuleSettings();
-          }
-        } else if (activeTabButton && activeTabButton.id === "racing-rule-tab") {
-          void saveRacingRuleSettings();
-        } else if (activeTabButton && activeTabButton.id === "audit-rule-tab") {
-          void saveAuditRuleSettings();
-        } else {
-          void saveTopicSelections();
-        }
-      });
+	      settingsApplyButton.addEventListener("click", () => {
+	        applyChangedSettings();
+	      });
+	      settingsResetButton.addEventListener("click", () => {
+	        resetSettingsToDefaults();
+	      });
       settingsTabButtons.forEach((button) => {
         button.addEventListener("shown.bs.tab", () => {
           updateSettingsApplyState();
