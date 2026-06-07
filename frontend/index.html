@@ -338,41 +338,41 @@
         background-color: #adb5bd;
       }
 
-      .rct-accident-logs-button {
+      .rct-race-records-button {
         align-items: center;
         border-radius: 6px;
         display: inline-flex;
         gap: 0.4rem;
       }
 
-      .rct-accident-logs-dialog .modal-content {
+      .rct-race-records-dialog .modal-content {
         min-height: 30rem;
       }
 
-      .rct-accident-logs-dialog .modal-body {
+      .rct-race-records-dialog .modal-body {
         max-height: calc(100vh - 12rem);
         min-height: 22rem;
         overflow: hidden;
       }
 
-      .rct-accident-logs-tabs,
-      .rct-accident-logs-tab-content,
-      .rct-accident-logs-tab-pane {
+      .rct-race-records-tabs,
+      .rct-race-records-tab-content,
+      .rct-race-records-tab-pane {
         min-height: 0;
       }
 
-      .rct-accident-logs-tabs {
+      .rct-race-records-tabs {
         display: flex;
         flex-direction: column;
         height: 100%;
       }
 
-      .rct-accident-logs-tab-content {
+      .rct-race-records-tab-content {
         flex: 1 1 auto;
         overflow: hidden;
       }
 
-      .rct-accident-logs-tab-bar {
+      .rct-race-records-tab-bar {
         align-items: center;
         border-bottom: 1px solid #dee2e6;
         display: flex;
@@ -380,28 +380,28 @@
         margin-bottom: 1rem;
       }
 
-      .rct-accident-logs-tab-bar .nav-tabs {
+      .rct-race-records-tab-bar .nav-tabs {
         border-bottom: 0;
         flex: 1 1 auto;
         margin-bottom: 0;
         min-width: 0;
       }
 
-      .rct-accident-logs-tab-bar .btn-close {
+      .rct-race-records-tab-bar .btn-close {
         flex: 0 0 auto;
         margin-bottom: 0.5rem;
       }
 
-      .rct-accident-logs-tab-pane.active {
+      .rct-race-records-tab-pane.active {
         display: flex;
         flex-direction: column;
         gap: 1rem;
         height: 100%;
       }
 
-      .rct-accident-logs-dialog .row,
-      .rct-accident-logs-dialog [class^="col-"],
-      .rct-accident-logs-dialog [class*=" col-"] {
+      .rct-race-records-dialog .row,
+      .rct-race-records-dialog [class^="col-"],
+      .rct-race-records-dialog [class*=" col-"] {
         min-width: 0;
       }
 
@@ -1199,13 +1199,13 @@
         </div>
       </div>
     </div>
-    <div class="modal fade" id="accidentLogsDialog" tabindex="-1" aria-label="Accident Logs" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered modal-lg rct-accident-logs-dialog">
+    <div class="modal fade" id="raceRecordsDialog" tabindex="-1" aria-label="Race Records" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-lg rct-race-records-dialog">
         <div class="modal-content">
           <div class="modal-body">
-            <div class="rct-accident-logs-tabs">
-              <div class="rct-accident-logs-tab-bar">
-                <ul class="nav nav-tabs" id="accidentLogsTabs" role="tablist">
+            <div class="rct-race-records-tabs">
+              <div class="rct-race-records-tab-bar">
+                <ul class="nav nav-tabs" id="raceRecordsTabs" role="tablist">
                   <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="accident-records-tab" data-bs-toggle="tab" data-bs-target="#accident-records-tab-pane" type="button" role="tab" aria-controls="accident-records-tab-pane" aria-selected="true">Accident Records (<span id="accidentRecordsTabCount">0</span>)</button>
                   </li>
@@ -1218,8 +1218,8 @@
                 </ul>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
               </div>
-              <div class="tab-content rct-accident-logs-tab-content" id="accidentLogsTabContent">
-                <div class="tab-pane fade show active rct-accident-logs-tab-pane" id="accident-records-tab-pane" role="tabpanel" aria-labelledby="accident-records-tab" tabindex="0">
+              <div class="tab-content rct-race-records-tab-content" id="raceRecordsTabContent">
+                <div class="tab-pane fade show active rct-race-records-tab-pane" id="accident-records-tab-pane" role="tabpanel" aria-labelledby="accident-records-tab" tabindex="0">
                   <div class="rct-accident-logs-layout">
                     <div>
                       <div id="accidentLogsList" class="list-group rct-accident-logs-list" role="listbox" aria-label="Accident log times"></div>
@@ -1236,8 +1236,8 @@
                     <button id="clearAccidentLogsButton" type="button" class="btn btn-outline-danger">Clear</button>
                   </div>
                 </div>
-                <div class="tab-pane fade rct-accident-logs-tab-pane" id="accident-statistics-tab-pane" role="tabpanel" aria-labelledby="accident-statistics-tab" tabindex="0"></div>
-                <div class="tab-pane fade rct-accident-logs-tab-pane" id="accident-audit-log-tab-pane" role="tabpanel" aria-labelledby="accident-audit-log-tab" tabindex="0"></div>
+                <div class="tab-pane fade rct-race-records-tab-pane" id="accident-statistics-tab-pane" role="tabpanel" aria-labelledby="accident-statistics-tab" tabindex="0"></div>
+                <div class="tab-pane fade rct-race-records-tab-pane" id="accident-audit-log-tab-pane" role="tabpanel" aria-labelledby="accident-audit-log-tab" tabindex="0"></div>
               </div>
             </div>
           </div>
@@ -1393,8 +1393,8 @@
           <span>Simulator</span>
           <strong id="simulatorStatusText">Disconnected</strong>
         </div>
-        <button id="accidentLogsButton" class="btn btn-sm btn-light rct-accident-logs-button position-absolute start-50 translate-middle-x" type="button" data-bs-toggle="modal" data-bs-target="#accidentLogsDialog">
-          <span id="accidentLogsButtonText">Open Race Records</span>
+        <button id="raceRecordsButton" class="btn btn-sm btn-light rct-race-records-button position-absolute start-50 translate-middle-x" type="button" data-bs-toggle="modal" data-bs-target="#raceRecordsDialog">
+          <span id="raceRecordsButtonText">Open Race Records</span>
         </button>
         <div class="status-indicator">
           <span>RCT Server</span>
@@ -1416,7 +1416,7 @@
       const simulatorStatusDot = document.getElementById("simulatorStatusDot");
       const simulatorStatusText = document.getElementById("simulatorStatusText");
       const settingsDialog = document.getElementById("settingsDialog");
-      const accidentLogsDialog = document.getElementById("accidentLogsDialog");
+      const raceRecordsDialog = document.getElementById("raceRecordsDialog");
       const settingsApplyButton = document.getElementById("settingsApplyButton");
       const allRestrictedTopicsCheckbox = document.getElementById("allRestrictedTopics");
       const topicsTableBody = document.getElementById("topicsTableBody");
@@ -1454,14 +1454,14 @@
       const totalLapCountInput = document.getElementById("totalLapCount");
       const maximumPenaltyCountInput = document.getElementById("maximumPenaltyCount");
       const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
-      const accidentLogsButton = document.getElementById("accidentLogsButton");
-      const accidentLogsButtonText = document.getElementById("accidentLogsButtonText");
+      const raceRecordsButton = document.getElementById("raceRecordsButton");
+      const raceRecordsButtonText = document.getElementById("raceRecordsButtonText");
       const accidentRecordsTabCount = document.getElementById("accidentRecordsTabCount");
       const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
       const filterSingleVehicleCollision = document.getElementById("filterSingleVehicleCollision");
       const accidentLogsList = document.getElementById("accidentLogsList");
       const accidentLogDetail = document.getElementById("accidentLogDetail");
-      const accidentLogsModal = bootstrap.Modal.getOrCreateInstance(accidentLogsDialog);
+      const raceRecordsModal = bootstrap.Modal.getOrCreateInstance(raceRecordsDialog);
       const roboracers = {
         1: {
           hostInput: document.getElementById("roboracer1Ip"),
@@ -1599,7 +1599,7 @@
       let accidentLogs = [];
       let selectedAccidentLogFilename = null;
       let renderedAccidentLogDetailKey = null;
-      let accidentLogsDialogVisible = false;
+      let raceRecordsDialogVisible = false;
       let accidentLogDetailRenderToken = 0;
       const accidentDecisionAnalysisControllers = new Set();
       let autoSelectLatestAccidentLog = false;
@@ -1710,12 +1710,12 @@
         rctStatusDot.className = `status-dot status-dot-${status}`;
       }
 
-      function updateAccidentLogsButton() {
+      function updateRaceRecordsButton() {
         const count = accidentLogs.length;
-        accidentLogsButton.disabled = false;
+        raceRecordsButton.disabled = false;
         clearAccidentLogsButton.disabled = count === 0;
         accidentRecordsTabCount.textContent = String(count);
-        accidentLogsButtonText.textContent = count > 0
+        raceRecordsButtonText.textContent = count > 0
           ? `Open Race Records (${count})`
           : "Open Race Records";
       }
@@ -1949,7 +1949,7 @@
           emptyItem.className = "list-group-item text-body-secondary";
           emptyItem.textContent = accidentLogs.length === 0 ? "No accident logs" : "No matching accident logs";
           accidentLogsList.appendChild(emptyItem);
-          if (isAccidentLogsDialogOpen()) {
+          if (isRaceRecordsDialogOpen()) {
             renderAccidentLogDetail(null);
           }
           return;
@@ -2012,7 +2012,7 @@
           accidentLogsList.appendChild(item);
         }
         const detailKey = accidentLogDetailKey(selectedAccidentLog);
-        if (!isAccidentLogsDialogOpen()) {
+        if (!isRaceRecordsDialogOpen()) {
           return;
         }
         if (forceDetail || detailKey !== renderedAccidentLogDetailKey) {
@@ -2030,7 +2030,7 @@
           stopAutoSelectingLatestAccidentLog();
           penaltyDecisionAccidentLogFilename = filename;
         }
-        if (!isAccidentLogsDialogOpen()) {
+        if (!isRaceRecordsDialogOpen()) {
           selectedAccidentLogFilename = filename;
           return;
         }
@@ -2048,8 +2048,8 @@
         return `${accidentLog.filename}:${shouldShowManualDecisionPane(accidentLog) ? "manual" : "saved"}`;
       }
 
-      function isAccidentLogsDialogOpen() {
-        return accidentLogsDialogVisible || accidentLogsDialog.classList.contains("show");
+      function isRaceRecordsDialogOpen() {
+        return raceRecordsDialogVisible || raceRecordsDialog.classList.contains("show");
       }
 
       function formatBytes(bytes) {
@@ -2239,7 +2239,7 @@
         updateAccidentReplayRecenterButton(recenterButton);
         loadAccidentLogSummary(accidentLog.filename)
           .then((summary) => {
-            if (renderToken !== accidentLogDetailRenderToken || !isAccidentLogsDialogOpen() || selectedAccidentLogFilename !== accidentLog.filename) {
+            if (renderToken !== accidentLogDetailRenderToken || !isRaceRecordsDialogOpen() || selectedAccidentLogFilename !== accidentLog.filename) {
               return;
             }
             accidentReplayFrames = Array.isArray(summary.frames) ? summary.frames : [];
@@ -2577,7 +2577,7 @@
         }
         const payload = await response.json();
         setAccidentLogs(Array.isArray(payload.accident_logs) ? payload.accident_logs : []);
-        updateAccidentLogsButton();
+        updateRaceRecordsButton();
       }
 
       function refreshAccidentLogsUntilLatestDecisionLog() {
@@ -2623,7 +2623,7 @@
         }
         const payload = await response.json();
         setAccidentLogs(Array.isArray(payload.accident_logs) ? payload.accident_logs : []);
-        updateAccidentLogsButton();
+        updateRaceRecordsButton();
       }
 
       function submitManualPenaltyDecision(accidentLog, memoInput, penaltyVehicleId) {
@@ -2674,7 +2674,7 @@
         penaltyDecisionActive = false;
         penaltyDecisionAccidentLogFilename = null;
         stopAutoSelectingLatestAccidentLog();
-        accidentLogsModal.hide();
+        raceRecordsModal.hide();
       }
 
       function prepareAutomaticDecisionAfterReplay(accidentLog, summary, replayControls, renderToken) {
@@ -2750,7 +2750,7 @@
         penaltyDecisionAccidentLogFilename = null;
         clearPendingAutomaticDecision(accidentLog.filename);
         stopAutoSelectingLatestAccidentLog();
-        accidentLogsModal.hide();
+        raceRecordsModal.hide();
       }
 
       function automaticDecisionCommand(summary) {
@@ -2875,7 +2875,7 @@
       function createDecisionAnalysisPane(accidentLog, option, renderToken) {
         const pane = document.createElement("div");
         pane.className = "rct-decision-pack";
-        if (!isAccidentLogsDialogOpen()) {
+        if (!isRaceRecordsDialogOpen()) {
           pane.textContent = "Analysis paused";
           return pane;
         }
@@ -3747,12 +3747,12 @@
         selectedAccidentLogFilename = null;
         penaltyDecisionAccidentLogFilename = null;
         selectLatestAccidentLogForDecisionIfReady();
-        const alreadyOpen = isAccidentLogsDialogOpen();
-        accidentLogsModal.show();
+        const alreadyOpen = isRaceRecordsDialogOpen();
+        raceRecordsModal.show();
         if (alreadyOpen) {
           renderAccidentLogs({ forceDetail: true });
         }
-        updateAccidentLogsButton();
+        updateRaceRecordsButton();
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
         });
@@ -5700,7 +5700,7 @@
             penaltyDecisionAccidentLogFilename = null;
             stopAutoSelectingLatestAccidentLog();
             manualDecisionSubmitInProgress = false;
-            if (wasPenaltyDecisionActive && isAccidentLogsDialogOpen()) {
+            if (wasPenaltyDecisionActive && isRaceRecordsDialogOpen()) {
               renderAccidentLogs({ forceDetail: true });
             }
           }
@@ -5718,7 +5718,7 @@
         } else if (message.event === "accident-logs") {
           if (Array.isArray(message.accident_logs)) {
             setAccidentLogs(message.accident_logs);
-            updateAccidentLogsButton();
+            updateRaceRecordsButton();
           }
         } else if (message.event === "penalty-decision") {
           updateReviewTimeRunning(message);
@@ -5736,7 +5736,7 @@
             if (!message.active) {
               manualDecisionSubmitInProgress = false;
             }
-            if (wasPenaltyDecisionActive && isAccidentLogsDialogOpen()) {
+            if (wasPenaltyDecisionActive && isRaceRecordsDialogOpen()) {
               renderAccidentLogs({ forceDetail: true });
             }
           }
@@ -6352,19 +6352,19 @@
           console.warn("Failed to refresh racing rule settings:", error);
         });
       });
-      accidentLogsDialog.addEventListener("show.bs.modal", () => {
-        accidentLogsDialogVisible = true;
+      raceRecordsDialog.addEventListener("show.bs.modal", () => {
+        raceRecordsDialogVisible = true;
         renderAccidentLogs({ forceDetail: true });
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
         });
       });
-      accidentLogsDialog.addEventListener("shown.bs.modal", () => {
-        accidentLogsDialogVisible = true;
+      raceRecordsDialog.addEventListener("shown.bs.modal", () => {
+        raceRecordsDialogVisible = true;
         renderAccidentLogs();
       });
-      accidentLogsDialog.addEventListener("hidden.bs.modal", () => {
-        accidentLogsDialogVisible = false;
+      raceRecordsDialog.addEventListener("hidden.bs.modal", () => {
+        raceRecordsDialogVisible = false;
         if (pendingAutomaticDecision) {
           automaticDecisionSubmitFilenames.delete(pendingAutomaticDecision.filename);
           pendingAutomaticDecision = null;
@@ -6388,7 +6388,7 @@
         loadExperimentsFrontendSettings();
         renderTopicOptions(fallbackTopicOptions, {});
         renderAccidentLogs();
-        updateAccidentLogsButton();
+        updateRaceRecordsButton();
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to load accident logs:", error);
         });
