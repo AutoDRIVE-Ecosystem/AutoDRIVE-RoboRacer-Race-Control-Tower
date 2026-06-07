@@ -140,13 +140,70 @@
         min-height: 30rem;
       }
 
+      @media (min-width: 992px) {
+        .rct-settings-dialog {
+          max-width: min(92vw, 64rem);
+        }
+      }
+
       .rct-settings-dialog .modal-header {
         border-bottom: 0;
+        gap: 0.75rem;
+      }
+
+      .rct-settings-tabs-wrapper {
+        align-items: center;
+        display: flex;
+        flex: 1 1 auto;
+        gap: 0.25rem;
+        min-width: 0;
+      }
+
+      .rct-settings-tabs-scroller {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;
+      }
+
+      .rct-settings-tabs-scroller::-webkit-scrollbar {
+        display: none;
+      }
+
+      .rct-settings-tabs-wrapper .nav-tabs {
+        flex-wrap: nowrap;
+        min-width: max-content;
+      }
+
+      .rct-settings-tabs-wrapper .nav-link {
+        white-space: nowrap;
+      }
+
+      .rct-settings-tabs-scroll {
+        align-items: center;
+        border: 0;
+        border-radius: 999px;
+        color: #495057;
+        display: none;
+        flex: 0 0 auto;
+        height: 2rem;
+        justify-content: center;
+        padding: 0;
+        width: 2rem;
+      }
+
+      .rct-settings-tabs-wrapper.is-scrollable .rct-settings-tabs-scroll {
+        display: inline-flex;
+      }
+
+      .rct-settings-tabs-scroll:disabled {
+        opacity: 0.35;
       }
 
       .rct-settings-dialog .modal-body {
         min-height: 24rem;
-	padding-top: 0;
+        padding-top: 0;
       }
 
       .rct-settings-dialog .tab-content {
@@ -889,34 +946,44 @@
       </div>
     </header>
     <div class="modal fade" id="settingsDialog" tabindex="-1" aria-labelledby="settingsDialogLabel" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered modal-lg rct-settings-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <ul class="nav nav-tabs border-0" id="settingsTabs" role="tablist">
-              <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="topics-tab" data-bs-toggle="tab" data-bs-target="#topics-tab-pane" type="button" role="tab" aria-controls="topics-tab-pane" aria-selected="true">Topics</button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="accident-recorder-tab" data-bs-toggle="tab" data-bs-target="#accident-recorder-tab-pane" type="button" role="tab" aria-controls="accident-recorder-tab-pane" aria-selected="false">Accident Recorder</button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="penalty-rule-tab" data-bs-toggle="tab" data-bs-target="#penalty-rule-tab-pane" type="button" role="tab" aria-controls="penalty-rule-tab-pane" aria-selected="false">Penalty Rule</button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="racing-rule-tab" data-bs-toggle="tab" data-bs-target="#racing-rule-tab-pane" type="button" role="tab" aria-controls="racing-rule-tab-pane" aria-selected="false">Racing Rule</button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="audit-rule-tab" data-bs-toggle="tab" data-bs-target="#audit-rule-tab-pane" type="button" role="tab" aria-controls="audit-rule-tab-pane" aria-selected="false">Audit Rule</button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="experiments-tab" data-bs-toggle="tab" data-bs-target="#experiments-tab-pane" type="button" role="tab" aria-controls="experiments-tab-pane" aria-selected="false">Experiments</button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="about-tab" data-bs-toggle="tab" data-bs-target="#about-tab-pane" type="button" role="tab" aria-controls="about-tab-pane" aria-selected="false">About</button>
-              </li>
-            </ul>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
+	      <div class="modal-dialog modal-dialog-centered modal-lg rct-settings-dialog">
+	        <div class="modal-content">
+	          <div class="modal-header">
+	            <div class="rct-settings-tabs-wrapper" id="settingsTabsWrapper">
+	              <button class="btn btn-light rct-settings-tabs-scroll" id="settingsTabsScrollLeft" type="button" aria-label="Scroll settings tabs left">
+	                <i class="bi bi-chevron-left"></i>
+	              </button>
+	              <div class="rct-settings-tabs-scroller" id="settingsTabsScroller">
+	                <ul class="nav nav-tabs border-0" id="settingsTabs" role="tablist">
+	                  <li class="nav-item" role="presentation">
+	                    <button class="nav-link active" id="topics-tab" data-bs-toggle="tab" data-bs-target="#topics-tab-pane" type="button" role="tab" aria-controls="topics-tab-pane" aria-selected="true">Topics</button>
+	                  </li>
+	                  <li class="nav-item" role="presentation">
+	                    <button class="nav-link" id="accident-recorder-tab" data-bs-toggle="tab" data-bs-target="#accident-recorder-tab-pane" type="button" role="tab" aria-controls="accident-recorder-tab-pane" aria-selected="false">Accident Recorder</button>
+	                  </li>
+	                  <li class="nav-item" role="presentation">
+	                    <button class="nav-link" id="penalty-rule-tab" data-bs-toggle="tab" data-bs-target="#penalty-rule-tab-pane" type="button" role="tab" aria-controls="penalty-rule-tab-pane" aria-selected="false">Penalty Rule</button>
+	                  </li>
+	                  <li class="nav-item" role="presentation">
+	                    <button class="nav-link" id="racing-rule-tab" data-bs-toggle="tab" data-bs-target="#racing-rule-tab-pane" type="button" role="tab" aria-controls="racing-rule-tab-pane" aria-selected="false">Racing Rule</button>
+	                  </li>
+	                  <li class="nav-item" role="presentation">
+	                    <button class="nav-link" id="audit-rule-tab" data-bs-toggle="tab" data-bs-target="#audit-rule-tab-pane" type="button" role="tab" aria-controls="audit-rule-tab-pane" aria-selected="false">Audit Rule</button>
+	                  </li>
+	                  <li class="nav-item" role="presentation">
+	                    <button class="nav-link" id="experiments-tab" data-bs-toggle="tab" data-bs-target="#experiments-tab-pane" type="button" role="tab" aria-controls="experiments-tab-pane" aria-selected="false">Experiments</button>
+	                  </li>
+	                  <li class="nav-item" role="presentation">
+	                    <button class="nav-link" id="about-tab" data-bs-toggle="tab" data-bs-target="#about-tab-pane" type="button" role="tab" aria-controls="about-tab-pane" aria-selected="false">About</button>
+	                  </li>
+	                </ul>
+	              </div>
+	              <button class="btn btn-light rct-settings-tabs-scroll" id="settingsTabsScrollRight" type="button" aria-label="Scroll settings tabs right">
+	                <i class="bi bi-chevron-right"></i>
+	              </button>
+	            </div>
+	            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+	          </div>
           <div class="modal-body">
             <div class="tab-content" id="settingsTabContent">
               <div class="tab-pane fade show active" id="topics-tab-pane" role="tabpanel" aria-labelledby="topics-tab" tabindex="0">
@@ -1476,6 +1543,10 @@
       const settingsApplyButton = document.getElementById("settingsApplyButton");
       const allRestrictedTopicsCheckbox = document.getElementById("allRestrictedTopics");
       const topicsTableBody = document.getElementById("topicsTableBody");
+      const settingsTabsWrapper = document.getElementById("settingsTabsWrapper");
+      const settingsTabsScroller = document.getElementById("settingsTabsScroller");
+      const settingsTabsScrollLeft = document.getElementById("settingsTabsScrollLeft");
+      const settingsTabsScrollRight = document.getElementById("settingsTabsScrollRight");
       const settingsTabButtons = Array.from(document.querySelectorAll("#settingsTabs [data-bs-toggle='tab']"));
       const preAccidentSecondsInput = document.getElementById("preAccidentSeconds");
       const includeCameraCheckbox = document.getElementById("includeCamera");
@@ -4804,6 +4875,44 @@
         settingsApplyButton.disabled = !activeTabChanged || (activeTabNeedsWebSocket && !wsConnected);
       }
 
+      function updateSettingsTabsScrollControls() {
+        if (!settingsTabsScroller || !settingsTabsWrapper) {
+          return;
+        }
+        const scrollLeft = settingsTabsScroller.scrollLeft;
+        const maxScrollLeft = settingsTabsScroller.scrollWidth - settingsTabsScroller.clientWidth;
+        const isScrollable = maxScrollLeft > 1;
+        settingsTabsWrapper.classList.toggle("is-scrollable", isScrollable);
+        settingsTabsScrollLeft.disabled = !isScrollable || scrollLeft <= 1;
+        settingsTabsScrollRight.disabled = !isScrollable || scrollLeft >= maxScrollLeft - 1;
+      }
+
+      function scrollSettingsTabs(direction) {
+        if (!settingsTabsScroller) {
+          return;
+        }
+        settingsTabsScroller.scrollBy({
+          left: direction * Math.max(settingsTabsScroller.clientWidth * 0.75, 160),
+          behavior: "smooth",
+        });
+      }
+
+      function ensureActiveSettingsTabVisible() {
+        if (!settingsTabsScroller) {
+          return;
+        }
+        const activeTabButton = document.querySelector("#settingsTabs .nav-link.active");
+        if (!activeTabButton) {
+          updateSettingsTabsScrollControls();
+          return;
+        }
+        activeTabButton.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        });
+        window.requestAnimationFrame(updateSettingsTabsScrollControls);
+      }
+
       function setCanvasInteractionEnabled(enabled) {
         canvasControls.hidden = !enabled;
         recenterCanvasButton.hidden = !enabled;
@@ -6715,6 +6824,17 @@
       if ("ResizeObserver" in window) {
         new ResizeObserver(drawMainCanvas).observe(mainCanvas);
       }
+      settingsTabsScrollLeft.addEventListener("click", () => {
+        scrollSettingsTabs(-1);
+      });
+      settingsTabsScrollRight.addEventListener("click", () => {
+        scrollSettingsTabs(1);
+      });
+      settingsTabsScroller.addEventListener("scroll", updateSettingsTabsScrollControls, { passive: true });
+      window.addEventListener("resize", updateSettingsTabsScrollControls);
+      if ("ResizeObserver" in window) {
+        new ResizeObserver(updateSettingsTabsScrollControls).observe(settingsTabsScroller);
+      }
       allRestrictedTopicsCheckbox.addEventListener("change", () => {
         for (const checkbox of topicsTableBody.querySelectorAll(".topic-checkbox[data-access='restricted']")) {
           checkbox.checked = allRestrictedTopicsCheckbox.checked;
@@ -6779,7 +6899,10 @@
         }
       });
       settingsTabButtons.forEach((button) => {
-        button.addEventListener("shown.bs.tab", updateSettingsApplyState);
+        button.addEventListener("shown.bs.tab", () => {
+          updateSettingsApplyState();
+          ensureActiveSettingsTabVisible();
+        });
       });
       settingsDialog.addEventListener("show.bs.modal", () => {
         void loadTopicSettings().catch((error) => {
@@ -6797,6 +6920,9 @@
         void loadAuditRuleSettings().catch((error) => {
           console.warn("Failed to refresh audit rule settings:", error);
         });
+      });
+      settingsDialog.addEventListener("shown.bs.modal", () => {
+        ensureActiveSettingsTabVisible();
       });
       raceRecordsDialog.addEventListener("show.bs.modal", () => {
         raceRecordsDialogVisible = true;
