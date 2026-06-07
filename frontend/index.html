@@ -412,13 +412,19 @@
         gap: 1rem;
         grid-template-columns: 11.25rem minmax(0, 1fr);
         min-height: 0;
+        overflow: hidden;
+      }
+
+      .rct-accident-logs-layout > div {
+        display: flex;
+        min-height: 0;
       }
 
       .rct-accident-logs-list {
         border: 1px solid #dee2e6;
         border-radius: 0.5rem;
-        height: 100%;
-        min-height: 20rem;
+        flex: 1 1 auto;
+        min-height: 0;
         overflow: auto;
       }
 
@@ -443,19 +449,11 @@
         margin-right: auto;
       }
 
-      .rct-accident-logs-actions {
-        align-items: center;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-        justify-content: flex-end;
-      }
-
       .rct-accident-logs-detail {
         border: 1px solid #dee2e6;
         border-radius: 0.5rem;
-        height: 100%;
-        min-height: 20rem;
+        flex: 1 1 auto;
+        min-height: 0;
         min-width: 0;
         overflow-x: hidden;
         overflow-y: auto;
@@ -1230,13 +1228,6 @@
                       <div id="accidentLogDetail" class="rct-accident-logs-detail p-3 text-body-secondary">To be defined</div>
                     </div>
                   </div>
-                  <div class="rct-accident-logs-actions">
-                    <div class="form-check rct-accident-logs-filter">
-                      <input id="filterSingleVehicleCollision" class="form-check-input" type="checkbox">
-                      <label class="form-check-label" for="filterSingleVehicleCollision">filter single vehicle collision</label>
-                    </div>
-                    <button id="clearAccidentLogsButton" type="button" class="btn btn-outline-danger">Clear</button>
-                  </div>
                 </div>
                 <div class="tab-pane fade rct-race-records-tab-pane" id="accident-statistics-tab-pane" role="tabpanel" aria-labelledby="accident-statistics-tab" tabindex="0"></div>
                 <div class="tab-pane fade rct-race-records-tab-pane" id="accident-audit-log-tab-pane" role="tabpanel" aria-labelledby="accident-audit-log-tab" tabindex="0"></div>
@@ -1244,6 +1235,11 @@
             </div>
           </div>
           <div class="modal-footer">
+            <div class="form-check rct-accident-logs-filter">
+              <input id="filterSingleVehicleCollision" class="form-check-input" type="checkbox">
+              <label class="form-check-label" for="filterSingleVehicleCollision">filter single vehicle collision</label>
+            </div>
+            <button id="clearAccidentLogsButton" type="button" class="btn btn-outline-danger">Clear</button>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
           </div>
         </div>
@@ -1458,9 +1454,11 @@
       const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
       const raceRecordsButton = document.getElementById("raceRecordsButton");
       const raceRecordsButtonText = document.getElementById("raceRecordsButtonText");
+      const raceRecordsTabButtons = Array.from(document.querySelectorAll("#raceRecordsTabs [data-bs-toggle='tab']"));
       const accidentRecordsTabCount = document.getElementById("accidentRecordsTabCount");
       const clearAccidentLogsButton = document.getElementById("clearAccidentLogsButton");
       const filterSingleVehicleCollision = document.getElementById("filterSingleVehicleCollision");
+      const filterSingleVehicleCollisionControl = filterSingleVehicleCollision.closest(".form-check");
       const accidentLogsList = document.getElementById("accidentLogsList");
       const accidentLogDetail = document.getElementById("accidentLogDetail");
       const raceRecordsModal = bootstrap.Modal.getOrCreateInstance(raceRecordsDialog);
@@ -1720,6 +1718,15 @@
         raceRecordsButtonText.textContent = count > 0
           ? `Open Race Records (${count})`
           : "Open Race Records";
+      }
+
+      function updateRaceRecordsFooterActions() {
+        const activeTabButton = raceRecordsTabButtons.find((button) => button.classList.contains("active"));
+        const activeTabId = activeTabButton ? activeTabButton.id : "accident-records-tab";
+        const isStatisticsTab = activeTabId === "accident-statistics-tab";
+        const isAuditLogTab = activeTabId === "accident-audit-log-tab";
+        filterSingleVehicleCollisionControl.hidden = isAuditLogTab;
+        clearAccidentLogsButton.hidden = isStatisticsTab || isAuditLogTab;
       }
 
       function accidentLogsEqual(leftLogs, rightLogs) {
@@ -6356,6 +6363,7 @@
       });
       raceRecordsDialog.addEventListener("show.bs.modal", () => {
         raceRecordsDialogVisible = true;
+        updateRaceRecordsFooterActions();
         renderAccidentLogs({ forceDetail: true });
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
@@ -6363,6 +6371,7 @@
       });
       raceRecordsDialog.addEventListener("shown.bs.modal", () => {
         raceRecordsDialogVisible = true;
+        updateRaceRecordsFooterActions();
         renderAccidentLogs();
       });
       raceRecordsDialog.addEventListener("hidden.bs.modal", () => {
@@ -6385,12 +6394,16 @@
       filterSingleVehicleCollision.addEventListener("change", () => {
         renderAccidentLogs({ forceDetail: true });
       });
+      raceRecordsTabButtons.forEach((button) => {
+        button.addEventListener("shown.bs.tab", updateRaceRecordsFooterActions);
+      });
 
       async function initializeFrontend() {
         loadExperimentsFrontendSettings();
         renderTopicOptions(fallbackTopicOptions, {});
         renderAccidentLogs();
         updateRaceRecordsButton();
+        updateRaceRecordsFooterActions();
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to load accident logs:", error);
         });
