@@ -107,14 +107,64 @@ def _trace_points(trace):
     return [point[0] for point in points], [point[1] for point in points]
 
 
+def _trace_bar_points(trace):
+    xs = trace.get("x") if isinstance(trace.get("x"), list) else []
+    ys = trace.get("y") if isinstance(trace.get("y"), list) else []
+    points = []
+    for index, (x_value, y_value) in enumerate(zip(xs, ys)):
+        x = _finite(x_value)
+        y = _finite(y_value)
+        if y is not None:
+            points.append((x if x is not None else index, str(x_value), y))
+    return points, [str(value) for value in xs]
+
+
+def _trace_bar_width(trace, fallback=0.2):
+    width = trace.get("width")
+    if isinstance(width, list):
+        for value in width:
+            parsed = _finite(value)
+            if parsed is not None:
+                return parsed
+        return fallback
+    parsed = _finite(width)
+    return parsed if parsed is not None else fallback
+
+
 def _apply_grid_and_labels(ax, layout, axis_name):
+    xaxis = layout.get("xaxis") if isinstance(layout.get("xaxis"), dict) else {}
     x_title = _axis_title(layout.get("xaxis"))
     y_title = _axis_title(layout.get(axis_name))
     if x_title:
         ax.set_xlabel(x_title)
     if y_title:
         ax.set_ylabel(y_title)
-    ax.grid(True, color="#b0b0b0", linewidth=0.8)
+    ax.grid(True, axis="y", color="#b0b0b0", linewidth=0.8)
+    if xaxis.get("showgrid", True) is not False:
+        ax.grid(True, axis="x", color="#b0b0b0", linewidth=0.8)
+
+
+def _apply_x_ticks_and_range(ax, layout):
+    xaxis = layout.get("xaxis") if isinstance(layout.get("xaxis"), dict) else {}
+    tickvals = xaxis.get("tickvals") if isinstance(xaxis.get("tickvals"), list) else []
+    ticktext = xaxis.get("ticktext") if isinstance(xaxis.get("ticktext"), list) else []
+    ticks = []
+    labels = []
+    for index, value in enumerate(tickvals):
+        parsed = _finite(value)
+        if parsed is None:
+            continue
+        ticks.append(parsed)
+        labels.append(str(ticktext[index] if index < len(ticktext) else value))
+    if ticks:
+        ax.set_xticks(ticks)
+        ax.set_xticklabels(labels, rotation=25, ha="right")
+    axis_range = xaxis.get("range") if isinstance(xaxis.get("range"), list) else []
+    if len(axis_range) >= 2:
+        left = _finite(axis_range[0])
+        right = _finite(axis_range[1])
+        if left is not None and right is not None:
+            ax.set_xlim(left, right)
 
 
 def _draw_shape_lines(axes, layout):
@@ -128,14 +178,34 @@ def _draw_shape_lines(axes, layout):
         line = shape.get("line") if isinstance(shape.get("line"), dict) else {}
         if abs(x0) <= 1e-9 and line.get("color") == "#6c757d":
             continue
+        y0 = _finite(shape.get("y0"))
+        y1 = _finite(shape.get("y1"))
+        is_axis_separator = (
+            shape.get("yref") == "paper"
+            and y0 is not None
+            and y1 is not None
+            and abs(y0) <= 1e-9
+            and abs(y1 - 1) <= 1e-9
+            and not shape.get("name")
+            and not line.get("dash")
+        )
         color = _css_color(line.get("color"), "#6c757d")
         style = {"dash": "--", "dot": "--", "dashdot": "-."}.get(line.get("dash"), "-")
         width = _finite(line.get("width")) or 1.0
         label = shape.get("name")
-        if not label:
+        if is_axis_separator:
+            label = None
+        elif not label:
             label = "collision count" if line.get("dash") == "dashdot" else "minimum distance"
         for index, ax in enumerate(axes):
-            ax.axvline(x0, color=color, linestyle=style, linewidth=max(width, 1.6), label=label if index == 0 else None)
+            ax.axvline(
+                x0,
+                color=color,
+                linestyle=style,
+                linewidth=width if is_axis_separator else max(width, 1.6),
+                label=label if index == 0 else None,
+                zorder=0 if is_axis_separator or shape.get("layer") == "below" else 3,
+            )
 
 
 def _draw_annotations(fig, axes, layout):
@@ -192,6 +262,31 @@ def _draw_trace(ax, trace, paper_style):
         ax.scatter(xs, ys, **kwargs)
 
 
+def _draw_bar_trace(ax, trace):
+    name = _paper_trace_name(str(trace.get("name") or ""))
+    points, labels = _trace_bar_points(trace)
+    if not points:
+        return
+    marker = trace.get("marker") if isinstance(trace.get("marker"), dict) else {}
+    marker_line = marker.get("line") if isinstance(marker.get("line"), dict) else {}
+    color = _css_color(marker.get("color"), "#606060")
+    edgecolor = _css_color(marker_line.get("color"), "#000000")
+    parsed_line_width = _finite(marker_line.get("width"))
+    line_width = parsed_line_width if parsed_line_width is not None else 0.6
+    width = _trace_bar_width(trace, 0.2)
+    offset = _finite(trace.get("offset")) or 0.0
+    ax.bar(
+        [x + offset for x, _, _ in points],
+        [y for _, _, y in points],
+        width=width,
+        color=color,
+        edgecolor=edgecolor,
+        linewidth=line_width,
+        label=name or None,
+        zorder=2,
+    )
+
+
 def rct_render_matplotlib_plot(payload_json):
     payload = json.loads(payload_json)
     layout = payload.get("layout") if isinstance(payload.get("layout"), dict) else {}
@@ -218,13 +313,19 @@ def rct_render_matplotlib_plot(payload_json):
     for trace in traces:
         if not isinstance(trace, dict):
             continue
-        _draw_trace(axis_for_trace.get(trace.get("yaxis") or "y", axes[0]), trace, paper_style)
+        ax = axis_for_trace.get(trace.get("yaxis") or "y", axes[0])
+        if trace.get("type") == "bar":
+            _draw_bar_trace(ax, trace)
+            continue
+        _draw_trace(ax, trace, paper_style)
 
     _draw_shape_lines(axes, layout)
     _draw_annotations(fig, axes, layout)
     _apply_grid_and_labels(axes[0], layout, "yaxis")
+    _apply_x_ticks_and_range(axes[0], layout)
     if has_y2:
         _apply_grid_and_labels(axes[1], layout, "yaxis2")
+        _apply_x_ticks_and_range(axes[1], layout)
     title = _clean_graph_title(metadata.get("title"))
     if title and not has_y2:
         axes[0].set_title(title, pad=10)

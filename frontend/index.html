@@ -900,6 +900,37 @@
         text-align: center;
       }
 
+      .rct-post-evaluation {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .rct-post-evaluation-actions {
+        flex: 0 0 auto;
+        font-size: 0.875rem;
+        padding: 0.25rem 0.75rem 0;
+        text-align: right;
+      }
+
+      .rct-post-evaluation-chart {
+        flex: 1 1 auto;
+        min-height: 18rem;
+        min-width: 0;
+        position: relative;
+      }
+
+      .rct-post-evaluation-empty {
+        align-items: center;
+        color: #6c757d;
+        display: flex;
+        flex: 1 1 auto;
+        justify-content: center;
+        min-height: 18rem;
+        text-align: center;
+      }
+
       .rct-review-time-active {
         color: #000000;
       }
@@ -1421,7 +1452,15 @@
                     <div id="bridgeHzStatisticsEmpty" class="rct-race-statistics-empty">No bridge Hz samples in this browser session.</div>
                   </div>
                 </div>
-                <div class="tab-pane fade rct-race-records-tab-pane" id="accident-evaluation-tab-pane" role="tabpanel" aria-labelledby="accident-evaluation-tab" tabindex="0"></div>
+                <div class="tab-pane fade rct-race-records-tab-pane" id="accident-evaluation-tab-pane" role="tabpanel" aria-labelledby="accident-evaluation-tab" tabindex="0">
+                  <div class="rct-post-evaluation">
+                    <div class="rct-post-evaluation-actions">
+                      <a id="postEvaluationDownloadLink" class="link-primary text-decoration-underline" href="#" hidden>[Download SVG]</a>
+                    </div>
+                    <div id="postEvaluationChart" class="rct-post-evaluation-chart"></div>
+                    <div id="postEvaluationEmpty" class="rct-post-evaluation-empty">No post evaluation data.</div>
+                  </div>
+                </div>
                 <div class="tab-pane fade rct-race-records-tab-pane" id="accident-audit-log-tab-pane" role="tabpanel" aria-labelledby="accident-audit-log-tab" tabindex="0">
                   <div id="auditLogList" class="list-group rct-audit-log-list" role="list" aria-label="Audit log"></div>
                 </div>
@@ -1683,6 +1722,9 @@
       const accidentLogDetail = document.getElementById("accidentLogDetail");
       const bridgeHzStatisticsChart = document.getElementById("bridgeHzStatisticsChart");
       const bridgeHzStatisticsEmpty = document.getElementById("bridgeHzStatisticsEmpty");
+      const postEvaluationChart = document.getElementById("postEvaluationChart");
+      const postEvaluationEmpty = document.getElementById("postEvaluationEmpty");
+      const postEvaluationDownloadLink = document.getElementById("postEvaluationDownloadLink");
       const auditLogList = document.getElementById("auditLogList");
       const raceRecordsModal = bootstrap.Modal.getOrCreateInstance(raceRecordsDialog);
       const roboracers = {
@@ -1839,6 +1881,7 @@
       let raceStatisticsPendingAccidentRaceTime = null;
       let raceStatisticsAccidentMarkers = [];
       const raceStatisticsAccidentLogMarkerKeys = new Set();
+      let postEvaluationPlotInitialized = false;
       let accidentLogs = [];
       let auditLog = [];
       let selectedAccidentLogFilename = null;
@@ -2000,6 +2043,10 @@
         return activeRaceRecordsTabId() === "accident-statistics-tab";
       }
 
+      function isPostEvaluationTabActive() {
+        return activeRaceRecordsTabId() === "accident-evaluation-tab";
+      }
+
       function updateRaceRecordsEvaluationTabVisibility() {
         const enabled = Boolean(appliedDecisionPackV2EnableEvaluation);
         raceRecordsEvaluationTabItem.hidden = !enabled;
@@ -2008,6 +2055,9 @@
         }
         if (isRaceRecordsDialogOpen() && isAccidentRecordsTabActive()) {
           renderAccidentLogs({ forceDetail: true });
+        }
+        if (isRaceRecordsDialogOpen() && isPostEvaluationTabActive()) {
+          renderPostEvaluation();
         }
         updateRaceRecordsFooterActions();
       }
@@ -2447,6 +2497,314 @@
         }
       }
 
+      function postEvaluationRows() {
+        const rowsByType = new Map();
+        for (const accidentLog of accidentLogs) {
+          const record = accidentLog && accidentLog.decision_record;
+          if (!record) {
+            continue;
+          }
+          const typeId = postEvaluationDecisionTypeId(record);
+          if (!typeId) {
+            continue;
+          }
+          if (!rowsByType.has(typeId)) {
+            rowsByType.set(typeId, {
+              id: typeId,
+              label: postEvaluationDecisionTypeLabel(typeId),
+              auto: 0,
+              stewards: [0, 0, 0],
+            });
+          }
+          const row = rowsByType.get(typeId);
+          row.auto += 1;
+          const evaluation = normalizedDecisionEvaluation(record);
+          decisionEvaluationStewardKeys.forEach((key, index) => {
+            if (evaluation[key] === true) {
+              row.stewards[index] += 1;
+            }
+          });
+        }
+        const order = postEvaluationDecisionTypeOrder();
+        return Array.from(rowsByType.values()).sort((left, right) => {
+          const leftOrder = order.get(left.id);
+          const rightOrder = order.get(right.id);
+          if (leftOrder !== undefined || rightOrder !== undefined) {
+            return (leftOrder ?? Number.MAX_SAFE_INTEGER) - (rightOrder ?? Number.MAX_SAFE_INTEGER);
+          }
+          return left.label.localeCompare(right.label, undefined, { numeric: true });
+        });
+      }
+
+      function postEvaluationDecisionTypeOrder() {
+        const ids = [];
+        if (window.RCTDecisionPacksV2 && typeof window.RCTDecisionPacksV2.listCollisionTypes === "function") {
+          ids.push(...window.RCTDecisionPacksV2.listCollisionTypes().map((info) => info.id));
+        }
+        ids.push(...decisionPackV2CollisionTypeCheckboxes.map((checkbox) => checkbox.dataset.analysisId));
+        ids.push(...swAnalysisCheckboxes.map((checkbox) => checkbox.dataset.analysisId));
+        return new Map(Array.from(new Set(ids.filter(Boolean))).map((id, index) => [id, index]));
+      }
+
+      function postEvaluationDecisionTypeId(record) {
+        const results = record && record.decision_results && typeof record.decision_results === "object"
+          ? record.decision_results
+          : {};
+        const packageIds = Array.isArray(record && record.decision_package_ids)
+          ? record.decision_package_ids.filter((id) => typeof id === "string" && id)
+          : [];
+        const candidateIds = Array.from(new Set([
+          ...Object.keys(results).filter((id) => typeof id === "string" && id),
+          ...packageIds,
+        ]));
+        let bestId = null;
+        let bestScore = -Infinity;
+        candidateIds.forEach((id, index) => {
+          const score = postEvaluationDecisionScore(results[id], record, candidateIds.length - index);
+          if (score > bestScore) {
+            bestId = id;
+            bestScore = score;
+          }
+        });
+        return bestId;
+      }
+
+      function postEvaluationDecisionScore(result, record, fallbackRank) {
+        if (!result || typeof result !== "object") {
+          return (Number(fallbackRank) || 0) * 1e-6;
+        }
+        const metrics = result.metrics && typeof result.metrics === "object" ? result.metrics : {};
+        const values = [
+          result.confidence,
+          result.contribution_score,
+          metrics.contribution_score,
+          metrics.primary_score,
+          metrics.score,
+        ];
+        for (const value of values) {
+          const score = Number(value);
+          if (Number.isFinite(score)) {
+            return score;
+          }
+        }
+        const resultVehicleId = Number(result.penalty_vehicle_id || result.fault_vehicle_id);
+        const recordVehicleId = Number(record && (record.penalty_vehicle_id || record.fault_vehicle_id));
+        return resultVehicleId === recordVehicleId && (resultVehicleId === 1 || resultVehicleId === 2)
+          ? 0.5
+          : ((Number(fallbackRank) || 0) * 1e-6);
+      }
+
+      function postEvaluationDecisionTypeLabel(typeId) {
+        const v2Pack = window.RCTDecisionPacksV2 && window.RCTDecisionPacksV2.getCollisionType(typeId);
+        if (v2Pack && v2Pack.info && v2Pack.info.label) {
+          return v2Pack.info.label;
+        }
+        const v1Pack = window.RCTDecisionPacks && typeof window.RCTDecisionPacks.get === "function"
+          ? window.RCTDecisionPacks.get(typeId)
+          : null;
+        if (v1Pack && v1Pack.info && v1Pack.info.label) {
+          return v1Pack.info.label;
+        }
+        return String(typeId || "Unknown accident").replace(/_/g, " ");
+      }
+
+      function postEvaluationChartPayload() {
+        const rows = postEvaluationRows();
+        const labels = rows.map((row) => row.label);
+        const xPositions = rows.map((_, index) => index);
+        const maxCount = rows.reduce((count, row) => Math.max(count, row.auto, ...row.stewards), 0);
+        const barWidth = xPositions.map(() => 0.06);
+        const separatorShapes = Array.from({ length: labels.length + 1 }, (_, index) => ({
+          type: "line",
+          xref: "x",
+          yref: "paper",
+          x0: index - 0.5,
+          x1: index - 0.5,
+          y0: 0,
+          y1: 1,
+          layer: "below",
+          line: { color: "#d9d9d9", width: 1 },
+        }));
+        const barColors = {
+          auto: "#56b9e8",
+          steward1: "#9bd66f",
+          steward2: "#f4b45f",
+          steward3: "#9b78d6",
+        };
+        const traces = [
+          {
+            x: xPositions,
+            y: rows.map((row) => row.auto),
+            customdata: labels,
+            name: "Auto",
+            type: "bar",
+            width: barWidth,
+            offset: -0.18,
+            marker: { color: barColors.auto, line: { color: barColors.auto, width: 0 } },
+            hovertemplate: "%{customdata}<br>auto: %{y}<extra></extra>",
+          },
+          {
+            x: xPositions,
+            y: rows.map((row) => row.stewards[0]),
+            customdata: labels,
+            name: "Steward 1",
+            type: "bar",
+            width: barWidth,
+            offset: -0.06,
+            marker: { color: barColors.steward1, line: { color: barColors.steward1, width: 0 } },
+            hovertemplate: "%{customdata}<br>steward 1: %{y}<extra></extra>",
+          },
+          {
+            x: xPositions,
+            y: rows.map((row) => row.stewards[1]),
+            customdata: labels,
+            name: "Steward 2",
+            type: "bar",
+            width: barWidth,
+            offset: 0.06,
+            marker: { color: barColors.steward2, line: { color: barColors.steward2, width: 0 } },
+            hovertemplate: "%{customdata}<br>steward 2: %{y}<extra></extra>",
+          },
+          {
+            x: xPositions,
+            y: rows.map((row) => row.stewards[2]),
+            customdata: labels,
+            name: "Steward 3",
+            type: "bar",
+            width: barWidth,
+            offset: 0.18,
+            marker: { color: barColors.steward3, line: { color: barColors.steward3, width: 0 } },
+            hovertemplate: "%{customdata}<br>steward 3: %{y}<extra></extra>",
+          },
+        ];
+        return {
+          rows,
+          traces,
+          layout: {
+            autosize: true,
+            barmode: "group",
+            bargap: 0.28,
+            bargroupgap: 0.08,
+            margin: { l: 56, r: 18, t: 12, b: 112 },
+            paper_bgcolor: "rgba(0,0,0,0)",
+            plot_bgcolor: "rgba(0,0,0,0)",
+            font: { family: "system-ui, -apple-system, Segoe UI, sans-serif", size: 11 },
+            xaxis: {
+              title: { text: "accident type", font: { size: 11 } },
+              range: [-0.5, Math.max(0.5, labels.length - 0.5)],
+              showgrid: false,
+              tickangle: -25,
+              tickmode: "array",
+              tickvals: xPositions,
+              ticktext: labels,
+              automargin: true,
+            },
+            yaxis: {
+              title: { text: "accident count", font: { size: 11 } },
+              gridcolor: "#dee2e6",
+              rangemode: "tozero",
+              range: [0, Math.max(1, maxCount) * 1.18],
+              tickformat: "d",
+              dtick: maxCount <= 10 ? 1 : undefined,
+              zerolinecolor: "#adb5bd",
+            },
+            legend: { orientation: "h", y: -0.32, x: 0 },
+            shapes: separatorShapes,
+          },
+          metadata: {
+            title: "",
+            x_axis_title: "accident type",
+            y_axis_title: "accident count",
+          },
+        };
+      }
+
+      function renderPostEvaluation() {
+        if (!postEvaluationChart || !postEvaluationEmpty || !postEvaluationDownloadLink) {
+          return;
+        }
+        const payload = postEvaluationChartPayload();
+        const hasData = payload.rows.length > 0;
+        postEvaluationChart.hidden = !hasData;
+        postEvaluationEmpty.hidden = hasData;
+        postEvaluationDownloadLink.hidden = true;
+        if (!hasData) {
+          if (postEvaluationPlotInitialized && window.Plotly) {
+            Plotly.purge(postEvaluationChart);
+          }
+          postEvaluationPlotInitialized = false;
+          postEvaluationChart.replaceChildren();
+          return;
+        }
+        if (!isRaceRecordsDialogOpen() || !isPostEvaluationTabActive()) {
+          return;
+        }
+        const useMatplotlib = appliedDecisionPackV2GraphRenderer === "matplotlib"
+          && window.RCTMatplotlibRenderer;
+        if (useMatplotlib) {
+          if (postEvaluationPlotInitialized && window.Plotly) {
+            Plotly.purge(postEvaluationChart);
+          }
+          postEvaluationPlotInitialized = false;
+          postEvaluationDownloadLink.hidden = false;
+          window.RCTMatplotlibRenderer.render(postEvaluationChart, payload).catch((error) => {
+            console.warn("Matplotlib post evaluation chart rendering failed; falling back to default renderer:", error);
+            postEvaluationDownloadLink.hidden = true;
+            renderPostEvaluationPlotlyPayload(postEvaluationChart, payload);
+          });
+          return;
+        }
+        postEvaluationDownloadLink.hidden = true;
+        renderPostEvaluationPlotlyPayload(postEvaluationChart, payload);
+      }
+
+      function renderPostEvaluationPlotlyPayload(container, payload) {
+        if (!window.Plotly) {
+          container.textContent = "Plotly renderer is unavailable.";
+          postEvaluationPlotInitialized = false;
+          return;
+        }
+        Plotly.react(container, payload.traces, payload.layout, { displayModeBar: false, displaylogo: false, responsive: true });
+        postEvaluationPlotInitialized = true;
+      }
+
+      function resizePostEvaluationPlot() {
+        if (postEvaluationPlotInitialized && postEvaluationChart && window.Plotly) {
+          Plotly.Plots.resize(postEvaluationChart);
+        }
+      }
+
+      async function downloadPostEvaluationMatplotlibSvg(event) {
+        event.preventDefault();
+        if (!postEvaluationDownloadLink || postEvaluationDownloadLink.getAttribute("aria-busy") === "true") {
+          return;
+        }
+        if (!window.RCTMatplotlibRenderer) {
+          return;
+        }
+        postEvaluationDownloadLink.setAttribute("aria-busy", "true");
+        postEvaluationDownloadLink.textContent = "Preparing SVG...";
+        try {
+          const payload = postEvaluationChartPayload();
+          const svg = await window.RCTMatplotlibRenderer.renderSvg({
+            traces: payload.traces,
+            layout: payload.layout,
+            render: { style: "paper" },
+            metadata: payload.metadata,
+          });
+          downloadBlob(new Blob([svg], { type: "image/svg+xml" }), "post_evaluation.svg");
+        } catch (error) {
+          console.warn("Failed to download post evaluation matplotlib chart:", error);
+        } finally {
+          window.setTimeout(() => {
+            if (postEvaluationDownloadLink && postEvaluationDownloadLink.isConnected) {
+              postEvaluationDownloadLink.removeAttribute("aria-busy");
+              postEvaluationDownloadLink.textContent = "[Download SVG]";
+            }
+          }, 800);
+        }
+      }
+
       function auditLogsEqual(leftLog, rightLog) {
         if (leftLog.length !== rightLog.length) {
           return false;
@@ -2850,6 +3208,7 @@
         }
         if (changed) {
           renderAccidentLogs({ forceDetail: Boolean(options.forceDetail) });
+          renderPostEvaluation();
         }
       }
 
@@ -2858,6 +3217,7 @@
           syncRaceStatisticsSelfCollisionMarkers(nextAccidentLogs);
           if (selectLatestAccidentLogForDecisionIfReady()) {
             renderAccidentLogs({ forceDetail: true });
+            renderPostEvaluation();
             return true;
           }
           return false;
@@ -2883,6 +3243,7 @@
           }
         }
         renderAccidentLogs({ forceDetail: selectedLatestForDecision });
+        renderPostEvaluation();
         renderAuditLog();
         return true;
       }
@@ -5015,6 +5376,7 @@
         refreshCanvasFpsOverlay();
         if (previousGraphRenderer !== appliedDecisionPackV2GraphRenderer) {
           renderAccidentLogs({ forceDetail: true });
+          renderPostEvaluation();
         }
         updateSettingsApplyState();
       }
@@ -7775,6 +8137,7 @@
       mainImage.src = "assets/autodrive-rct.png";
       window.addEventListener("resize", drawMainCanvas);
       window.addEventListener("resize", resizeRaceStatisticsPlot);
+      window.addEventListener("resize", resizePostEvaluationPlot);
       if ("ResizeObserver" in window) {
         new ResizeObserver(drawMainCanvas).observe(mainCanvas);
       }
@@ -7867,12 +8230,16 @@
         ensureActiveSettingsTabVisible();
       });
       document.addEventListener("keydown", handleRaceRecordsShortcut);
+      postEvaluationDownloadLink.addEventListener("click", (event) => {
+        void downloadPostEvaluationMatplotlibSvg(event);
+      });
       raceRecordsDialog.addEventListener("show.bs.modal", () => {
         raceRecordsDialogVisible = true;
         updateRaceRecordsFooterActions();
         renderAccidentLogs({ forceDetail: true });
         renderAuditLog({ scrollToBottom: isAuditLogTabActive() });
         renderRaceStatistics();
+        renderPostEvaluation();
         void loadAccidentLogs().catch((error) => {
           console.warn("Failed to refresh accident logs:", error);
         });
@@ -7888,7 +8255,9 @@
         renderAccidentLogs();
         renderAuditLog({ scrollToBottom: isAuditLogTabActive() });
         renderRaceStatistics();
+        renderPostEvaluation();
         resizeRaceStatisticsPlot();
+        resizePostEvaluationPlot();
       });
       raceRecordsDialog.addEventListener("hidden.bs.modal", () => {
         raceRecordsDialogVisible = false;
@@ -7922,6 +8291,9 @@
           } else if (isStatisticsTabActive()) {
             renderRaceStatistics();
             resizeRaceStatisticsPlot();
+          } else if (isPostEvaluationTabActive()) {
+            renderPostEvaluation();
+            resizePostEvaluationPlot();
           }
         });
       });
@@ -7932,6 +8304,7 @@
         renderAccidentLogs();
         renderAuditLog();
         renderRaceStatistics();
+        renderPostEvaluation();
         updateRaceRecordsButton();
         updateRaceRecordsFooterActions();
         updateRaceRecordsEvaluationTabVisibility();
