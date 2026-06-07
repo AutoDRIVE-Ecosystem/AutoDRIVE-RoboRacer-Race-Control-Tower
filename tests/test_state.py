@@ -154,17 +154,17 @@ class RaceControlStateTests(unittest.TestCase):
 
         self.assertEqual(state.snapshot()["audit_rule"]["bridge_hz_maximum"], 120.0)
         self.assertEqual(state.snapshot()["audit_rule"]["bridge_hz_minimum"], 20.0)
-        self.assertEqual(state.snapshot()["audit_rule"]["bridge_hz_spike_percent"], 25.0)
+        self.assertEqual(state.snapshot()["audit_rule"]["bridge_hz_drop_percent"], 25.0)
 
         state.set_audit_rule_settings(
             bridge_hz_maximum=90.0,
             bridge_hz_minimum=15.0,
-            bridge_hz_spike_percent=30.0,
+            bridge_hz_drop_percent=30.0,
         )
 
         self.assertEqual(state.snapshot()["audit_rule"]["bridge_hz_maximum"], 90.0)
         self.assertEqual(state.snapshot()["audit_rule"]["bridge_hz_minimum"], 15.0)
-        self.assertEqual(state.snapshot()["audit_rule"]["bridge_hz_spike_percent"], 30.0)
+        self.assertEqual(state.snapshot()["audit_rule"]["bridge_hz_drop_percent"], 30.0)
 
     def test_snapshot_tracks_race_time(self):
         state = RaceControlState()

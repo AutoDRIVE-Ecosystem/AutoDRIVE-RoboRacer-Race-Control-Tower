@@ -311,7 +311,7 @@ Response:
   "audit_rule": {
     "bridge_hz_maximum": 120.0,
     "bridge_hz_minimum": 20.0,
-    "bridge_hz_spike_percent": 25.0
+    "bridge_hz_drop_percent": 25.0
   }
 }
 ```
@@ -326,11 +326,11 @@ Request:
 {
   "bridge_hz_maximum": 120.0,
   "bridge_hz_minimum": 20.0,
-  "bridge_hz_spike_percent": 25.0
+  "bridge_hz_drop_percent": 25.0
 }
 ```
 
-`bridge_hz_maximum` must be a positive number up to `1000`. `bridge_hz_minimum` must be a number from `0` to `1000` and less than `bridge_hz_maximum`. `bridge_hz_spike_percent` must be a number from `5` to `50`; the default is `25`. RCT records Bridge Hz audit entries when a connected vehicle crosses the high or low thresholds. RCT records spike entries when the current Bridge Hz differs from the sample about one second earlier by at least the configured percentage.
+`bridge_hz_maximum` must be a positive number up to `1000`. `bridge_hz_minimum` must be a number from `0` to `1000` and less than `bridge_hz_maximum`. `bridge_hz_drop_percent` must be a number from `5` to `50`; the default is `25`. RCT records Bridge Hz audit entries when a connected vehicle crosses the high or low thresholds. RCT records drop entries when the current Bridge Hz is lower than the sample about one second earlier by at least the configured percentage. A recorded drop needs follow-up analysis to determine whether it originated from the vehicle itself or from the Simulator/RCT path.
 
 Accident logs:
 
@@ -502,7 +502,7 @@ Initial event:
   "audit_rule": {
     "bridge_hz_maximum": 120.0,
     "bridge_hz_minimum": 20.0,
-    "bridge_hz_spike_percent": 25.0
+    "bridge_hz_drop_percent": 25.0
   },
   "vehicle_penalties": {
     "1": 0,

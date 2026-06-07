@@ -69,8 +69,8 @@ FRONTEND_ROOT = Path(__file__).resolve().parent.parent / "frontend"
 SOCKETIO_PATH = "socket.io"
 BRIDGE_OMITTED_KEY_PARTS = ("lidar", "camera", "array", "image")
 FRONT_CAMERA_IMAGE_KEYS = ("V1 Front Camera Image", "V2 Front Camera Image")
-DEFAULT_BRIDGE_HZ_SPIKE_PERCENT = 25.0
-BRIDGE_HZ_SPIKE_LOOKBACK_SECONDS = 1.0
+DEFAULT_BRIDGE_HZ_DROP_PERCENT = 25.0
+BRIDGE_HZ_DROP_LOOKBACK_SECONDS = 1.0
 BRIDGE_HZ_AUDIT_HISTORY_SECONDS = 3.0
 WHITE_FRONT_CAMERA_JPEG_BASE64 = (
 "/9j/4AAQSkZJRgABAQEBLAEsAAD/2wBDAP//////////////////////////////////////////"
@@ -463,7 +463,8 @@ class BridgeHzAuditVehicleState:
     history: deque[tuple[float, float]] = field(default_factory=deque)
     high_active: bool = False
     low_active: bool = False
-    spike_direction: str | None = None
+    drop_active: bool = False
+    suppress_next_low_boundary: bool = True
 
 
 @dataclass(frozen=True)
@@ -477,10 +478,10 @@ class BridgeHzAuditTracker:
         self,
         *,
         history_seconds: float = BRIDGE_HZ_AUDIT_HISTORY_SECONDS,
-        spike_lookback_seconds: float = BRIDGE_HZ_SPIKE_LOOKBACK_SECONDS,
+        drop_lookback_seconds: float = BRIDGE_HZ_DROP_LOOKBACK_SECONDS,
     ) -> None:
         self.history_seconds = history_seconds
-        self.spike_lookback_seconds = spike_lookback_seconds
+        self.drop_lookback_seconds = drop_lookback_seconds
         self._states: dict[int, BridgeHzAuditVehicleState] = {}
 
     def evaluate(
@@ -491,19 +492,17 @@ class BridgeHzAuditTracker:
         bridge_hz: float,
         connected: bool,
         settings: dict[str, Any],
+        suppress_drops: bool,
         now: float,
     ) -> list[BridgeHzAuditEvent]:
         state = self._states.setdefault(vehicle_id, BridgeHzAuditVehicleState())
         if not connected:
-            state.history.clear()
-            state.high_active = False
-            state.low_active = False
-            state.spike_direction = None
+            self.reset_vehicle(vehicle_id)
             return []
 
         maximum = float(settings["bridge_hz_maximum"])
         minimum = float(settings["bridge_hz_minimum"])
-        spike_ratio = float(settings["bridge_hz_spike_percent"]) / 100.0
+        drop_ratio_boundary = float(settings["bridge_hz_drop_percent"]) / 100.0
         events: list[BridgeHzAuditEvent] = []
 
         if bridge_hz >= maximum:
@@ -520,42 +519,61 @@ class BridgeHzAuditTracker:
 
         if bridge_hz <= minimum:
             if not state.low_active:
-                events.append(
-                    BridgeHzAuditEvent(
-                        "bridge_hz",
-                        f"Bridge Hz below minimum: {vehicle_label} {bridge_hz:.1f} Hz <= {minimum:.1f} Hz.",
+                if state.suppress_next_low_boundary:
+                    state.suppress_next_low_boundary = False
+                else:
+                    events.append(
+                        BridgeHzAuditEvent(
+                            "bridge_hz",
+                            f"Bridge Hz below minimum: {vehicle_label} {bridge_hz:.1f} Hz <= {minimum:.1f} Hz.",
+                        )
                     )
-                )
             state.low_active = True
         else:
             state.low_active = False
 
-        baseline = self._sample_at_or_before(state.history, now - self.spike_lookback_seconds)
+        if suppress_drops:
+            state.drop_active = False
+            state.history.clear()
+            return events
+
+        baseline = self._sample_at_or_before(state.history, now - self.drop_lookback_seconds)
         if baseline is not None:
             baseline_time, baseline_hz = baseline
-            if now - baseline_time >= self.spike_lookback_seconds * 0.75 and baseline_hz > 0:
-                delta = bridge_hz - baseline_hz
-                ratio = abs(delta) / baseline_hz
-                direction = "increase" if delta > 0 else "decrease"
-                if ratio >= spike_ratio and direction != state.spike_direction:
-                    events.append(
-                        BridgeHzAuditEvent(
-                            "bridge_hz",
-                            (
-                                f"Bridge Hz spike: {vehicle_label} {baseline_hz:.1f} Hz -> "
-                                f"{bridge_hz:.1f} Hz ({delta / baseline_hz:+.1%}) over {now - baseline_time:.1f}s."
-                            ),
+            if now - baseline_time >= self.drop_lookback_seconds * 0.75 and baseline_hz > 0:
+                drop_ratio = (baseline_hz - bridge_hz) / baseline_hz
+                if drop_ratio >= drop_ratio_boundary:
+                    if not state.drop_active:
+                        events.append(
+                            BridgeHzAuditEvent(
+                                "bridge_hz",
+                                (
+                                    f"Bridge Hz drop: {vehicle_label} {baseline_hz:.1f} Hz -> "
+                                    f"{bridge_hz:.1f} Hz ({-drop_ratio:.1%}) over {now - baseline_time:.1f}s."
+                                ),
+                            )
                         )
-                    )
-                    state.spike_direction = direction
-                elif ratio < spike_ratio:
-                    state.spike_direction = None
+                    state.drop_active = True
+                else:
+                    state.drop_active = False
             else:
-                state.spike_direction = None
+                state.drop_active = False
 
         state.history.append((now, bridge_hz))
         self._prune(state.history, now)
         return events
+
+    def reset_vehicle(self, vehicle_id: int) -> None:
+        state = self._states.setdefault(vehicle_id, BridgeHzAuditVehicleState())
+        state.history.clear()
+        state.high_active = False
+        state.low_active = False
+        state.drop_active = False
+        state.suppress_next_low_boundary = True
+
+    def reset_all(self) -> None:
+        for vehicle_id in tuple(self._states):
+            self.reset_vehicle(vehicle_id)
 
     def _sample_at_or_before(
         self,
@@ -2955,6 +2973,9 @@ class RaceControlTower:
 
     async def audit_bridge_rates(self, now: float | None = None) -> None:
         now = monotonic() if now is None else now
+        if not self.has_simulators or self.state.race_result().get("active"):
+            self.bridge_hz_audit.reset_all()
+            return
         settings = self.state.audit_rule_settings()
         for devkit in self.devkits:
             rates = self.bridge_rates.rates(devkit.vehicle_id, now=now)
@@ -2964,6 +2985,7 @@ class RaceControlTower:
                 bridge_hz=float(rates["bridge_hz"]),
                 connected=devkit.connected,
                 settings=settings,
+                suppress_drops=self.suppress_bridge_hz_drop_audit(),
                 now=now,
             )
             for event in events:
@@ -2971,6 +2993,10 @@ class RaceControlTower:
                     event_type=event.event_type,
                     text=event.text,
                 )
+
+    def suppress_bridge_hz_drop_audit(self) -> bool:
+        decision = self.state.penalty_decision()
+        return bool(decision.get("active")) and decision.get("penalty_vehicle_id") is None
 
     def status_payload(self, *, full: bool = False) -> dict[str, Any]:
         self.refresh_bridge_rates()
@@ -3201,17 +3227,17 @@ class RaceControlTower:
         if bridge_hz_minimum >= bridge_hz_maximum:
             raise ValueError("bridge_hz_minimum must be less than bridge_hz_maximum")
 
-        bridge_hz_spike_percent = settings.get("bridge_hz_spike_percent", DEFAULT_BRIDGE_HZ_SPIKE_PERCENT)
-        if isinstance(bridge_hz_spike_percent, bool) or not isinstance(bridge_hz_spike_percent, int | float):
-            raise ValueError("bridge_hz_spike_percent must be a number")
-        bridge_hz_spike_percent = float(bridge_hz_spike_percent)
-        if bridge_hz_spike_percent < 5 or bridge_hz_spike_percent > 50:
-            raise ValueError("bridge_hz_spike_percent must be between 5 and 50")
+        bridge_hz_drop_percent = settings.get("bridge_hz_drop_percent", DEFAULT_BRIDGE_HZ_DROP_PERCENT)
+        if isinstance(bridge_hz_drop_percent, bool) or not isinstance(bridge_hz_drop_percent, int | float):
+            raise ValueError("bridge_hz_drop_percent must be a number")
+        bridge_hz_drop_percent = float(bridge_hz_drop_percent)
+        if bridge_hz_drop_percent < 5 or bridge_hz_drop_percent > 50:
+            raise ValueError("bridge_hz_drop_percent must be between 5 and 50")
 
         return {
             "bridge_hz_maximum": bridge_hz_maximum,
             "bridge_hz_minimum": bridge_hz_minimum,
-            "bridge_hz_spike_percent": bridge_hz_spike_percent,
+            "bridge_hz_drop_percent": bridge_hz_drop_percent,
         }
 
     def resolved_topic_selections(self) -> dict[str, bool]:

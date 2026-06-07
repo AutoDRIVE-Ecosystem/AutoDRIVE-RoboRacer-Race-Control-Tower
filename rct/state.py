@@ -126,7 +126,7 @@ class RaceControlState:
         self._audit_rule_settings: dict[str, float | bool] = {
             "bridge_hz_maximum": 120.0,
             "bridge_hz_minimum": 20.0,
-            "bridge_hz_spike_percent": 25.0,
+            "bridge_hz_drop_percent": 25.0,
         }
         self._accident_logs: list[AccidentLogMonitorState] = []
         self._audit_log: list[AuditLogMonitorState] = []
@@ -400,12 +400,12 @@ class RaceControlState:
         *,
         bridge_hz_maximum: float,
         bridge_hz_minimum: float,
-        bridge_hz_spike_percent: float,
+        bridge_hz_drop_percent: float,
     ) -> None:
         next_settings = {
             "bridge_hz_maximum": float(bridge_hz_maximum),
             "bridge_hz_minimum": float(bridge_hz_minimum),
-            "bridge_hz_spike_percent": float(bridge_hz_spike_percent),
+            "bridge_hz_drop_percent": float(bridge_hz_drop_percent),
         }
         with self._lock:
             if self._audit_rule_settings == next_settings:

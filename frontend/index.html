@@ -1198,7 +1198,7 @@
               </div>
               <div class="tab-pane fade" id="audit-rule-tab-pane" role="tabpanel" aria-labelledby="audit-rule-tab" tabindex="0">
                 <p class="rct-settings-description">
-                  Bridge protocol Hz anomalies can affect race fairness and vehicle control quality. Keeping these events in the audit log is recommended because sudden drops, spikes, or unstable rates can help decide whether the environment could not support the race and whether a rerun is justified.
+                  Bridge protocol Hz anomalies can affect race fairness and vehicle control quality. Keeping low-rate, high-rate, and sudden drop events in the audit log is recommended because they can help decide whether the environment could not support the race and whether a rerun is justified. A recorded drop still needs analysis to determine whether it originated from the vehicle itself or from the Simulator/RCT path.
                 </p>
                 <div class="d-flex justify-content-start align-items-center gap-2">
                   <label for="auditBridgeHzMaximum" class="col-form-label">Upper Bridge Protocol Hz Boundary:</label>
@@ -1209,8 +1209,8 @@
                   <input id="auditBridgeHzMinimum" class="form-control form-control-sm rct-pre-accident-input" type="number" min="0" max="1000" step="1" value="20">
                 </div>
                 <div class="d-flex justify-content-start align-items-center gap-2 mt-2">
-                  <label for="auditBridgeHzSpikePercent" class="col-form-label">Bridge Protocol Hz Spike (%):</label>
-                  <input id="auditBridgeHzSpikePercent" class="form-control form-control-sm rct-pre-accident-input" type="number" min="5" max="50" step="1" value="25">
+                  <label for="auditBridgeHzDropPercent" class="col-form-label">Bridge Protocol Hz Drop (%):</label>
+                  <input id="auditBridgeHzDropPercent" class="form-control form-control-sm rct-pre-accident-input" type="number" min="5" max="50" step="1" value="25">
                 </div>
               </div>
               <div class="tab-pane fade" id="experiments-tab-pane" role="tabpanel" aria-labelledby="experiments-tab" tabindex="0">
@@ -1512,7 +1512,7 @@
       const celebrationWithConfettiCheckbox = document.getElementById("celebrationWithConfetti");
       const auditBridgeHzMaximumInput = document.getElementById("auditBridgeHzMaximum");
       const auditBridgeHzMinimumInput = document.getElementById("auditBridgeHzMinimum");
-      const auditBridgeHzSpikePercentInput = document.getElementById("auditBridgeHzSpikePercent");
+      const auditBridgeHzDropPercentInput = document.getElementById("auditBridgeHzDropPercent");
       const raceRecordsButton = document.getElementById("raceRecordsButton");
       const raceRecordsButtonText = document.getElementById("raceRecordsButtonText");
       const raceRecordsTabButtons = Array.from(document.querySelectorAll("#raceRecordsTabs [data-bs-toggle='tab']"));
@@ -1650,7 +1650,7 @@
       let appliedCelebrationWithConfetti = true;
       let appliedAuditBridgeHzMaximum = 120;
       let appliedAuditBridgeHzMinimum = 20;
-      let appliedAuditBridgeHzSpikePercent = 25;
+      let appliedAuditBridgeHzDropPercent = 25;
       let raceResultActive = false;
       let confettiTimer = null;
       let simulatorConnected = false;
@@ -4327,7 +4327,7 @@
         return (
           auditBridgeHzMaximumValue() !== appliedAuditBridgeHzMaximum
           || auditBridgeHzMinimumValue() !== appliedAuditBridgeHzMinimum
-          || auditBridgeHzSpikePercentValue() !== appliedAuditBridgeHzSpikePercent
+          || auditBridgeHzDropPercentValue() !== appliedAuditBridgeHzDropPercent
         );
       }
 
@@ -4351,24 +4351,24 @@
         return Number.isFinite(parsed) ? parsed : NaN;
       }
 
-      function auditBridgeHzSpikePercentValue() {
-        const parsed = Number(auditBridgeHzSpikePercentInput.value);
+      function auditBridgeHzDropPercentValue() {
+        const parsed = Number(auditBridgeHzDropPercentInput.value);
         return Number.isFinite(parsed) ? parsed : NaN;
       }
 
       function auditRuleSettingsValid() {
         const maximum = auditBridgeHzMaximumValue();
         const minimum = auditBridgeHzMinimumValue();
-        const spikePercent = auditBridgeHzSpikePercentValue();
+        const dropPercent = auditBridgeHzDropPercentValue();
         return (
           Number.isFinite(maximum)
           && Number.isFinite(minimum)
-          && Number.isFinite(spikePercent)
+          && Number.isFinite(dropPercent)
           && maximum > 0
           && minimum >= 0
           && minimum < maximum
-          && spikePercent >= 5
-          && spikePercent <= 50
+          && dropPercent >= 5
+          && dropPercent <= 50
         );
       }
 
@@ -4517,10 +4517,10 @@
           appliedAuditBridgeHzMinimum = minimum;
           auditBridgeHzMinimumInput.value = String(minimum);
         }
-        const spikePercent = Number(settings.bridge_hz_spike_percent);
-        if (Number.isFinite(spikePercent)) {
-          appliedAuditBridgeHzSpikePercent = spikePercent;
-          auditBridgeHzSpikePercentInput.value = String(spikePercent);
+        const dropPercent = Number(settings.bridge_hz_drop_percent);
+        if (Number.isFinite(dropPercent)) {
+          appliedAuditBridgeHzDropPercent = dropPercent;
+          auditBridgeHzDropPercentInput.value = String(dropPercent);
         }
         updateSettingsApplyState();
       }
@@ -4731,7 +4731,7 @@
           body: JSON.stringify({
             bridge_hz_maximum: auditBridgeHzMaximumValue(),
             bridge_hz_minimum: auditBridgeHzMinimumValue(),
-            bridge_hz_spike_percent: auditBridgeHzSpikePercentValue(),
+            bridge_hz_drop_percent: auditBridgeHzDropPercentValue(),
           }),
         });
         if (!response.ok) {
@@ -4760,10 +4760,10 @@
             const settings = payload.audit_rule || {};
             appliedAuditBridgeHzMaximum = Number(settings.bridge_hz_maximum);
             appliedAuditBridgeHzMinimum = Number(settings.bridge_hz_minimum);
-            appliedAuditBridgeHzSpikePercent = Number(settings.bridge_hz_spike_percent);
+            appliedAuditBridgeHzDropPercent = Number(settings.bridge_hz_drop_percent);
             auditBridgeHzMaximumInput.value = String(appliedAuditBridgeHzMaximum);
             auditBridgeHzMinimumInput.value = String(appliedAuditBridgeHzMinimum);
-            auditBridgeHzSpikePercentInput.value = String(appliedAuditBridgeHzSpikePercent);
+            auditBridgeHzDropPercentInput.value = String(appliedAuditBridgeHzDropPercent);
             updateSettingsApplyState();
             return payload;
           })
@@ -6110,11 +6110,11 @@
                 auditBridgeHzMinimumInput.value = String(minimum);
               }
             }
-            const spikePercent = Number(settings.bridge_hz_spike_percent);
-            if (Number.isFinite(spikePercent)) {
-              appliedAuditBridgeHzSpikePercent = spikePercent;
+            const dropPercent = Number(settings.bridge_hz_drop_percent);
+            if (Number.isFinite(dropPercent)) {
+              appliedAuditBridgeHzDropPercent = dropPercent;
               if (!hasPendingAuditRuleChanges) {
-                auditBridgeHzSpikePercentInput.value = String(spikePercent);
+                auditBridgeHzDropPercentInput.value = String(dropPercent);
               }
             }
             updateSettingsApplyState();
@@ -6758,7 +6758,7 @@
       celebrationWithConfettiCheckbox.addEventListener("change", updateSettingsApplyState);
       auditBridgeHzMaximumInput.addEventListener("input", updateSettingsApplyState);
       auditBridgeHzMinimumInput.addEventListener("input", updateSettingsApplyState);
-      auditBridgeHzSpikePercentInput.addEventListener("input", updateSettingsApplyState);
+      auditBridgeHzDropPercentInput.addEventListener("input", updateSettingsApplyState);
       settingsApplyButton.addEventListener("click", () => {
         const activeTabButton = document.querySelector("#settingsTabs .nav-link.active");
         if (activeTabButton && activeTabButton.id === "accident-recorder-tab") {
