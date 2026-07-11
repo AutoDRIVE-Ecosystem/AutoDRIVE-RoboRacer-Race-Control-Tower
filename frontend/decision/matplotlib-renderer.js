@@ -32,6 +32,7 @@ import re
 import matplotlib
 matplotlib.use("svg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 plt.style.use("default")
 plt.rcParams.update({
     "figure.facecolor": "white",
@@ -165,6 +166,9 @@ def _apply_x_ticks_and_range(ax, layout):
         right = _finite(axis_range[1])
         if left is not None and right is not None:
             ax.set_xlim(left, right)
+    dtick = _finite(xaxis.get("dtick"))
+    if dtick is not None and dtick > 0:
+        ax.xaxis.set_major_locator(MultipleLocator(dtick))
 
 
 def _draw_shape_lines(axes, layout):
@@ -264,18 +268,53 @@ def _draw_trace(ax, trace, paper_style):
 
 def _draw_bar_trace(ax, trace):
     name = _paper_trace_name(str(trace.get("name") or ""))
-    points, labels = _trace_bar_points(trace)
-    if not points:
-        return
+    orientation = str(trace.get("orientation") or "v")
     marker = trace.get("marker") if isinstance(trace.get("marker"), dict) else {}
     marker_line = marker.get("line") if isinstance(marker.get("line"), dict) else {}
     color = _css_color(marker.get("color"), "#606060")
     edgecolor = _css_color(marker_line.get("color"), "#000000")
     parsed_line_width = _finite(marker_line.get("width"))
     line_width = parsed_line_width if parsed_line_width is not None else 0.6
+    if orientation == "h":
+        xs = trace.get("x") if isinstance(trace.get("x"), list) else []
+        ys = trace.get("y") if isinstance(trace.get("y"), list) else []
+        values = []
+        labels = []
+        for x_value, y_value in zip(xs, ys):
+            parsed = _finite(x_value)
+            if parsed is None:
+                continue
+            values.append(parsed)
+            labels.append(str(y_value))
+        if not values:
+            return
+        bars = ax.barh(
+            labels,
+            values,
+            color=color,
+            edgecolor=edgecolor,
+            linewidth=line_width,
+            label=name or None,
+            zorder=2,
+        )
+        if not ax.yaxis_inverted():
+            ax.invert_yaxis()
+        for bar, value in zip(bars, values):
+            ax.text(
+                bar.get_width(),
+                bar.get_y() + bar.get_height() / 2,
+                f" {value:g}",
+                va="center",
+                ha="left",
+                fontsize=9,
+            )
+        return
+    points, labels = _trace_bar_points(trace)
+    if not points:
+        return
     width = _trace_bar_width(trace, 0.2)
     offset = _finite(trace.get("offset")) or 0.0
-    ax.bar(
+    bars = ax.bar(
         [x + offset for x, _, _ in points],
         [y for _, _, y in points],
         width=width,
@@ -285,6 +324,17 @@ def _draw_bar_trace(ax, trace):
         label=name or None,
         zorder=2,
     )
+    text_position = str(trace.get("textposition") or "")
+    if text_position == "outside":
+        for bar, (_, _, value) in zip(bars, points):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height(),
+                f"{value:g}",
+                va="bottom",
+                ha="center",
+                fontsize=9,
+            )
 
 
 def rct_render_matplotlib_plot(payload_json):
