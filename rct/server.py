@@ -49,6 +49,7 @@ from .monitor_protocol import (
     is_monitor_ws_path,
     parse_monitor_path,
 )
+from .page_templates import build_page_template_response
 from .protocol import (
     DROP_VALUE,
     rewrite_devkit_payload_to_simulator,
@@ -1174,6 +1175,15 @@ class RaceControlTower:
             await result
 
     async def handle_static(self, request: web.Request) -> web.Response:
+        page_response = build_page_template_response(request.rel_url.raw_path, FRONTEND_ROOT)
+        if page_response is not None:
+            return web.Response(
+                status=page_response.status_code,
+                reason=page_response.reason_phrase,
+                headers=dict(page_response.headers),
+                body=page_response.body,
+            )
+
         static_response = build_static_file_response(request.rel_url.raw_path, FRONTEND_ROOT)
         return web.Response(
             status=static_response.status_code,
