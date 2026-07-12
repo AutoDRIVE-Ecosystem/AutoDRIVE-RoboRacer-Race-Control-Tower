@@ -1,6 +1,165 @@
 {% extends "base.html" %}
+{% block page_styles %}
+      .rct-develop-shell {
+        min-height: calc(100vh - 49px);
+      }
+
+      .rct-protocol-index {
+        border-right: 1px solid var(--bs-border-color);
+        height: calc(100vh - 49px);
+        overflow-y: auto;
+        padding: 1.25rem 1rem;
+        position: sticky;
+        top: 0;
+      }
+
+      .rct-protocol-index-section + .rct-protocol-index-section {
+        margin-top: 1.25rem;
+      }
+
+      .rct-protocol-index-title {
+        color: var(--bs-body-color);
+        display: block;
+        font-size: 1rem;
+        font-weight: 700;
+        margin-bottom: 0.35rem;
+        text-decoration: none;
+      }
+
+      .rct-protocol-index-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .rct-protocol-index-list a {
+        color: var(--bs-secondary-color);
+        display: block;
+        font-size: 0.875rem;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+        padding: 0.2rem 0;
+        text-decoration: none;
+      }
+
+      .rct-protocol-index-list a:hover,
+      .rct-protocol-index-list a:focus {
+        color: var(--bs-link-color);
+        text-decoration: underline;
+      }
+
+      .rct-protocol-content {
+        max-width: 980px;
+        padding: 1.5rem 2rem 4rem;
+      }
+
+      .rct-protocol-content section + section {
+        border-top: 1px solid var(--bs-border-color);
+        margin-top: 2rem;
+        padding-top: 2rem;
+      }
+
+      .rct-protocol-content h1,
+      .rct-protocol-content h2,
+      .rct-protocol-content h3,
+      .rct-protocol-content h4 {
+        scroll-margin-top: 1rem;
+      }
+
+      .rct-protocol-content h1 {
+        font-size: 1.75rem;
+        margin-bottom: 1rem;
+      }
+
+      .rct-protocol-content h2 {
+        font-size: 1.35rem;
+        margin-top: 1.5rem;
+      }
+
+      .rct-protocol-content h3 {
+        font-size: 1.05rem;
+        margin-top: 1.25rem;
+      }
+
+      .rct-protocol-content pre {
+        background-color: #f8f9fa;
+        border: 1px solid var(--bs-border-color);
+        border-radius: 6px;
+        color: #212529;
+        font-size: 0.875rem;
+        padding: 0.875rem;
+        overflow-x: auto;
+      }
+
+      .rct-protocol-content code {
+        color: #c7254e;
+      }
+
+      .rct-protocol-content pre code {
+        color: inherit;
+      }
+
+      @media (max-width: 991.98px) {
+        .rct-protocol-index {
+          border-bottom: 1px solid var(--bs-border-color);
+          border-right: 0;
+          height: auto;
+          max-height: 18rem;
+          position: static;
+        }
+
+        .rct-protocol-content {
+          padding: 1.25rem 1rem 3rem;
+        }
+      }
+{% endblock %}
 {% block content %}
-    <main class="flex-grow-1">
-      <div class="container-fluid py-4"></div>
+    <main class="flex-grow-1 rct-develop-shell">
+      <div class="container-fluid">
+        <div class="row">
+          <aside class="col-lg-3 p-0">
+            <nav class="rct-protocol-index" aria-label="Monitor protocol reference">
+              <div class="rct-protocol-index-section">
+                <a class="rct-protocol-index-title" href="#overview">Overview</a>
+                <ul class="rct-protocol-index-list">
+                  {% for item in monitor_protocol_docs.overview_nav %}
+                  <li><a href="#[[ item.anchor ]]">[[ item.title ]]</a></li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <div class="rct-protocol-index-section">
+                <a class="rct-protocol-index-title" href="#rest-api">REST</a>
+                <ul class="rct-protocol-index-list">
+                  {% for item in monitor_protocol_docs.rest_nav %}
+                  <li><a href="#[[ item.anchor ]]">[[ item.title ]]</a></li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <div class="rct-protocol-index-section">
+                <a class="rct-protocol-index-title" href="#websocket-api">WS</a>
+                <ul class="rct-protocol-index-list">
+                  {% for item in monitor_protocol_docs.ws_nav %}
+                  <li><a href="#[[ item.anchor ]]">[[ item.title ]]</a></li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </nav>
+          </aside>
+          <div class="col-lg-9">
+            <article class="rct-protocol-content">
+              <section id="overview">
+                <h1>Introduction</h1>
+                [[ monitor_protocol_docs.overview_html|safe ]]
+              </section>
+              <section id="rest">
+                [[ monitor_protocol_docs.rest_html|safe ]]
+              </section>
+              <section id="ws">
+                [[ monitor_protocol_docs.ws_html|safe ]]
+              </section>
+            </article>
+          </div>
+        </div>
+      </div>
     </main>
 {% endblock %}

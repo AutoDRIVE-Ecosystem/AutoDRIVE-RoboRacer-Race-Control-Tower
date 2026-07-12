@@ -361,6 +361,9 @@
                 <p class="text-body-secondary">
                   AutoDRIVE Race Control Tower (RCT) is a WebSocket race-control proxy for the AutoDRIVE RoboRacer simulator. It accepts simulator traffic, forwards vehicle data to configured DevKit bridge instances, rewrites vehicle identifiers for each assigned RoboRacer, and streams connection status back to this browser dashboard.
                 </p>
+                <p>
+                  <a href="/develop/latest">Monitoring Protocol Reference for RCT frontend</a>
+                </p>
                 <h4>Contact</h4>
                 <ul class="list-unstyled mb-0">
                   <li>
@@ -512,7 +515,7 @@
               </dl>
               <div id="roboracer1DecisionStatus" class="rct-vehicle-status-area mt-2" hidden></div>
               <div id="roboracer1Trophy" class="rct-trophy">
-                <img src="assets/trophy.png" alt="Winner trophy">
+                <img src="/assets/trophy.png" alt="Winner trophy">
               </div>
               <button id="roboracer1TraceLidar" class="btn btn-sm btn-primary w-100 mt-auto mb-3" type="button">Trace LiDAR</button>
             </div>
@@ -585,7 +588,7 @@
               </dl>
               <div id="roboracer2DecisionStatus" class="rct-vehicle-status-area mt-2" hidden></div>
               <div id="roboracer2Trophy" class="rct-trophy">
-                <img src="assets/trophy.png" alt="Winner trophy">
+                <img src="/assets/trophy.png" alt="Winner trophy">
               </div>
               <button id="roboracer2TraceLidar" class="btn btn-sm btn-primary w-100 mt-auto mb-3" type="button">Trace LiDAR</button>
             </div>
@@ -612,11 +615,11 @@
     </footer>
 {% endblock %}
 {% block scripts %}
-    <script src="vendor/plotly-2.35.2.min.js"></script>
-    <script src="decision/common.js"></script>
-    <script src="decision/packs.js"></script>
-    <script src="decision/v2.js"></script>
-    <script src="decision/matplotlib-renderer.js"></script>
+    <script src="/vendor/plotly-2.35.2.min.js"></script>
+    <script src="/decision/common.js"></script>
+    <script src="/decision/packs.js"></script>
+    <script src="/decision/v2.js"></script>
+    <script src="/decision/matplotlib-renderer.js"></script>
     <script>
       let rctSocket = null;
       const rctStatusDot = document.getElementById("rctStatusDot");
@@ -2668,7 +2671,7 @@
         foxgloveLink.rel = "noopener";
         foxgloveLink.title = "Open ROS2 MCAP in Foxglove";
         foxgloveLink.setAttribute("aria-label", "Open ROS2 MCAP in Foxglove");
-        foxgloveLink.innerHTML = '<img class="rct-foxglove-logo" src="assets/foxglove-apple-touch-icon.png" alt="" aria-hidden="true">';
+        foxgloveLink.innerHTML = '<img class="rct-foxglove-logo" src="/assets/foxglove-apple-touch-icon.png" alt="" aria-hidden="true">';
         logActions.append(downloadLink, foxgloveLink);
         title.append(titleText, logActions);
         const canvasFrame = document.createElement("div");
@@ -3080,7 +3083,7 @@
         }
         const compactSummary = await loadAccidentLogCompactSummary(filename);
         return new Promise((resolve, reject) => {
-          const worker = new Worker(new URL("decision/mcap-worker.js", window.location.href));
+          const worker = new Worker(new URL("/decision/mcap-worker.js", window.location.href));
           const requestId = ++accidentLogMcapWorkerRequestId;
           const cleanup = () => {
             worker.terminate();
@@ -7357,7 +7360,7 @@
       experimentsDecisionPackContainer.appendChild(decisionPackSettings);
 
       mainImage.addEventListener("load", drawMainCanvas);
-      mainImage.src = "assets/autodrive-rct.png";
+      mainImage.src = "/assets/autodrive-rct.png";
       window.addEventListener("resize", drawMainCanvas);
       window.addEventListener("resize", resizeRaceStatisticsPlot);
       window.addEventListener("resize", resizePostEvaluationPlot);
