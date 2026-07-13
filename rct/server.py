@@ -33,6 +33,7 @@ from .bridge import (
     extract_monitor_telemetry,
 )
 from .config import Settings, load_settings
+from .develop_reference import MONITOR_REST_REFERENCE, install_monitor_rest_route_collector
 from .decision import (
     DEFAULT_DECISION_EVALUATION,
     decision_record_path,
@@ -914,6 +915,8 @@ class RaceControlTower:
             middlewares=[self.log_socketio_request],
         )
         self.sio.attach(app, socketio_path=SOCKETIO_PATH)
+        MONITOR_REST_REFERENCE.clear()
+        install_monitor_rest_route_collector(app.router)
         app.router.add_get("/monitor/WS/{version}", self.handle_monitor_ws)
         app.router.add_get("/monitor/REST/{version}", self.handle_monitor_rest)
         app.router.add_get("/monitor/REST/{version}/topics", self.handle_monitor_topics_get)

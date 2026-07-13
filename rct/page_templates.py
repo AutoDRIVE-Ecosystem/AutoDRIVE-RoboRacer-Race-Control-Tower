@@ -32,6 +32,7 @@ def build_page_template_response(request_path: str, frontend_root: Path) -> Stat
         context["monitor_protocol_docs"] = render_monitor_protocol_docs(
             frontend_root.parent,
             version=develop_version or "latest",
+            use_registered_routes=True,
         )
     body = environment.get_template(template_name).render(**context).encode("utf-8")
     return StaticFileResponse(

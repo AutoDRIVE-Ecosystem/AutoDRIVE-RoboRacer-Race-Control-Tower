@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from .develop_reference import MonitorRestRouteGroup, monitor_rest_route_groups, normalize_route_path
+
 
 DocSectionName = Literal["overview", "rest", "ws"]
 SUPPORTED_DEVELOP_VERSIONS = frozenset({"0.1", "latest"})
@@ -30,14 +32,35 @@ class ProtocolDocs:
     ws_nav: tuple[ProtocolNavItem, ...]
 
 
-def render_monitor_protocol_docs(repo_root: Path, version: str = "latest") -> ProtocolDocs:
+@dataclass(frozen=True)
+class RestMarkdownSections:
+    preamble: tuple[str, ...]
+    sections: dict[tuple[str, str], tuple[str, ...]]
+
+
+def render_monitor_protocol_docs(
+    repo_root: Path,
+    version: str = "latest",
+    *,
+    use_registered_routes: bool = False,
+) -> ProtocolDocs:
     if version not in SUPPORTED_DEVELOP_VERSIONS:
         raise ValueError(f"unsupported monitor protocol docs version: {version}")
 
+    rest_route_groups = monitor_rest_route_groups(version) if use_registered_routes else ()
     source_path = repo_root / "docs" / "monitor-protocol.md"
     if not source_path.is_file():
         unavailable = '<p class="text-body-secondary">Monitor protocol reference is not available.</p>'
-        return ProtocolDocs(version, unavailable, "", "", (), (), ())
+        rest_lines = _rest_lines_from_registered_routes(("## REST API",), rest_route_groups, version)
+        return ProtocolDocs(
+            version,
+            unavailable,
+            _render_markdown_subset(rest_lines) if rest_route_groups else "",
+            "",
+            (),
+            _registered_rest_nav(rest_route_groups),
+            (),
+        )
 
     lines = source_path.read_text(encoding="utf-8").splitlines()
     rest_index = _heading_index(lines, "## REST API")
@@ -45,14 +68,19 @@ def render_monitor_protocol_docs(repo_root: Path, version: str = "latest") -> Pr
     overview_lines = lines[:rest_index]
     rest_lines = lines[rest_index:ws_index]
     ws_lines = lines[ws_index:]
+    rendered_rest_lines = (
+        _rest_lines_from_registered_routes(rest_lines, rest_route_groups, version)
+        if rest_route_groups
+        else _group_rest_endpoint_sections(rest_lines, version)
+    )
 
     return ProtocolDocs(
         version=version,
         overview_html=_render_markdown_subset(overview_lines, skip_h1=True),
-        rest_html=_render_markdown_subset(_group_rest_endpoint_sections(rest_lines, version)),
+        rest_html=_render_markdown_subset(rendered_rest_lines),
         ws_html=_render_markdown_subset(_replace_version_placeholders(ws_lines, version)),
         overview_nav=_build_nav(overview_lines, "overview"),
-        rest_nav=_build_rest_nav(rest_lines, version),
+        rest_nav=_registered_rest_nav(rest_route_groups) if rest_route_groups else _build_rest_nav(rest_lines, version),
         ws_nav=_build_nav(ws_lines, "ws"),
     )
 
@@ -96,6 +124,63 @@ def _build_rest_nav(lines: list[str], version: str) -> tuple[ProtocolNavItem, ..
         seen_paths.add(display_path)
         nav_items.append(ProtocolNavItem(title=display_path, anchor=_heading_id(f"`{display_path}`")))
     return tuple(nav_items)
+
+
+def _registered_rest_nav(route_groups: tuple[MonitorRestRouteGroup, ...]) -> tuple[ProtocolNavItem, ...]:
+    return tuple(ProtocolNavItem(title=group.path, anchor=group.anchor) for group in route_groups)
+
+
+def _rest_lines_from_registered_routes(
+    rest_lines: tuple[str, ...] | list[str],
+    route_groups: tuple[MonitorRestRouteGroup, ...],
+    version: str,
+) -> list[str]:
+    source = _parse_rest_markdown_sections(list(rest_lines))
+    grouped: list[str] = list(_replace_version_placeholders(list(source.preamble), version))
+    for route_group in route_groups:
+        grouped.extend(("", f"### `{route_group.path}`", ""))
+        for route in route_group.routes:
+            grouped.extend((f"#### {route.method}", ""))
+            body = source.sections.get((route.method, route.path))
+            if body:
+                grouped.extend(_replace_version_placeholders(list(body), version))
+                continue
+            grouped.extend(
+                (
+                    f"Handled by `{route.handler_name}`.",
+                    "",
+                )
+            )
+    return grouped
+
+
+def _parse_rest_markdown_sections(lines: list[str]) -> RestMarkdownSections:
+    preamble: list[str] = []
+    sections: dict[tuple[str, str], tuple[str, ...]] = {}
+    current_key: tuple[str, str] | None = None
+    current_body: list[str] = []
+
+    def flush_current_body() -> None:
+        nonlocal current_body
+        if current_key is not None:
+            sections[current_key] = tuple(current_body)
+        current_body = []
+
+    for line in lines:
+        parsed = _parse_rest_heading(line)
+        if parsed is None:
+            if current_key is None:
+                preamble.append(line)
+            else:
+                current_body.append(line)
+            continue
+
+        flush_current_body()
+        method, path = parsed
+        current_key = (method, normalize_route_path(path) or path)
+
+    flush_current_body()
+    return RestMarkdownSections(tuple(preamble), sections)
 
 
 def _group_rest_endpoint_sections(lines: list[str], version: str) -> list[str]:

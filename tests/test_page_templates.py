@@ -4,6 +4,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from aiohttp import web
+
+from rct.develop_reference import MONITOR_REST_REFERENCE, install_monitor_rest_route_collector
 from rct.page_templates import build_page_template_response
 from rct.monitor_protocol_docs import render_monitor_protocol_docs
 
@@ -204,6 +207,85 @@ class PageTemplateResponseTests(unittest.TestCase):
             self.assertEqual(rendered.rest_html.count('id="monitor-rest-latest-topics"'), 1)
             self.assertIn(">GET</h4>", rendered.rest_html)
             self.assertIn(">POST</h4>", rendered.rest_html)
+
+    def test_registered_monitor_rest_routes_populate_develop_reference(self):
+        MONITOR_REST_REFERENCE.clear()
+        try:
+            app = web.Application()
+            install_monitor_rest_route_collector(app.router)
+
+            async def handler(_request):
+                return web.json_response({"ok": True})
+
+            app.router.add_get("/monitor/REST/{version}/topics", handler)
+            app.router.add_post("/monitor/REST/{version}/topics", handler)
+            app.router.add_delete("/monitor/REST/{version}/accident-logs", handler)
+            app.router.add_get("/assets/{tail:.*}", handler)
+
+            with TemporaryDirectory() as temp_dir:
+                repo_root = Path(temp_dir)
+                docs = repo_root / "docs"
+                docs.mkdir()
+                (docs / "monitor-protocol.md").write_text(
+                    "# AutoDRIVE RCT Monitor Protocol\n\n"
+                    "## REST API\n\n"
+                    "Registered REST routes.\n\n"
+                    "## WebSocket API\n",
+                    encoding="utf-8",
+                )
+
+                rendered = render_monitor_protocol_docs(repo_root, version="latest", use_registered_routes=True)
+
+            self.assertEqual(
+                [item.title for item in rendered.rest_nav],
+                [
+                    "/monitor/REST/latest/topics",
+                    "/monitor/REST/latest/accident-logs",
+                ],
+            )
+            self.assertIn('id="monitor-rest-latest-topics"', rendered.rest_html)
+            self.assertIn('id="monitor-rest-latest-accident-logs"', rendered.rest_html)
+            self.assertIn(">GET</h4>", rendered.rest_html)
+            self.assertIn(">POST</h4>", rendered.rest_html)
+            self.assertIn(">DELETE</h4>", rendered.rest_html)
+            self.assertNotIn("/assets", rendered.rest_html)
+        finally:
+            MONITOR_REST_REFERENCE.clear()
+
+    def test_registered_routes_reuse_markdown_body_when_docs_heading_has_query(self):
+        MONITOR_REST_REFERENCE.clear()
+        try:
+            app = web.Application()
+            install_monitor_rest_route_collector(app.router)
+
+            async def handler(_request):
+                return web.json_response({"ok": True})
+
+            app.router.add_get("/monitor/REST/{version}/accident-logs/ros2-mcap", handler)
+
+            with TemporaryDirectory() as temp_dir:
+                repo_root = Path(temp_dir)
+                docs = repo_root / "docs"
+                docs.mkdir()
+                (docs / "monitor-protocol.md").write_text(
+                    "# AutoDRIVE RCT Monitor Protocol\n\n"
+                    "## REST API\n\n"
+                    "### GET `/monitor/REST/{version}/accident-logs/ros2-mcap?path={path}`\n\n"
+                    "Converts an accident MCAP selected by path.\n\n"
+                    "## WebSocket API\n",
+                    encoding="utf-8",
+                )
+
+                rendered = render_monitor_protocol_docs(repo_root, version="0.1", use_registered_routes=True)
+
+            self.assertEqual(
+                [item.title for item in rendered.rest_nav],
+                ["/monitor/REST/0.1/accident-logs/ros2-mcap"],
+            )
+            self.assertIn("Converts an accident MCAP selected by path.", rendered.rest_html)
+            self.assertNotIn("?path={path}", rendered.rest_html)
+        finally:
+            MONITOR_REST_REFERENCE.clear()
 
 
 if __name__ == "__main__":
