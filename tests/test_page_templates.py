@@ -221,6 +221,15 @@ class PageTemplateResponseTests(unittest.TestCase):
                     output_schema=OK_RESPONSE_SCHEMA,
                 ),
             )
+            app.router.add_post(
+                "/monitor/REST/{version}/topics",
+                handler,
+                route_doc(
+                    "Updates topic selections.",
+                    input_schema=monitor_input_schema(),
+                    output_schema=OK_RESPONSE_SCHEMA,
+                ),
+            )
             app.router.add_get("/monitor/WS/{version}", handler, "Accepts monitor WebSocket clients.")
 
             response = build_page_template_response("/develop/latest", Path("frontend"))
@@ -230,11 +239,37 @@ class PageTemplateResponseTests(unittest.TestCase):
             self.assertIn("Monitor Protocol Reference", html)
             self.assertIn("/monitor/REST/latest/topics", html)
             self.assertIn("Returns topic selections.", html)
+            self.assertIn("Updates topic selections.", html)
+            self.assertNotIn("handle_monitor_topics_get", html)
             self.assertIn("Input JSON Schema", html)
             self.assertIn("Output JSON Schema", html)
             self.assertIn('class="language-json"', html)
             self.assertIn("hljs.highlightAll();", html)
+            self.assertIn("js-rct-run-get", html)
+            self.assertIn("bi-play-fill", html)
+            self.assertIn('data-route-path="/monitor/REST/latest/topics"', html)
+            self.assertNotIn("GET Result", html)
+            self.assertIn("rct-protocol-result-close", html)
+            self.assertIn("bi-x-lg", html)
+            self.assertIn("background-color: #0f172a", html)
+            self.assertIn("font-size: 0.75rem", html)
+            self.assertIn("font-size: 1.2rem", html)
+            self.assertIn("font-size: 1rem", html)
+            self.assertIn("font-size: 0.8rem", html)
+            self.assertIn("text-transform: uppercase", html)
+            self.assertIn("max-height: 400px", html)
+            self.assertIn("overflow: auto", html)
+            self.assertIn("slideDown", html)
+            self.assertNotIn('data-route-path="/monitor/WS/latest"', html)
             self.assertIn('"body"', html)
+            output_title_index = html.index("Output JSON Schema")
+            result_index = html.index('id="monitor-rest-latest-topics-get-result"', output_title_index)
+            output_schema_index = html.index('<pre><code class="language-json">', output_title_index)
+            self.assertLess(result_index, output_schema_index)
+            get_section = html[
+                html.index("Returns topic selections."):html.index("Updates topic selections.")
+            ]
+            self.assertNotIn("Input JSON Schema", get_section)
             self.assertIn("/monitor/WS/latest", html)
             self.assertIn("Accepts monitor WebSocket clients.", html)
             self.assertIn("Server Event:", html)

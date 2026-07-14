@@ -80,8 +80,24 @@
       }
 
       .rct-protocol-content h3 {
-        font-size: 1.05rem;
-        margin-top: 1.25rem;
+        font-size: 1.2rem;
+        margin-top: 1.75rem;
+      }
+
+      .rct-protocol-content h4 {
+        color: #212529;
+        font-size: 1rem;
+        font-weight: 700;
+        margin-top: 1rem;
+      }
+
+      .rct-protocol-content h5 {
+        color: #6c757d;
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-bottom: 0.4rem;
+        margin-top: 0.75rem;
+        text-transform: uppercase;
       }
 
       .rct-protocol-content pre {
@@ -105,6 +121,86 @@
       .rct-protocol-content pre code.hljs {
         background: transparent;
         padding: 0;
+      }
+
+      .rct-protocol-schema-title {
+        align-items: center;
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1rem;
+      }
+
+      .rct-protocol-run-get {
+        align-items: center;
+        border-radius: 999px;
+        display: inline-flex;
+        height: 1.75rem;
+        justify-content: center;
+        padding: 0;
+        width: 1.75rem;
+      }
+
+      .rct-protocol-result {
+        background-color: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        color: #e2e8f0;
+        max-height: 400px;
+        margin: 0.5rem 0 0.75rem;
+        overflow: auto;
+        position: relative;
+      }
+
+      .rct-protocol-result-close {
+        align-items: center;
+        background: transparent;
+        border: 0;
+        color: #94a3b8;
+        display: inline-flex;
+        height: 1.5rem;
+        justify-content: center;
+        padding: 0;
+        position: sticky;
+        float: right;
+        right: 0.5rem;
+        top: 0.5rem;
+        width: 1.5rem;
+        z-index: 1;
+      }
+
+      .rct-protocol-result-close:hover,
+      .rct-protocol-result-close:focus {
+        color: #f8fafc;
+      }
+
+      .rct-protocol-result pre {
+        background: transparent;
+        border: 0;
+        color: #e2e8f0;
+        font-size: 0.75rem;
+        margin: 0;
+        padding: 0.75rem 2.5rem 0.75rem 0.75rem;
+      }
+
+      .rct-protocol-result pre code.hljs {
+        color: #e2e8f0;
+      }
+
+      .rct-protocol-result .hljs-attr {
+        color: #7dd3fc;
+      }
+
+      .rct-protocol-result .hljs-string {
+        color: #86efac;
+      }
+
+      .rct-protocol-result .hljs-number,
+      .rct-protocol-result .hljs-literal {
+        color: #fbbf24;
+      }
+
+      .rct-protocol-result .hljs-punctuation {
+        color: #cbd5e1;
       }
 
       @media (max-width: 991.98px) {
@@ -188,15 +284,33 @@
                 {% for method in route.methods %}
                 <h4>[[ method.method ]]</h4>
                 <p>[[ method.description ]]</p>
-                {% if method.input_schema %}
+                {% if method.input_schema and method.method in ("POST", "PUT", "PATCH") %}
                 <h5>Input JSON Schema</h5>
                 <pre><code class="language-json">[[ method.input_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 {% if method.output_schema %}
-                <h5>Output JSON Schema</h5>
+                {% set result_id = "%s-%s-result"|format(route.anchor, method.method|lower) %}
+                <h5 class="rct-protocol-schema-title">
+                  <span>Output JSON Schema</span>
+                  {% if method.method == "GET" and route.path.startswith("/monitor/REST/") %}
+                  <button
+                    type="button"
+                    class="btn btn-outline-primary btn-sm rct-protocol-run-get js-rct-run-get"
+                    data-route-path="[[ route.path ]]"
+                    data-result-id="[[ result_id ]]"
+                    data-is-binary="[[ 'true' if method.output_schema.contentEncoding == 'binary' else 'false' ]]"
+                    aria-label="Run GET [[ route.path ]]"
+                    title="Run GET"
+                  >
+                    <i class="bi bi-play-fill" aria-hidden="true"></i>
+                  </button>
+                  {% endif %}
+                </h5>
+                {% if method.method == "GET" and route.path.startswith("/monitor/REST/") %}
+                <div id="[[ result_id ]]" class="rct-protocol-result" hidden></div>
+                {% endif %}
                 <pre><code class="language-json">[[ method.output_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
-                <p class="text-body-secondary"><code>[[ method.handler ]]</code></p>
                 {% endfor %}
                 {% endfor %}
               </section>
@@ -207,15 +321,33 @@
                 {% for method in route.methods %}
                 <h4>[[ method.method ]]</h4>
                 <p>[[ method.description ]]</p>
-                {% if method.input_schema %}
+                {% if method.input_schema and method.method in ("POST", "PUT", "PATCH") %}
                 <h5>Input JSON Schema</h5>
                 <pre><code class="language-json">[[ method.input_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 {% if method.output_schema %}
-                <h5>Output JSON Schema</h5>
+                {% set result_id = "%s-%s-result"|format(route.anchor, method.method|lower) %}
+                <h5 class="rct-protocol-schema-title">
+                  <span>Output JSON Schema</span>
+                  {% if method.method == "GET" and route.path.startswith("/monitor/REST/") %}
+                  <button
+                    type="button"
+                    class="btn btn-outline-primary btn-sm rct-protocol-run-get js-rct-run-get"
+                    data-route-path="[[ route.path ]]"
+                    data-result-id="[[ result_id ]]"
+                    data-is-binary="[[ 'true' if method.output_schema.contentEncoding == 'binary' else 'false' ]]"
+                    aria-label="Run GET [[ route.path ]]"
+                    title="Run GET"
+                  >
+                    <i class="bi bi-play-fill" aria-hidden="true"></i>
+                  </button>
+                  {% endif %}
+                </h5>
+                {% if method.method == "GET" and route.path.startswith("/monitor/REST/") %}
+                <div id="[[ result_id ]]" class="rct-protocol-result" hidden></div>
+                {% endif %}
                 <pre><code class="language-json">[[ method.output_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
-                <p class="text-body-secondary"><code>[[ method.handler ]]</code></p>
                 {% endfor %}
                 {% endfor %}
                 {% for message in develop_reference.ws_messages %}
@@ -233,5 +365,95 @@
     <script src="/vendor/highlightjs/highlight-11.11.1.min.js"></script>
     <script>
       hljs.highlightAll();
+
+      function renderGetResult(container, payload) {
+        const result = $(container);
+        const wasHidden = container.hidden || result.is(":hidden");
+        container.hidden = false;
+        let code = container.querySelector("code");
+        if (!code) {
+          container.innerHTML = `
+            <button type="button" class="rct-protocol-result-close js-rct-result-close" aria-label="Close result">
+              <i class="bi bi-x-lg" aria-hidden="true"></i>
+            </button>
+            <pre><code class="language-json"></code></pre>
+          `;
+          code = container.querySelector("code");
+        }
+        code.textContent = JSON.stringify(payload, null, 2);
+        code.removeAttribute("data-highlighted");
+        hljs.highlightElement(code);
+
+        if (wasHidden) {
+          result.hide();
+          result.slideDown(180);
+        }
+      }
+
+      document.querySelectorAll(".js-rct-run-get").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const routePath = button.dataset.routePath || "";
+          const result = document.getElementById(button.dataset.resultId || "");
+          if (!result) {
+            return;
+          }
+
+          button.disabled = true;
+          renderGetResult(result, { loading: true, path: routePath });
+
+          try {
+            if (routePath.includes("{")) {
+              renderGetResult(result, {
+                ok: false,
+                error: "path_parameters_required",
+                path: routePath
+              });
+              return;
+            }
+            if (button.dataset.isBinary === "true") {
+              renderGetResult(result, {
+                ok: false,
+                error: "binary_response",
+                path: routePath
+              });
+              return;
+            }
+
+            const response = await fetch(routePath, { headers: { Accept: "application/json" } });
+            const contentType = response.headers.get("content-type") || "";
+            const body = contentType.includes("application/json")
+              ? await response.json()
+              : await response.text();
+            renderGetResult(result, {
+              ok: response.ok,
+              status: response.status,
+              path: routePath,
+              body
+            });
+          } catch (error) {
+            renderGetResult(result, {
+              ok: false,
+              path: routePath,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          } finally {
+            button.disabled = false;
+          }
+        });
+      });
+
+      document.addEventListener("click", (event) => {
+        const closeButton = event.target.closest(".js-rct-result-close");
+        if (!closeButton) {
+          return;
+        }
+        const result = closeButton.closest(".rct-protocol-result");
+        if (!result) {
+          return;
+        }
+        $(result).slideUp(160, () => {
+          result.hidden = true;
+        });
+      });
     </script>
 {% endblock %}
