@@ -1038,7 +1038,7 @@
     </style>
   </head>
   <body class="d-flex flex-column">
-    <header data-bs-theme="dark">
+    <header class="{% block header_classes %}{% endblock %}" data-bs-theme="dark">
       <div class="navbar navbar-dark rct-navbar shadow-sm">
         <div class="container-fluid position-relative rct-navbar-container">
           <a href="/" class="navbar-brand d-flex align-items-center py-0">
@@ -1048,7 +1048,7 @@
               alt="AutoDRIVE"
             >
           </a>
-          <strong class="position-absolute rct-navbar-title text-white">Race Control Tower</strong>
+          <strong class="position-absolute rct-navbar-title text-white">{% block navbar_title %}Race Control Tower{% endblock %}</strong>
           {% block navbar_actions %}{% endblock %}
         </div>
       </div>
