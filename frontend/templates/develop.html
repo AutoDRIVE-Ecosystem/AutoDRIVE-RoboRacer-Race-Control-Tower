@@ -415,6 +415,10 @@
                 {% endif %}
                 <h3 id="[[ message.anchor ]]" data-spy-section="[[ message.anchor ]]">[[ message.kind ]]: <code>[[ message.name ]]</code></h3>
                 <p>[[ message.description ]]</p>
+                {% if message.schema %}
+                <h5>[[ "Command" if message.kind == "Client Command" else "Message" ]] JSON Schema</h5>
+                <pre class="rct-protocol-schema-block"><code class="language-json">[[ message.schema|tojson(indent=2) ]]</code></pre>
+                {% endif %}
                 {% endfor %}
               </section>
             </article>

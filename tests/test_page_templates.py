@@ -301,6 +301,12 @@ class PageTemplateResponseTests(unittest.TestCase):
             self.assertIn("/monitor/WS/latest", html)
             self.assertIn("Accepts monitor WebSocket clients.", html)
             self.assertIn("Server Event:", html)
+            self.assertIn("Message JSON Schema", html)
+            self.assertIn("Command JSON Schema", html)
+            self.assertIn("Monitor WebSocket event name.", html)
+            self.assertIn('"status"', html)
+            self.assertIn('"configure-devkits"', html)
+            self.assertIn("DevKit endpoint command payload", html)
         finally:
             DEVELOP_REFERENCE.clear()
 
