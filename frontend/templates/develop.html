@@ -51,6 +51,16 @@
         text-decoration: underline;
       }
 
+      .rct-protocol-index-list a.is-active {
+        background-color: #e7f1ff;
+        border-left: 3px solid #0d6efd;
+        color: #0a58ca;
+        font-weight: 700;
+        margin-left: -0.5rem;
+        padding-left: 0.5rem;
+        text-decoration: none;
+      }
+
       .rct-protocol-content {
         max-width: 980px;
         padding: 1.5rem 2rem 4rem;
@@ -234,7 +244,7 @@
                 <a class="rct-protocol-index-title" href="#rest-api">REST</a>
                 <ul class="rct-protocol-index-list">
                   {% for route in develop_reference.rest_routes %}
-                  <li><a href="#[[ route.anchor ]]">[[ route.path ]]</a></li>
+                  <li><a href="#[[ route.anchor ]]" data-spy-target="[[ route.anchor ]]">[[ route.path ]]</a></li>
                   {% endfor %}
                 </ul>
               </div>
@@ -242,10 +252,10 @@
                 <a class="rct-protocol-index-title" href="#websocket-api">WS</a>
                 <ul class="rct-protocol-index-list">
                   {% for route in develop_reference.ws_routes %}
-                  <li><a href="#[[ route.anchor ]]">[[ route.path ]]</a></li>
+                  <li><a href="#[[ route.anchor ]]" data-spy-target="[[ route.anchor ]]">[[ route.path ]]</a></li>
                   {% endfor %}
                   {% for message in develop_reference.ws_messages %}
-                  <li><a href="#[[ message.anchor ]]">[[ message.kind ]]: [[ message.name ]]</a></li>
+                  <li><a href="#[[ message.anchor ]]" data-spy-target="[[ message.anchor ]]">[[ message.kind ]]: [[ message.name ]]</a></li>
                   {% endfor %}
                 </ul>
               </div>
@@ -280,7 +290,7 @@
                   registration calls in the RCT server.
                 </p>
                 {% for route in develop_reference.rest_routes %}
-                <h3 id="[[ route.anchor ]]"><code>[[ route.path ]]</code></h3>
+                <h3 id="[[ route.anchor ]]" data-spy-section="[[ route.anchor ]]"><code>[[ route.path ]]</code></h3>
                 {% for method in route.methods %}
                 <h4>[[ method.method ]]</h4>
                 <p>[[ method.description ]]</p>
@@ -317,7 +327,7 @@
               <section id="websocket-api">
                 <h2>WebSocket API</h2>
                 {% for route in develop_reference.ws_routes %}
-                <h3 id="[[ route.anchor ]]"><code>[[ route.path ]]</code></h3>
+                <h3 id="[[ route.anchor ]]" data-spy-section="[[ route.anchor ]]"><code>[[ route.path ]]</code></h3>
                 {% for method in route.methods %}
                 <h4>[[ method.method ]]</h4>
                 <p>[[ method.description ]]</p>
@@ -351,7 +361,7 @@
                 {% endfor %}
                 {% endfor %}
                 {% for message in develop_reference.ws_messages %}
-                <h3 id="[[ message.anchor ]]">[[ message.kind ]]: <code>[[ message.name ]]</code></h3>
+                <h3 id="[[ message.anchor ]]" data-spy-section="[[ message.anchor ]]">[[ message.kind ]]: <code>[[ message.name ]]</code></h3>
                 <p>[[ message.description ]]</p>
                 {% endfor %}
               </section>
@@ -455,5 +465,65 @@
           result.hidden = true;
         });
       });
+
+      const spySections = Array.from(document.querySelectorAll("[data-spy-section]"));
+      const spyLinks = new Map(
+        Array.from(document.querySelectorAll("[data-spy-target]")).map((link) => [
+          link.dataset.spyTarget,
+          link
+        ])
+      );
+      const spyIndex = document.querySelector(".rct-protocol-index");
+      let activeSpyId = "";
+
+      function setActiveSpyLink(sectionId) {
+        if (!sectionId || sectionId === activeSpyId) {
+          return;
+        }
+        activeSpyId = sectionId;
+        spyLinks.forEach((link, linkId) => {
+          link.classList.toggle("is-active", linkId === sectionId);
+        });
+        const activeLink = spyLinks.get(sectionId);
+        if (activeLink && spyIndex) {
+          const linkTop = activeLink.offsetTop;
+          const linkBottom = linkTop + activeLink.offsetHeight;
+          if (linkTop < spyIndex.scrollTop) {
+            spyIndex.scrollTop = Math.max(0, linkTop - 16);
+          } else if (linkBottom > spyIndex.scrollTop + spyIndex.clientHeight) {
+            spyIndex.scrollTop = linkBottom - spyIndex.clientHeight + 16;
+          }
+        }
+      }
+
+      function updateActiveSpyLink() {
+        if (!spySections.length) {
+          return;
+        }
+        const anchorLine = window.scrollY + 96;
+        let currentSection = spySections[0];
+        for (const section of spySections) {
+          if (section.offsetTop <= anchorLine) {
+            currentSection = section;
+          } else {
+            break;
+          }
+        }
+        setActiveSpyLink(currentSection.dataset.spySection || "");
+      }
+
+      let spyTicking = false;
+      window.addEventListener("scroll", () => {
+        if (spyTicking) {
+          return;
+        }
+        spyTicking = true;
+        window.requestAnimationFrame(() => {
+          updateActiveSpyLink();
+          spyTicking = false;
+        });
+      }, { passive: true });
+      window.addEventListener("resize", updateActiveSpyLink);
+      updateActiveSpyLink();
     </script>
 {% endblock %}
