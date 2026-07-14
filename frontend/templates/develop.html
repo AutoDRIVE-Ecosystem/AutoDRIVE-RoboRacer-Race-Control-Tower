@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% block head_links %}
+    <link href="/vendor/highlightjs/github-11.11.1.min.css" rel="stylesheet">
+{% endblock %}
 {% block page_styles %}
       .rct-develop-shell {
         min-height: calc(100vh - 49px);
@@ -99,6 +102,11 @@
         color: inherit;
       }
 
+      .rct-protocol-content pre code.hljs {
+        background: transparent;
+        padding: 0;
+      }
+
       @media (max-width: 991.98px) {
         .rct-protocol-index {
           border-bottom: 1px solid var(--bs-border-color);
@@ -182,11 +190,11 @@
                 <p>[[ method.description ]]</p>
                 {% if method.input_schema %}
                 <h5>Input JSON Schema</h5>
-                <pre><code>[[ method.input_schema|tojson(indent=2) ]]</code></pre>
+                <pre><code class="language-json">[[ method.input_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 {% if method.output_schema %}
                 <h5>Output JSON Schema</h5>
-                <pre><code>[[ method.output_schema|tojson(indent=2) ]]</code></pre>
+                <pre><code class="language-json">[[ method.output_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 <p class="text-body-secondary"><code>[[ method.handler ]]</code></p>
                 {% endfor %}
@@ -201,11 +209,11 @@
                 <p>[[ method.description ]]</p>
                 {% if method.input_schema %}
                 <h5>Input JSON Schema</h5>
-                <pre><code>[[ method.input_schema|tojson(indent=2) ]]</code></pre>
+                <pre><code class="language-json">[[ method.input_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 {% if method.output_schema %}
                 <h5>Output JSON Schema</h5>
-                <pre><code>[[ method.output_schema|tojson(indent=2) ]]</code></pre>
+                <pre><code class="language-json">[[ method.output_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 <p class="text-body-secondary"><code>[[ method.handler ]]</code></p>
                 {% endfor %}
@@ -220,4 +228,10 @@
         </div>
       </div>
     </main>
+{% endblock %}
+{% block scripts %}
+    <script src="/vendor/highlightjs/highlight-11.11.1.min.js"></script>
+    <script>
+      hljs.highlightAll();
+    </script>
 {% endblock %}
