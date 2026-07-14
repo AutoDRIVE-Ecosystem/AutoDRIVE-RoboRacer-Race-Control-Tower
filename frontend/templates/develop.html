@@ -61,6 +61,23 @@
         text-decoration: none;
       }
 
+      .rct-protocol-index-list a.rct-protocol-index-child {
+        font-size: 0.8125rem;
+        padding-left: 0.85rem;
+      }
+
+      .rct-protocol-index-list a.rct-protocol-index-child::before {
+        color: #adb5bd;
+        content: "•";
+        font-size: 0.9rem;
+        margin-right: 0.4rem;
+      }
+
+      .rct-protocol-index-list a.rct-protocol-index-child.is-active {
+        margin-left: 0;
+        padding-left: 0.85rem;
+      }
+
       .rct-protocol-content {
         max-width: 980px;
         padding: 1.5rem 2rem 4rem;
@@ -133,6 +150,11 @@
         padding: 0;
       }
 
+      .rct-protocol-schema-block {
+        max-height: 400px;
+        overflow: auto;
+      }
+
       .rct-protocol-schema-title {
         align-items: center;
         display: flex;
@@ -148,6 +170,10 @@
         justify-content: center;
         padding: 0;
         width: 1.75rem;
+      }
+
+      .rct-protocol-route-divider {
+        margin: 2rem 0 0.25rem;
       }
 
       .rct-protocol-result {
@@ -238,6 +264,10 @@
                 <ul class="rct-protocol-index-list">
                   <li><a href="#path-layout">Path layout</a></li>
                   <li><a href="#message-shape">Message shape</a></li>
+                  <li><a href="#common-schemas" data-spy-target="common-schemas">Common JSON Schemas</a></li>
+                  {% for schema in develop_reference.common_schemas %}
+                  <li><a class="rct-protocol-index-child" href="#[[ schema.anchor ]]" data-spy-target="[[ schema.anchor ]]">[[ schema.name ]]</a></li>
+                  {% endfor %}
                 </ul>
               </div>
               <div class="rct-protocol-index-section">
@@ -282,6 +312,15 @@
                   WebSocket server-to-client and client-to-server messages are JSON text frames.
                   Binary WebSocket client messages are rejected and broadcast as an error event.
                 </p>
+                <h2 id="common-schemas" data-spy-section="common-schemas">Common JSON Schemas</h2>
+                <p>
+                  These shared objects appear inside multiple REST responses and WebSocket events.
+                </p>
+                {% for schema in develop_reference.common_schemas %}
+                <h3 id="[[ schema.anchor ]]" data-spy-section="[[ schema.anchor ]]">[[ schema.name ]]</h3>
+                <p>[[ schema.description ]]</p>
+                <pre class="rct-protocol-schema-block"><code class="language-json">[[ schema.schema|tojson(indent=2) ]]</code></pre>
+                {% endfor %}
               </section>
               <section id="rest-api">
                 <h2>REST API</h2>
@@ -290,13 +329,16 @@
                   registration calls in the RCT server.
                 </p>
                 {% for route in develop_reference.rest_routes %}
+                {% if not loop.first %}
+                <hr class="rct-protocol-route-divider">
+                {% endif %}
                 <h3 id="[[ route.anchor ]]" data-spy-section="[[ route.anchor ]]"><code>[[ route.path ]]</code></h3>
                 {% for method in route.methods %}
                 <h4>[[ method.method ]]</h4>
                 <p>[[ method.description ]]</p>
                 {% if method.input_schema and method.method in ("POST", "PUT", "PATCH") %}
                 <h5>Input JSON Schema</h5>
-                <pre><code class="language-json">[[ method.input_schema|tojson(indent=2) ]]</code></pre>
+                <pre class="rct-protocol-schema-block"><code class="language-json">[[ method.input_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 {% if method.output_schema %}
                 {% set result_id = "%s-%s-result"|format(route.anchor, method.method|lower) %}
@@ -319,7 +361,7 @@
                 {% if method.method == "GET" and route.path.startswith("/monitor/REST/") %}
                 <div id="[[ result_id ]]" class="rct-protocol-result" hidden></div>
                 {% endif %}
-                <pre><code class="language-json">[[ method.output_schema|tojson(indent=2) ]]</code></pre>
+                <pre class="rct-protocol-schema-block"><code class="language-json">[[ method.output_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 {% endfor %}
                 {% endfor %}
@@ -327,13 +369,16 @@
               <section id="websocket-api">
                 <h2>WebSocket API</h2>
                 {% for route in develop_reference.ws_routes %}
+                {% if not loop.first %}
+                <hr class="rct-protocol-route-divider">
+                {% endif %}
                 <h3 id="[[ route.anchor ]]" data-spy-section="[[ route.anchor ]]"><code>[[ route.path ]]</code></h3>
                 {% for method in route.methods %}
                 <h4>[[ method.method ]]</h4>
                 <p>[[ method.description ]]</p>
                 {% if method.input_schema and method.method in ("POST", "PUT", "PATCH") %}
                 <h5>Input JSON Schema</h5>
-                <pre><code class="language-json">[[ method.input_schema|tojson(indent=2) ]]</code></pre>
+                <pre class="rct-protocol-schema-block"><code class="language-json">[[ method.input_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 {% if method.output_schema %}
                 {% set result_id = "%s-%s-result"|format(route.anchor, method.method|lower) %}
@@ -356,11 +401,14 @@
                 {% if method.method == "GET" and route.path.startswith("/monitor/REST/") %}
                 <div id="[[ result_id ]]" class="rct-protocol-result" hidden></div>
                 {% endif %}
-                <pre><code class="language-json">[[ method.output_schema|tojson(indent=2) ]]</code></pre>
+                <pre class="rct-protocol-schema-block"><code class="language-json">[[ method.output_schema|tojson(indent=2) ]]</code></pre>
                 {% endif %}
                 {% endfor %}
                 {% endfor %}
                 {% for message in develop_reference.ws_messages %}
+                {% if develop_reference.ws_routes or not loop.first %}
+                <hr class="rct-protocol-route-divider">
+                {% endif %}
                 <h3 id="[[ message.anchor ]]" data-spy-section="[[ message.anchor ]]">[[ message.kind ]]: <code>[[ message.name ]]</code></h3>
                 <p>[[ message.description ]]</p>
                 {% endfor %}

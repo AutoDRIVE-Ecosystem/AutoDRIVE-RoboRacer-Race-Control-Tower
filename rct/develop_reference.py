@@ -84,6 +84,7 @@ class DevelopReferenceRegistry:
             raise ValueError(f"unsupported develop reference version: {version}")
         return {
             "version": version,
+            "common_schemas": COMMON_SCHEMAS,
             "rest_routes": self._route_groups("REST", version),
             "ws_routes": self._route_groups("WS", version),
             "ws_messages": MONITOR_WS_MESSAGES,
@@ -264,10 +265,16 @@ def monitor_input_schema(
 ) -> dict[str, Any]:
     return {
         "type": "object",
+        "description": "Request input shape split by URL path parameters, query string parameters, and JSON body.",
         "properties": {
-            "path": path or object_schema({"version": string_schema(enum=("0.1", "latest"))}, required=("version",)),
-            "query": query or object_schema({}),
-            "body": body or {"type": "null"},
+            "path": path
+            or object_schema(
+                {"version": string_schema(enum=("0.1", "latest"), description="Requested monitor protocol version.")},
+                required=("version",),
+                description="Path parameters captured from the route.",
+            ),
+            "query": query or object_schema({}, description="Query string parameters."),
+            "body": body or {"type": "null", "description": "No JSON request body is expected."},
         },
         "required": ["path", "query", "body"],
         "additionalProperties": False,
@@ -279,120 +286,296 @@ def object_schema(
     *,
     required: tuple[str, ...] = (),
     additional_properties: bool | dict[str, Any] = True,
+    description: str = "",
 ) -> dict[str, Any]:
     schema: dict[str, Any] = {
         "type": "object",
         "properties": properties,
         "additionalProperties": additional_properties,
     }
+    if description:
+        schema["description"] = description
     if required:
         schema["required"] = list(required)
     return schema
 
 
-def array_schema(items: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "array", "items": items}
+def array_schema(items: dict[str, Any], *, description: str = "") -> dict[str, Any]:
+    schema: dict[str, Any] = {"type": "array", "items": items}
+    if description:
+        schema["description"] = description
+    return schema
 
 
-def string_schema(*, enum: tuple[str, ...] = ()) -> dict[str, Any]:
+def string_schema(*, enum: tuple[str, ...] = (), description: str = "") -> dict[str, Any]:
     schema: dict[str, Any] = {"type": "string"}
+    if description:
+        schema["description"] = description
     if enum:
         schema["enum"] = list(enum)
     return schema
 
 
-BOOLEAN_SCHEMA: dict[str, str] = {"type": "boolean"}
-NUMBER_SCHEMA: dict[str, str] = {"type": "number"}
-INTEGER_SCHEMA: dict[str, str] = {"type": "integer"}
-ANY_OBJECT_SCHEMA = object_schema({})
-OK_RESPONSE_SCHEMA = object_schema({"ok": BOOLEAN_SCHEMA}, required=("ok",))
+BOOLEAN_SCHEMA: dict[str, Any] = {"type": "boolean", "description": "Boolean true or false value."}
+NUMBER_SCHEMA: dict[str, Any] = {"type": "number", "description": "Numeric value."}
+INTEGER_SCHEMA: dict[str, Any] = {"type": "integer", "description": "Integer value."}
+ANY_OBJECT_SCHEMA = object_schema({}, description="Object with endpoint-specific fields.")
+OK_RESPONSE_SCHEMA = object_schema(
+    {"ok": {"type": "boolean", "description": "Whether the command was accepted."}},
+    required=("ok",),
+    description="Generic command acknowledgement.",
+)
 BINARY_MCAP_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "string",
+    "description": "Binary MCAP download. The response body is not JSON.",
     "contentEncoding": "binary",
     "contentMediaType": "application/octet-stream",
 }
 
 
+MONITOR_PROTOCOL_SCHEMA = object_schema(
+    {
+        "name": string_schema(description="Monitor protocol name."),
+        "version": string_schema(description="Resolved monitor protocol version."),
+    },
+    required=("name", "version"),
+    additional_properties=False,
+    description="Monitor protocol identity included in status payloads.",
+)
+
+
+DEVKIT_STATE_SCHEMA = object_schema(
+    {
+        "name": string_schema(description="Internal DevKit slot name."),
+        "vehicle_id": INTEGER_SCHEMA,
+        "url": string_schema(description="Configured DevKit bridge URL."),
+        "host": string_schema(description="Active DevKit bridge host."),
+        "port": INTEGER_SCHEMA,
+        "configured": BOOLEAN_SCHEMA,
+        "enabled": BOOLEAN_SCHEMA,
+        "connected": BOOLEAN_SCHEMA,
+        "queued_messages": INTEGER_SCHEMA,
+        "bridge_hz": NUMBER_SCHEMA,
+        "bridge_per_minute": INTEGER_SCHEMA,
+    },
+    description="One configured DevKit bridge slot.",
+)
+
+
+ACCIDENT_RECORDER_SCHEMA = object_schema(
+    {
+        "pre_accident_seconds": NUMBER_SCHEMA,
+        "include_camera": BOOLEAN_SCHEMA,
+    },
+    description="Accident recorder settings.",
+)
+
+
+PENALTY_RULE_SCHEMA = object_schema(
+    {
+        "restart_delay_seconds": NUMBER_SCHEMA,
+        "decision_pack_version": string_schema(enum=("v1", "v2"), description="Active decision rule package."),
+        "sw_analysis": object_schema({}, additional_properties=BOOLEAN_SCHEMA, description="Software-analysis rule toggles."),
+        "decision_pack_v2": ANY_OBJECT_SCHEMA,
+    },
+    description="Penalty rule settings.",
+)
+
+
+RACING_RULE_SCHEMA = object_schema(
+    {
+        "total_lap_count": INTEGER_SCHEMA,
+        "maximum_penalty_count": INTEGER_SCHEMA,
+        "celebration_with_confetti": BOOLEAN_SCHEMA,
+    },
+    description="Race completion and celebration settings.",
+)
+
+
+AUDIT_RULE_SCHEMA = object_schema(
+    {
+        "bridge_hz_maximum": NUMBER_SCHEMA,
+        "bridge_hz_minimum": NUMBER_SCHEMA,
+        "bridge_hz_drop_percent": NUMBER_SCHEMA,
+    },
+    description="Bridge-rate audit thresholds.",
+)
+
+
+PENALTY_DECISION_SCHEMA = object_schema(
+    {
+        "active": BOOLEAN_SCHEMA,
+        "collision_vehicle_ids": array_schema(INTEGER_SCHEMA, description="Vehicles involved in the pending collision."),
+        "filtered_vehicle_ids": array_schema(INTEGER_SCHEMA, description="Vehicles currently filtered by penalty control."),
+        "penalty_vehicle_id": {"type": ["integer", "null"], "description": "Vehicle selected to receive a penalty."},
+        "victim_vehicle_id": {"type": ["integer", "null"], "description": "Vehicle selected as the victim, if known."},
+        "release_delay_seconds": NUMBER_SCHEMA,
+    },
+    description="Manual penalty-decision workflow state.",
+)
+
+
+RACE_RESULT_SCHEMA = object_schema(
+    {
+        "active": BOOLEAN_SCHEMA,
+        "winner_vehicle_id": {"type": ["integer", "null"], "description": "Race winner vehicle id."},
+        "loser_vehicle_id": {"type": ["integer", "null"], "description": "Race loser vehicle id."},
+        "reason": {"type": ["string", "null"], "description": "Reason the race result was decided."},
+    },
+    description="Race result state.",
+)
+
+
+STATUS_STATE_SCHEMA = object_schema(
+    {
+        "monitor_protocol": MONITOR_PROTOCOL_SCHEMA,
+        "trace_lidar_vehicle_ids": array_schema(INTEGER_SCHEMA, description="Vehicles with decoded LiDAR telemetry enabled."),
+        "revision": INTEGER_SCHEMA,
+        "simulator_clients": INTEGER_SCHEMA,
+        "monitor_clients": INTEGER_SCHEMA,
+        "devkits": array_schema(DEVKIT_STATE_SCHEMA, description="Configured DevKit slots."),
+        "accident_recorder": ACCIDENT_RECORDER_SCHEMA,
+        "penalty_rule": PENALTY_RULE_SCHEMA,
+        "racing_rule": RACING_RULE_SCHEMA,
+        "audit_rule": AUDIT_RULE_SCHEMA,
+        "penalty_decision": PENALTY_DECISION_SCHEMA,
+        "vehicle_penalties": object_schema({}, additional_properties=INTEGER_SCHEMA, description="Penalty count by vehicle id string."),
+        "race_result": RACE_RESULT_SCHEMA,
+        "review_time_seconds": NUMBER_SCHEMA,
+        "simulator_socketio_path": string_schema(description="Socket.IO path used by simulator clients."),
+    },
+    description="Full status payload shared by REST metadata and WebSocket status events.",
+)
+
+
+COMMON_SCHEMAS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "Status State",
+        "anchor": "common-schema-status-state",
+        "description": "Full monitor state object returned as REST metadata state and sent in full status events.",
+        "schema": STATUS_STATE_SCHEMA,
+    },
+    {
+        "name": "DevKit State",
+        "anchor": "common-schema-devkit-state",
+        "description": "Shape of one entry in status.devkits.",
+        "schema": DEVKIT_STATE_SCHEMA,
+    },
+    {
+        "name": "Penalty Decision",
+        "anchor": "common-schema-penalty-decision",
+        "description": "Manual penalty-decision workflow object included in status payloads.",
+        "schema": PENALTY_DECISION_SCHEMA,
+    },
+    {
+        "name": "Race Result",
+        "anchor": "common-schema-race-result",
+        "description": "Race result object included in status payloads.",
+        "schema": RACE_RESULT_SCHEMA,
+    },
+)
+
+
 STATUS_RESPONSE_SCHEMA = object_schema(
     {
-        "protocol": string_schema(),
-        "transport": string_schema(),
-        "requested_version": string_schema(),
-        "version": string_schema(),
-        "latest": string_schema(),
-        "aliases": object_schema({}),
-        "state": ANY_OBJECT_SCHEMA,
+        "protocol": string_schema(description="Monitor protocol name."),
+        "transport": string_schema(description="Transport used for this response."),
+        "requested_version": string_schema(description="Version segment requested by the client."),
+        "version": string_schema(description="Resolved monitor protocol version."),
+        "latest": string_schema(description="Latest concrete protocol version supported by RCT."),
+        "aliases": object_schema({}, description="Convenience URLs for latest, versioned, and WebSocket endpoints."),
+        "state": STATUS_STATE_SCHEMA,
     },
     required=("protocol", "transport", "requested_version", "version", "latest", "aliases", "state"),
+    description="Protocol metadata and full monitor state snapshot.",
 )
 
 
 TOPICS_RESPONSE_SCHEMA = object_schema(
     {
-        "protocol": string_schema(),
-        "version": string_schema(),
-        "topics": array_schema(ANY_OBJECT_SCHEMA),
-        "topic_selections": object_schema({}, additional_properties=BOOLEAN_SCHEMA),
+        "protocol": string_schema(description="Monitor protocol name."),
+        "version": string_schema(description="Resolved monitor protocol version."),
+        "topics": array_schema(ANY_OBJECT_SCHEMA, description="Available simulator bridge topics."),
+        "topic_selections": object_schema(
+            {},
+            additional_properties={"type": "boolean", "description": "Whether the topic is enabled."},
+            description="Map from topic name to frontend selection state.",
+        ),
     },
     required=("protocol", "version", "topics", "topic_selections"),
+    description="Topic options and current topic selections.",
 )
 
 
 TOPICS_UPDATE_INPUT_SCHEMA = monitor_input_schema(
     body=object_schema(
         {
-            "topic_selections": object_schema({}, additional_properties=BOOLEAN_SCHEMA),
-            "topics": object_schema({}, additional_properties=BOOLEAN_SCHEMA),
-        }
+            "topic_selections": object_schema(
+                {},
+                additional_properties={"type": "boolean", "description": "Whether the topic should be enabled."},
+                description="Preferred map from topic name to enabled state.",
+            ),
+            "topics": object_schema(
+                {},
+                additional_properties={"type": "boolean", "description": "Whether the topic should be enabled."},
+                description="Alias for topic_selections.",
+            ),
+        },
+        description="JSON body for updating one or more topic selections.",
     )
 )
 
 
 SETTINGS_RESPONSE_SCHEMA = object_schema(
     {
-        "protocol": string_schema(),
-        "version": string_schema(),
+        "protocol": string_schema(description="Monitor protocol name."),
+        "version": string_schema(description="Resolved monitor protocol version."),
     },
     required=("protocol", "version"),
+    description="Common prefix for settings GET responses. Endpoint-specific settings are included as additional fields.",
 )
 
 
 ACCIDENT_LOGS_RESPONSE_SCHEMA = object_schema(
     {
-        "protocol": string_schema(),
-        "version": string_schema(),
-        "accident_logs": array_schema(ANY_OBJECT_SCHEMA),
+        "protocol": string_schema(description="Monitor protocol name."),
+        "version": string_schema(description="Resolved monitor protocol version."),
+        "accident_logs": array_schema(ANY_OBJECT_SCHEMA, description="Accident log records newest first."),
     },
     required=("protocol", "version", "accident_logs"),
+    description="Accident log listing response.",
 )
 
 
 AUDIT_LOG_RESPONSE_SCHEMA = object_schema(
     {
-        "protocol": string_schema(),
-        "version": string_schema(),
-        "audit_log": array_schema(ANY_OBJECT_SCHEMA),
+        "protocol": string_schema(description="Monitor protocol name."),
+        "version": string_schema(description="Resolved monitor protocol version."),
+        "audit_log": array_schema(ANY_OBJECT_SCHEMA, description="Audit log entries in recorded order."),
     },
     required=("protocol", "version", "audit_log"),
+    description="Audit log response.",
 )
 
 
 STATE_COMMAND_RESPONSE_SCHEMA = object_schema(
     {
-        "ok": BOOLEAN_SCHEMA,
-        "state": ANY_OBJECT_SCHEMA,
+        "ok": {"type": "boolean", "description": "Whether the command was accepted."},
+        "state": object_schema({}, description="Updated monitor state snapshot."),
     },
     required=("ok", "state"),
+    description="Command response that includes updated monitor state.",
 )
 
 
 ACCIDENT_LOG_FILENAME_PATH_SCHEMA = object_schema(
     {
-        "version": string_schema(enum=("0.1", "latest")),
-        "filename": string_schema(),
+        "version": string_schema(enum=("0.1", "latest"), description="Requested monitor protocol version."),
+        "filename": string_schema(description="Accident log basename from accident_logs[].filename."),
     },
     required=("version", "filename"),
     additional_properties=False,
+    description="Path parameters for endpoints operating on one accident log file.",
 )
 
 
