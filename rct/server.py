@@ -33,7 +33,29 @@ from .bridge import (
     extract_monitor_telemetry,
 )
 from .config import Settings, load_settings
-from .develop_reference import MONITOR_REST_REFERENCE, install_monitor_rest_route_collector
+from .develop_reference import (
+    ACCIDENT_LOG_FILENAME_PATH_SCHEMA,
+    ACCIDENT_LOGS_RESPONSE_SCHEMA,
+    ANY_OBJECT_SCHEMA,
+    AUDIT_LOG_RESPONSE_SCHEMA,
+    BINARY_MCAP_RESPONSE_SCHEMA,
+    BOOLEAN_SCHEMA,
+    DEVELOP_REFERENCE,
+    INTEGER_SCHEMA,
+    NUMBER_SCHEMA,
+    OK_RESPONSE_SCHEMA,
+    SETTINGS_RESPONSE_SCHEMA,
+    STATE_COMMAND_RESPONSE_SCHEMA,
+    STATUS_RESPONSE_SCHEMA,
+    TOPICS_RESPONSE_SCHEMA,
+    TOPICS_UPDATE_INPUT_SCHEMA,
+    array_schema,
+    install_develop_reference_route_collector,
+    monitor_input_schema,
+    object_schema,
+    route_doc,
+    string_schema,
+)
 from .decision import (
     DEFAULT_DECISION_EVALUATION,
     decision_record_path,
@@ -915,63 +937,216 @@ class RaceControlTower:
             middlewares=[self.log_socketio_request],
         )
         self.sio.attach(app, socketio_path=SOCKETIO_PATH)
-        MONITOR_REST_REFERENCE.clear()
-        install_monitor_rest_route_collector(app.router)
-        app.router.add_get("/monitor/WS/{version}", self.handle_monitor_ws)
-        app.router.add_get("/monitor/REST/{version}", self.handle_monitor_rest)
-        app.router.add_get("/monitor/REST/{version}/topics", self.handle_monitor_topics_get)
-        app.router.add_post("/monitor/REST/{version}/topics", self.handle_monitor_topics_post)
+        DEVELOP_REFERENCE.clear()
+        install_develop_reference_route_collector(app.router)
+        app.router.add_get(
+            "/monitor/WS/{version}",
+            self.handle_monitor_ws,
+            route_doc(
+                "Accepts browser monitor WebSocket clients for live status, telemetry, audit, and command traffic.",
+                input_schema=monitor_input_schema(),
+                output_schema={
+                    "type": "object",
+                    "description": "WebSocket stream of JSON text frames.",
+                },
+            ),
+        )
+        app.router.add_get(
+            "/monitor/REST/{version}",
+            self.handle_monitor_rest,
+            route_doc(
+                "Returns protocol metadata and the full current status state.",
+                input_schema=monitor_input_schema(),
+                output_schema=STATUS_RESPONSE_SCHEMA,
+            ),
+        )
+        app.router.add_get(
+            "/monitor/REST/{version}/topics",
+            self.handle_monitor_topics_get,
+            route_doc(
+                "Returns bridge topic options and current frontend selections.",
+                input_schema=monitor_input_schema(),
+                output_schema=TOPICS_RESPONSE_SCHEMA,
+            ),
+        )
+        app.router.add_post(
+            "/monitor/REST/{version}/topics",
+            self.handle_monitor_topics_post,
+            route_doc(
+                "Updates one or more topic selections and publishes a full status event.",
+                input_schema=TOPICS_UPDATE_INPUT_SCHEMA,
+                output_schema=object_schema(
+                    {
+                        "ok": BOOLEAN_SCHEMA,
+                        "topics": array_schema(ANY_OBJECT_SCHEMA),
+                        "topic_selections": object_schema({}, additional_properties=BOOLEAN_SCHEMA),
+                    },
+                    required=("ok", "topics", "topic_selections"),
+                ),
+            ),
+        )
         app.router.add_get(
             "/monitor/REST/{version}/accident-recorder",
             self.handle_monitor_accident_recorder_get,
+            route_doc(
+                "Returns accident recorder settings.",
+                input_schema=monitor_input_schema(),
+                output_schema=SETTINGS_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_post(
             "/monitor/REST/{version}/accident-recorder",
             self.handle_monitor_accident_recorder_post,
+            route_doc(
+                "Updates accident recorder settings and publishes a full status event.",
+                input_schema=monitor_input_schema(
+                    body=object_schema(
+                        {
+                            "pre_accident_seconds": NUMBER_SCHEMA,
+                            "include_camera": BOOLEAN_SCHEMA,
+                        }
+                    )
+                ),
+                output_schema=object_schema(
+                    {"ok": BOOLEAN_SCHEMA, "accident_recorder": ANY_OBJECT_SCHEMA},
+                    required=("ok", "accident_recorder"),
+                ),
+            ),
         )
         app.router.add_get(
             "/monitor/REST/{version}/penalty-rule",
             self.handle_monitor_penalty_rule_get,
+            route_doc(
+                "Returns penalty rule settings.",
+                input_schema=monitor_input_schema(),
+                output_schema=SETTINGS_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_post(
             "/monitor/REST/{version}/penalty-rule",
             self.handle_monitor_penalty_rule_post,
+            route_doc(
+                "Updates penalty rule settings and publishes a full status event.",
+                input_schema=monitor_input_schema(
+                    body=object_schema(
+                        {
+                            "restart_delay_seconds": NUMBER_SCHEMA,
+                            "decision_pack_version": string_schema(enum=("v1", "v2")),
+                            "sw_analysis": object_schema({}, additional_properties=BOOLEAN_SCHEMA),
+                            "decision_pack_v2": ANY_OBJECT_SCHEMA,
+                        }
+                    )
+                ),
+                output_schema=object_schema(
+                    {"ok": BOOLEAN_SCHEMA, "penalty_rule": ANY_OBJECT_SCHEMA},
+                    required=("ok", "penalty_rule"),
+                ),
+            ),
         )
         app.router.add_get(
             "/monitor/REST/{version}/racing-rule",
             self.handle_monitor_racing_rule_get,
+            route_doc(
+                "Returns racing rule settings.",
+                input_schema=monitor_input_schema(),
+                output_schema=SETTINGS_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_post(
             "/monitor/REST/{version}/racing-rule",
             self.handle_monitor_racing_rule_post,
+            route_doc(
+                "Updates racing rule settings and publishes a full status event.",
+                input_schema=monitor_input_schema(
+                    body=object_schema(
+                        {
+                            "total_lap_count": INTEGER_SCHEMA,
+                            "maximum_penalty_count": INTEGER_SCHEMA,
+                            "celebration_with_confetti": BOOLEAN_SCHEMA,
+                        }
+                    )
+                ),
+                output_schema=object_schema(
+                    {"ok": BOOLEAN_SCHEMA, "racing_rule": ANY_OBJECT_SCHEMA},
+                    required=("ok", "racing_rule"),
+                ),
+            ),
         )
         app.router.add_get(
             "/monitor/REST/{version}/audit-rule",
             self.handle_monitor_audit_rule_get,
+            route_doc(
+                "Returns audit rule settings.",
+                input_schema=monitor_input_schema(),
+                output_schema=SETTINGS_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_post(
             "/monitor/REST/{version}/audit-rule",
             self.handle_monitor_audit_rule_post,
+            route_doc(
+                "Updates audit rule settings and publishes a full status event.",
+                input_schema=monitor_input_schema(
+                    body=object_schema(
+                        {
+                            "bridge_hz_maximum": NUMBER_SCHEMA,
+                            "bridge_hz_minimum": NUMBER_SCHEMA,
+                            "bridge_hz_drop_percent": NUMBER_SCHEMA,
+                        }
+                    )
+                ),
+                output_schema=object_schema(
+                    {"ok": BOOLEAN_SCHEMA, "audit_rule": ANY_OBJECT_SCHEMA},
+                    required=("ok", "audit_rule"),
+                ),
+            ),
         )
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_get,
+            route_doc(
+                "Refreshes accident logs from disk and returns them newest first.",
+                input_schema=monitor_input_schema(),
+                output_schema=ACCIDENT_LOGS_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs/ros2-mcap",
             self.handle_monitor_accident_log_ros2_mcap_get,
+            route_doc(
+                "Converts an accident MCAP selected by query path and returns ROS 2 MCAP.",
+                input_schema=monitor_input_schema(
+                    query=object_schema({"path": string_schema()}, required=("path",), additional_properties=False)
+                ),
+                output_schema=BINARY_MCAP_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs/{filename}/rct.mcap",
             self.handle_monitor_accident_log_rct_mcap_file_get,
+            route_doc(
+                "Downloads the original RCT accident MCAP.",
+                input_schema=monitor_input_schema(path=ACCIDENT_LOG_FILENAME_PATH_SCHEMA),
+                output_schema=BINARY_MCAP_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs/{filename}",
             self.handle_monitor_accident_log_ros2_mcap_file_get,
+            route_doc(
+                "Legacy alias that converts the selected accident MCAP to ROS 2 MCAP.",
+                input_schema=monitor_input_schema(path=ACCIDENT_LOG_FILENAME_PATH_SCHEMA),
+                output_schema=BINARY_MCAP_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs/{filename}/ros2.mcap",
             self.handle_monitor_accident_log_ros2_mcap_file_get,
+            route_doc(
+                "Converts the selected accident MCAP to ROS 2 MCAP and returns it as a binary download.",
+                input_schema=monitor_input_schema(path=ACCIDENT_LOG_FILENAME_PATH_SCHEMA),
+                output_schema=BINARY_MCAP_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_options(
             "/monitor/REST/{version}/accident-logs/ros2-mcap",
@@ -992,34 +1167,172 @@ class RaceControlTower:
         app.router.add_get(
             "/monitor/REST/{version}/accident-logs/{filename}/summary",
             self.handle_monitor_accident_log_summary_get,
+            route_doc(
+                "Returns replay telemetry extracted from one accident MCAP.",
+                input_schema=monitor_input_schema(
+                    path=ACCIDENT_LOG_FILENAME_PATH_SCHEMA,
+                    query=object_schema(
+                        {"frames": string_schema(), "lidar": string_schema()},
+                    ),
+                ),
+                output_schema=object_schema(
+                    {
+                        "protocol": string_schema(),
+                        "version": string_schema(),
+                        "filename": string_schema(),
+                        "metadata": ANY_OBJECT_SCHEMA,
+                        "frames": array_schema(ANY_OBJECT_SCHEMA),
+                    },
+                ),
+            ),
         )
         app.router.add_post(
             "/monitor/REST/{version}/accident-logs/{filename}/decision-record",
             self.handle_monitor_accident_log_decision_record_post,
+            route_doc(
+                "Creates or replaces the decision JSON beside an accident MCAP and publishes log updates.",
+                input_schema=monitor_input_schema(
+                    path=ACCIDENT_LOG_FILENAME_PATH_SCHEMA,
+                    body=object_schema(
+                        {
+                            "decision_io_version": string_schema(enum=("0.1",)),
+                            "decision_mode": string_schema(enum=("manual", "auto")),
+                            "fault_vehicle_id": INTEGER_SCHEMA,
+                            "penalty_vehicle_id": INTEGER_SCHEMA,
+                            "no_decision": BOOLEAN_SCHEMA,
+                            "decision_package_ids": array_schema(string_schema()),
+                            "decision_results": ANY_OBJECT_SCHEMA,
+                            "evaluation": object_schema({}, additional_properties=BOOLEAN_SCHEMA),
+                            "memo": string_schema(),
+                        }
+                    ),
+                ),
+                output_schema=object_schema(
+                    {"ok": BOOLEAN_SCHEMA, "decision_record": ANY_OBJECT_SCHEMA},
+                    required=("ok", "decision_record"),
+                ),
+            ),
         )
         app.router.add_post(
             "/monitor/REST/{version}/accident-logs/{filename}/decision-record/evaluation",
             self.handle_monitor_accident_log_decision_record_evaluation_post,
+            route_doc(
+                "Updates only the evaluation fields in an existing decision record JSON.",
+                input_schema=monitor_input_schema(
+                    path=ACCIDENT_LOG_FILENAME_PATH_SCHEMA,
+                    body=object_schema(
+                        {"evaluation": object_schema({}, additional_properties=BOOLEAN_SCHEMA)},
+                        required=("evaluation",),
+                    ),
+                ),
+                output_schema=object_schema(
+                    {"ok": BOOLEAN_SCHEMA, "decision_record": ANY_OBJECT_SCHEMA},
+                    required=("ok", "decision_record"),
+                ),
+            ),
         )
         app.router.add_delete(
             "/monitor/REST/{version}/accident-logs",
             self.handle_monitor_accident_logs_delete,
+            route_doc(
+                "Deletes accident MCAP files, adjacent decision JSON files, and audit output from the log directory.",
+                input_schema=monitor_input_schema(query=object_schema({"keep": string_schema()})),
+                output_schema=object_schema(
+                    {
+                        "ok": BOOLEAN_SCHEMA,
+                        "deleted": INTEGER_SCHEMA,
+                        "accident_logs": array_schema(ANY_OBJECT_SCHEMA),
+                        "audit_log": array_schema(ANY_OBJECT_SCHEMA),
+                    },
+                    required=("ok", "deleted", "accident_logs", "audit_log"),
+                ),
+            ),
         )
         app.router.add_get(
             "/monitor/REST/{version}/audit-log",
             self.handle_monitor_audit_log_get,
+            route_doc(
+                "Refreshes the audit log from disk and returns it.",
+                input_schema=monitor_input_schema(),
+                output_schema=AUDIT_LOG_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_post(
             "/monitor/REST/{version}/devkits/{vehicle_id}/endpoint",
             self.handle_monitor_devkit_endpoint_command,
+            route_doc(
+                "Updates one DevKit endpoint and optionally connects or disconnects that slot.",
+                input_schema=monitor_input_schema(
+                    path=object_schema(
+                        {
+                            "version": string_schema(enum=("0.1", "latest")),
+                            "vehicle_id": string_schema(),
+                        },
+                        required=("version", "vehicle_id"),
+                        additional_properties=False,
+                    ),
+                    body=object_schema(
+                        {
+                            "host": string_schema(),
+                            "hostname": string_schema(),
+                            "port": INTEGER_SCHEMA,
+                            "enabled": BOOLEAN_SCHEMA,
+                        }
+                    ),
+                ),
+                output_schema=STATE_COMMAND_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_post(
             "/monitor/REST/{version}/devkits/{vehicle_id}/{action}",
             self.handle_monitor_devkit_command,
+            route_doc(
+                "Connects or disconnects one configured DevKit bridge slot.",
+                input_schema=monitor_input_schema(
+                    path=object_schema(
+                        {
+                            "version": string_schema(enum=("0.1", "latest")),
+                            "vehicle_id": string_schema(),
+                            "action": string_schema(enum=("connect", "disconnect")),
+                        },
+                        required=("version", "vehicle_id", "action"),
+                        additional_properties=False,
+                    ),
+                ),
+                output_schema=STATE_COMMAND_RESPONSE_SCHEMA,
+            ),
         )
         app.router.add_post(
             "/monitor/REST/{version}/vehicles/{vehicle_id}/trace-lidar",
             self.handle_monitor_trace_lidar_command,
+            route_doc(
+                "Enables or disables decoded LiDAR trace data for one vehicle in live telemetry.",
+                input_schema=monitor_input_schema(
+                    path=object_schema(
+                        {
+                            "version": string_schema(enum=("0.1", "latest")),
+                            "vehicle_id": string_schema(),
+                        },
+                        required=("version", "vehicle_id"),
+                        additional_properties=False,
+                    ),
+                    body=object_schema(
+                        {
+                            "enabled": BOOLEAN_SCHEMA,
+                            "trace_lidar": BOOLEAN_SCHEMA,
+                            "value": BOOLEAN_SCHEMA,
+                        }
+                    ),
+                ),
+                output_schema=object_schema(
+                    {
+                        "ok": BOOLEAN_SCHEMA,
+                        "vehicle_id": INTEGER_SCHEMA,
+                        "trace_lidar": BOOLEAN_SCHEMA,
+                    },
+                    required=("ok", "vehicle_id", "trace_lidar"),
+                ),
+            ),
         )
         app.router.add_route("*", "/monitor/{tail:.*}", self.handle_unknown_monitor_path)
         app.router.add_get("/{tail:.*}", self.handle_static)

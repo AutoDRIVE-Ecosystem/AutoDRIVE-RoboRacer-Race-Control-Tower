@@ -122,24 +122,26 @@
               <div class="rct-protocol-index-section">
                 <a class="rct-protocol-index-title" href="#overview">Overview</a>
                 <ul class="rct-protocol-index-list">
-                  {% for item in monitor_protocol_docs.overview_nav %}
-                  <li><a href="#[[ item.anchor ]]">[[ item.title ]]</a></li>
-                  {% endfor %}
+                  <li><a href="#path-layout">Path layout</a></li>
+                  <li><a href="#message-shape">Message shape</a></li>
                 </ul>
               </div>
               <div class="rct-protocol-index-section">
                 <a class="rct-protocol-index-title" href="#rest-api">REST</a>
                 <ul class="rct-protocol-index-list">
-                  {% for item in monitor_protocol_docs.rest_nav %}
-                  <li><a href="#[[ item.anchor ]]">[[ item.title ]]</a></li>
+                  {% for route in develop_reference.rest_routes %}
+                  <li><a href="#[[ route.anchor ]]">[[ route.path ]]</a></li>
                   {% endfor %}
                 </ul>
               </div>
               <div class="rct-protocol-index-section">
                 <a class="rct-protocol-index-title" href="#websocket-api">WS</a>
                 <ul class="rct-protocol-index-list">
-                  {% for item in monitor_protocol_docs.ws_nav %}
-                  <li><a href="#[[ item.anchor ]]">[[ item.title ]]</a></li>
+                  {% for route in develop_reference.ws_routes %}
+                  <li><a href="#[[ route.anchor ]]">[[ route.path ]]</a></li>
+                  {% endfor %}
+                  {% for message in develop_reference.ws_messages %}
+                  <li><a href="#[[ message.anchor ]]">[[ message.kind ]]: [[ message.name ]]</a></li>
                   {% endfor %}
                 </ul>
               </div>
@@ -148,14 +150,70 @@
           <div class="col-lg-9">
             <article class="rct-protocol-content">
               <section id="overview">
-                <h1>Introduction</h1>
-                [[ monitor_protocol_docs.overview_html|safe ]]
+                <h1>Monitor Protocol Reference</h1>
+                <p>
+                  AutoDRIVE Race Control Tower exposes monitor APIs for the browser frontend.
+                  Browser clients use REST for snapshots and commands, and WebSocket for live
+                  status, telemetry, audit, and command streams.
+                </p>
+                <h2 id="path-layout">Path Layout</h2>
+                <p>
+                  REST clients use <code>/monitor/REST/0.1/...</code> or
+                  <code>/monitor/REST/latest/...</code>. WebSocket clients use
+                  <code>/monitor/WS/0.1</code> or <code>/monitor/WS/latest</code>.
+                </p>
+                <h2 id="message-shape">Message Shape</h2>
+                <p>
+                  REST responses are JSON unless an endpoint returns an MCAP binary download.
+                  WebSocket server-to-client and client-to-server messages are JSON text frames.
+                  Binary WebSocket client messages are rejected and broadcast as an error event.
+                </p>
               </section>
-              <section id="rest">
-                [[ monitor_protocol_docs.rest_html|safe ]]
+              <section id="rest-api">
+                <h2>REST API</h2>
+                <p>
+                  The registered REST reference below is generated from the aiohttp route
+                  registration calls in the RCT server.
+                </p>
+                {% for route in develop_reference.rest_routes %}
+                <h3 id="[[ route.anchor ]]"><code>[[ route.path ]]</code></h3>
+                {% for method in route.methods %}
+                <h4>[[ method.method ]]</h4>
+                <p>[[ method.description ]]</p>
+                {% if method.input_schema %}
+                <h5>Input JSON Schema</h5>
+                <pre><code>[[ method.input_schema|tojson(indent=2) ]]</code></pre>
+                {% endif %}
+                {% if method.output_schema %}
+                <h5>Output JSON Schema</h5>
+                <pre><code>[[ method.output_schema|tojson(indent=2) ]]</code></pre>
+                {% endif %}
+                <p class="text-body-secondary"><code>[[ method.handler ]]</code></p>
+                {% endfor %}
+                {% endfor %}
               </section>
-              <section id="ws">
-                [[ monitor_protocol_docs.ws_html|safe ]]
+              <section id="websocket-api">
+                <h2>WebSocket API</h2>
+                {% for route in develop_reference.ws_routes %}
+                <h3 id="[[ route.anchor ]]"><code>[[ route.path ]]</code></h3>
+                {% for method in route.methods %}
+                <h4>[[ method.method ]]</h4>
+                <p>[[ method.description ]]</p>
+                {% if method.input_schema %}
+                <h5>Input JSON Schema</h5>
+                <pre><code>[[ method.input_schema|tojson(indent=2) ]]</code></pre>
+                {% endif %}
+                {% if method.output_schema %}
+                <h5>Output JSON Schema</h5>
+                <pre><code>[[ method.output_schema|tojson(indent=2) ]]</code></pre>
+                {% endif %}
+                <p class="text-body-secondary"><code>[[ method.handler ]]</code></p>
+                {% endfor %}
+                {% endfor %}
+                {% for message in develop_reference.ws_messages %}
+                <h3 id="[[ message.anchor ]]">[[ message.kind ]]: <code>[[ message.name ]]</code></h3>
+                <p>[[ message.description ]]</p>
+                {% endfor %}
               </section>
             </article>
           </div>

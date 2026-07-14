@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlparse
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from .monitor_protocol_docs import SUPPORTED_DEVELOP_VERSIONS, render_monitor_protocol_docs
+from .develop_reference import SUPPORTED_DEVELOP_VERSIONS, build_develop_reference
 from .static_files import StaticFileResponse
 
 
@@ -29,11 +29,9 @@ def build_page_template_response(request_path: str, frontend_root: Path) -> Stat
         "page_title": page_title,
     }
     if template_name == "develop.html":
-        context["monitor_protocol_docs"] = render_monitor_protocol_docs(
-            frontend_root.parent,
-            version=develop_version or "latest",
-            use_registered_routes=True,
-        )
+        develop_reference = build_develop_reference(develop_version or "latest")
+        context["develop_reference"] = develop_reference
+        context["monitor_protocol_docs"] = develop_reference
     body = environment.get_template(template_name).render(**context).encode("utf-8")
     return StaticFileResponse(
         status_code=HTTPStatus.OK.value,

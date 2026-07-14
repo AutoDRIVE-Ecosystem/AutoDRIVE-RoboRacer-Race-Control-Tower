@@ -140,7 +140,7 @@ The browser frontend talks to the RCT server through AutoDRIVE RCT Monitor Proto
 - REST state endpoint: `/monitor/REST/latest`
 - WebSocket event endpoint: `/monitor/WS/latest`
 
-See `docs/monitor-protocol.md` for the protocol structure, including accident recorder/log REST endpoints, penalty decision WebSocket events, and monitor command surfaces.
+Run RCT and open `/develop/latest` for the protocol reference. REST and WebSocket route descriptions are generated from the server route registration code.
 
 REST monitor snapshots and WS monitor events are backed by the same in-process `RaceControlState`. Monitor WS fanout is handled separately by `MonitorEventHub`, so state updates are kept separate from network sends.
 

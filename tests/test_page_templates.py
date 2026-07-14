@@ -6,9 +6,15 @@ import unittest
 
 from aiohttp import web
 
-from rct.develop_reference import MONITOR_REST_REFERENCE, install_monitor_rest_route_collector
+from rct.develop_reference import (
+    DEVELOP_REFERENCE,
+    OK_RESPONSE_SCHEMA,
+    build_develop_reference,
+    install_develop_reference_route_collector,
+    monitor_input_schema,
+    route_doc,
+)
 from rct.page_templates import build_page_template_response
-from rct.monitor_protocol_docs import render_monitor_protocol_docs
 
 
 class PageTemplateResponseTests(unittest.TestCase):
@@ -125,167 +131,111 @@ class PageTemplateResponseTests(unittest.TestCase):
             self.assertIsNotNone(response)
             self.assertIn(b'${{ 1: "st" }[number] || "th"}', response.body)
 
-    def test_monitor_protocol_docs_are_split_into_reference_sections(self):
-        with TemporaryDirectory() as temp_dir:
-            repo_root = Path(temp_dir)
-            docs = repo_root / "docs"
-            docs.mkdir()
-            (docs / "monitor-protocol.md").write_text(
-                "# AutoDRIVE RCT Monitor Protocol\n\n"
-                "Intro text.\n\n"
-                "## Path Layout\n\n"
-                "Overview body.\n\n"
-                "## REST API\n\n"
-                "### GET `/monitor/REST/{version}`\n\n"
-                "REST body.\n\n"
-                "### GET `/monitor/REST/{version}/topics`\n\n"
-                "Topics GET body.\n\n"
-                "### POST `/monitor/REST/{version}/topics`\n\n"
-                "Topics POST body.\n\n"
-                "## WebSocket API\n\n"
-                "### Server Event: `status`\n\n"
-                "WS body.\n\n"
-                "## WebSocket Client Commands\n\n"
-                "### Command: `configure-devkits`\n\n"
-                "Command body.\n",
-                encoding="utf-8",
-            )
-
-            rendered = render_monitor_protocol_docs(repo_root, version="0.1")
-
-            self.assertIn("Intro text.", rendered.overview_html)
-            self.assertIn('id="path-layout"', rendered.overview_html)
-            self.assertIn("REST body.", rendered.rest_html)
-            self.assertIn('id="monitor-rest-0-1"', rendered.rest_html)
-            self.assertIn('id="monitor-rest-0-1-topics"', rendered.rest_html)
-            self.assertIn("<h4", rendered.rest_html)
-            self.assertIn(">GET</h4>", rendered.rest_html)
-            self.assertIn("WS body.", rendered.ws_html)
-            self.assertEqual(
-                [item.title for item in rendered.overview_nav],
-                ["Path Layout"],
-            )
-            self.assertEqual(
-                [item.title for item in rendered.rest_nav],
-                ["/monitor/REST/0.1", "/monitor/REST/0.1/topics"],
-            )
-            self.assertIn(
-                "Server Event: status",
-                [item.title for item in rendered.ws_nav],
-            )
-            self.assertIn(
-                "Command: configure-devkits",
-                [item.title for item in rendered.ws_nav],
-            )
-
-    def test_rest_reference_nav_groups_methods_by_concrete_path(self):
-        with TemporaryDirectory() as temp_dir:
-            repo_root = Path(temp_dir)
-            docs = repo_root / "docs"
-            docs.mkdir()
-            (docs / "monitor-protocol.md").write_text(
-                "# AutoDRIVE RCT Monitor Protocol\n\n"
-                "## REST API\n\n"
-                "### GET `/monitor/REST/{version}/topics`\n\n"
-                "GET body.\n\n"
-                "### POST `/monitor/REST/{version}/topics`\n\n"
-                "POST body.\n\n"
-                "## WebSocket API\n",
-                encoding="utf-8",
-            )
-
-            rendered = render_monitor_protocol_docs(repo_root, version="latest")
-
-            self.assertEqual(
-                [item.title for item in rendered.rest_nav],
-                ["/monitor/REST/latest/topics"],
-            )
-            self.assertEqual(
-                [item.anchor for item in rendered.rest_nav],
-                ["monitor-rest-latest-topics"],
-            )
-            self.assertEqual(rendered.rest_html.count('id="monitor-rest-latest-topics"'), 1)
-            self.assertIn(">GET</h4>", rendered.rest_html)
-            self.assertIn(">POST</h4>", rendered.rest_html)
-
-    def test_registered_monitor_rest_routes_populate_develop_reference(self):
-        MONITOR_REST_REFERENCE.clear()
+    def test_route_collector_uses_third_argument_as_reference_description(self):
+        DEVELOP_REFERENCE.clear()
         try:
             app = web.Application()
-            install_monitor_rest_route_collector(app.router)
+            install_develop_reference_route_collector(app.router)
 
             async def handler(_request):
                 return web.json_response({"ok": True})
 
-            app.router.add_get("/monitor/REST/{version}/topics", handler)
-            app.router.add_post("/monitor/REST/{version}/topics", handler)
-            app.router.add_delete("/monitor/REST/{version}/accident-logs", handler)
+            app.router.add_get(
+                "/monitor/REST/{version}/topics",
+                handler,
+                route_doc(
+                    "Returns topic selections.",
+                    input_schema=monitor_input_schema(),
+                    output_schema=OK_RESPONSE_SCHEMA,
+                ),
+            )
+            app.router.add_post("/monitor/REST/{version}/topics", handler, "Updates topic selections.")
+            app.router.add_delete(
+                "/monitor/REST/{version}/accident-logs",
+                handler,
+                "Deletes accident logs.",
+            )
+            app.router.add_get("/monitor/WS/{version}", handler, "Accepts monitor WebSocket clients.")
             app.router.add_get("/assets/{tail:.*}", handler)
 
-            with TemporaryDirectory() as temp_dir:
-                repo_root = Path(temp_dir)
-                docs = repo_root / "docs"
-                docs.mkdir()
-                (docs / "monitor-protocol.md").write_text(
-                    "# AutoDRIVE RCT Monitor Protocol\n\n"
-                    "## REST API\n\n"
-                    "Registered REST routes.\n\n"
-                    "## WebSocket API\n",
-                    encoding="utf-8",
-                )
-
-                rendered = render_monitor_protocol_docs(repo_root, version="latest", use_registered_routes=True)
+            reference = build_develop_reference("latest")
 
             self.assertEqual(
-                [item.title for item in rendered.rest_nav],
+                [route["path"] for route in reference["rest_routes"]],
                 [
                     "/monitor/REST/latest/topics",
                     "/monitor/REST/latest/accident-logs",
                 ],
             )
-            self.assertIn('id="monitor-rest-latest-topics"', rendered.rest_html)
-            self.assertIn('id="monitor-rest-latest-accident-logs"', rendered.rest_html)
-            self.assertIn(">GET</h4>", rendered.rest_html)
-            self.assertIn(">POST</h4>", rendered.rest_html)
-            self.assertIn(">DELETE</h4>", rendered.rest_html)
-            self.assertNotIn("/assets", rendered.rest_html)
+            self.assertEqual(
+                [method["method"] for method in reference["rest_routes"][0]["methods"]],
+                ["GET", "POST"],
+            )
+            self.assertEqual(reference["rest_routes"][0]["methods"][0]["description"], "Returns topic selections.")
+            self.assertEqual(reference["rest_routes"][0]["methods"][0]["input_schema"]["properties"]["body"], {"type": "null"})
+            self.assertEqual(reference["rest_routes"][0]["methods"][0]["output_schema"], OK_RESPONSE_SCHEMA)
+            self.assertEqual(reference["rest_routes"][1]["methods"][0]["description"], "Deletes accident logs.")
+            self.assertEqual(reference["ws_routes"][0]["path"], "/monitor/WS/latest")
+            self.assertEqual(reference["ws_routes"][0]["methods"][0]["description"], "Accepts monitor WebSocket clients.")
         finally:
-            MONITOR_REST_REFERENCE.clear()
+            DEVELOP_REFERENCE.clear()
 
-    def test_registered_routes_reuse_markdown_body_when_docs_heading_has_query(self):
-        MONITOR_REST_REFERENCE.clear()
+    def test_route_collector_ignores_routes_without_reference_description(self):
+        DEVELOP_REFERENCE.clear()
         try:
             app = web.Application()
-            install_monitor_rest_route_collector(app.router)
+            install_develop_reference_route_collector(app.router)
 
             async def handler(_request):
                 return web.json_response({"ok": True})
 
             app.router.add_get("/monitor/REST/{version}/accident-logs/ros2-mcap", handler)
+            app.router.add_get("/monitor/REST/{version}/topics", handler, "Returns topics.")
 
-            with TemporaryDirectory() as temp_dir:
-                repo_root = Path(temp_dir)
-                docs = repo_root / "docs"
-                docs.mkdir()
-                (docs / "monitor-protocol.md").write_text(
-                    "# AutoDRIVE RCT Monitor Protocol\n\n"
-                    "## REST API\n\n"
-                    "### GET `/monitor/REST/{version}/accident-logs/ros2-mcap?path={path}`\n\n"
-                    "Converts an accident MCAP selected by path.\n\n"
-                    "## WebSocket API\n",
-                    encoding="utf-8",
-                )
-
-                rendered = render_monitor_protocol_docs(repo_root, version="0.1", use_registered_routes=True)
+            reference = build_develop_reference("0.1")
 
             self.assertEqual(
-                [item.title for item in rendered.rest_nav],
-                ["/monitor/REST/0.1/accident-logs/ros2-mcap"],
+                [route["path"] for route in reference["rest_routes"]],
+                ["/monitor/REST/0.1/topics"],
             )
-            self.assertIn("Converts an accident MCAP selected by path.", rendered.rest_html)
-            self.assertNotIn("?path={path}", rendered.rest_html)
         finally:
-            MONITOR_REST_REFERENCE.clear()
+            DEVELOP_REFERENCE.clear()
+
+    def test_develop_template_renders_reference_dict(self):
+        DEVELOP_REFERENCE.clear()
+        try:
+            app = web.Application()
+            install_develop_reference_route_collector(app.router)
+
+            async def handler(_request):
+                return web.json_response({"ok": True})
+
+            app.router.add_get(
+                "/monitor/REST/{version}/topics",
+                handler,
+                route_doc(
+                    "Returns topic selections.",
+                    input_schema=monitor_input_schema(),
+                    output_schema=OK_RESPONSE_SCHEMA,
+                ),
+            )
+            app.router.add_get("/monitor/WS/{version}", handler, "Accepts monitor WebSocket clients.")
+
+            response = build_page_template_response("/develop/latest", Path("frontend"))
+
+            self.assertIsNotNone(response)
+            html = response.body.decode("utf-8")
+            self.assertIn("Monitor Protocol Reference", html)
+            self.assertIn("/monitor/REST/latest/topics", html)
+            self.assertIn("Returns topic selections.", html)
+            self.assertIn("Input JSON Schema", html)
+            self.assertIn("Output JSON Schema", html)
+            self.assertIn('"body"', html)
+            self.assertIn("/monitor/WS/latest", html)
+            self.assertIn("Accepts monitor WebSocket clients.", html)
+            self.assertIn("Server Event:", html)
+        finally:
+            DEVELOP_REFERENCE.clear()
 
 
 if __name__ == "__main__":
