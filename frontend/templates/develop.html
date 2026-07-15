@@ -278,7 +278,7 @@
                 <a class="rct-protocol-index-title" href="#rest-api">REST</a>
                 <ul class="rct-protocol-index-list">
                   {% for route in develop_reference.rest_routes %}
-                  <li><a href="#[[ route.anchor ]]" data-spy-target="[[ route.anchor ]]">[[ route.path ]]</a></li>
+                  <li><a class="rct-protocol-index-child" href="#[[ route.anchor ]]" data-spy-target="[[ route.anchor ]]">[[ route.path ]]</a></li>
                   {% endfor %}
                 </ul>
               </div>
@@ -286,10 +286,10 @@
                 <a class="rct-protocol-index-title" href="#websocket-api">WS</a>
                 <ul class="rct-protocol-index-list">
                   {% for route in develop_reference.ws_routes %}
-                  <li><a href="#[[ route.anchor ]]" data-spy-target="[[ route.anchor ]]">[[ route.path ]]</a></li>
+                  <li><a class="rct-protocol-index-child" href="#[[ route.anchor ]]" data-spy-target="[[ route.anchor ]]">[[ route.path ]]</a></li>
                   {% endfor %}
                   {% for message in develop_reference.ws_messages %}
-                  <li><a href="#[[ message.anchor ]]" data-spy-target="[[ message.anchor ]]">[[ message.kind ]]: [[ message.name ]]</a></li>
+                  <li><a class="rct-protocol-index-child" href="#[[ message.anchor ]]" data-spy-target="[[ message.anchor ]]">[[ message.kind ]]: [[ message.name ]]</a></li>
                   {% endfor %}
                 </ul>
               </div>
@@ -349,14 +349,17 @@
                 <h5 class="rct-protocol-schema-title">
                   <span>Output JSON Schema</span>
                   {% if method.method == "GET" and route.path.startswith("/monitor/REST/") %}
+                  {% set has_path_parameters = "{" in route.path or "}" in route.path %}
                   <button
                     type="button"
                     class="btn btn-outline-primary btn-sm rct-protocol-run-get js-rct-run-get"
                     data-route-path="[[ route.path ]]"
                     data-result-id="[[ result_id ]]"
                     data-is-binary="[[ 'true' if method.output_schema.contentEncoding == 'binary' else 'false' ]]"
+                    data-has-path-parameters="[[ 'true' if has_path_parameters else 'false' ]]"
                     aria-label="Run GET [[ route.path ]]"
-                    title="Run GET"
+                    title="[[ 'Path parameters required' if has_path_parameters else 'Run GET' ]]"
+                    {% if has_path_parameters %}disabled aria-disabled="true"{% endif %}
                   >
                     <i class="bi bi-play-fill" aria-hidden="true"></i>
                   </button>
@@ -389,14 +392,17 @@
                 <h5 class="rct-protocol-schema-title">
                   <span>Output JSON Schema</span>
                   {% if method.method == "GET" and route.path.startswith("/monitor/REST/") %}
+                  {% set has_path_parameters = "{" in route.path or "}" in route.path %}
                   <button
                     type="button"
                     class="btn btn-outline-primary btn-sm rct-protocol-run-get js-rct-run-get"
                     data-route-path="[[ route.path ]]"
                     data-result-id="[[ result_id ]]"
                     data-is-binary="[[ 'true' if method.output_schema.contentEncoding == 'binary' else 'false' ]]"
+                    data-has-path-parameters="[[ 'true' if has_path_parameters else 'false' ]]"
                     aria-label="Run GET [[ route.path ]]"
-                    title="Run GET"
+                    title="[[ 'Path parameters required' if has_path_parameters else 'Run GET' ]]"
+                    {% if has_path_parameters %}disabled aria-disabled="true"{% endif %}
                   >
                     <i class="bi bi-play-fill" aria-hidden="true"></i>
                   </button>

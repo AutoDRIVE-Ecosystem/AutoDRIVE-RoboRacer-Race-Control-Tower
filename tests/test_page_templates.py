@@ -234,6 +234,15 @@ class PageTemplateResponseTests(unittest.TestCase):
                     output_schema=OK_RESPONSE_SCHEMA,
                 ),
             )
+            app.router.add_get(
+                "/monitor/REST/{version}/accident-logs/{filename}",
+                handler,
+                route_doc(
+                    "Returns one accident log.",
+                    input_schema=monitor_input_schema(),
+                    output_schema=OK_RESPONSE_SCHEMA,
+                ),
+            )
             app.router.add_get("/monitor/WS/{version}", handler, "Accepts monitor WebSocket clients.")
 
             response = build_page_template_response("/develop/latest", Path("frontend"))
@@ -256,6 +265,10 @@ class PageTemplateResponseTests(unittest.TestCase):
             self.assertIn("common-schema-status-state", html)
             self.assertIn("simulator_socketio_path", html)
             self.assertIn("/monitor/REST/latest/topics", html)
+            self.assertIn(
+                'class="rct-protocol-index-child" href="#monitor-rest-latest-topics"',
+                html,
+            )
             self.assertIn("Returns topic selections.", html)
             self.assertIn("Updates topic selections.", html)
             self.assertNotIn("handle_monitor_topics_get", html)
@@ -271,6 +284,17 @@ class PageTemplateResponseTests(unittest.TestCase):
             self.assertIn("js-rct-run-get", html)
             self.assertIn("bi-play-fill", html)
             self.assertIn('data-route-path="/monitor/REST/latest/topics"', html)
+            self.assertIn('data-has-path-parameters="false"', html)
+            self.assertIn('data-route-path="/monitor/REST/latest/accident-logs/{filename}"', html)
+            self.assertIn('data-has-path-parameters="true"', html)
+            self.assertIn('title="Path parameters required"', html)
+            parameterized_button_start = html.index(
+                'data-route-path="/monitor/REST/latest/accident-logs/{filename}"'
+            )
+            parameterized_button_end = html.index("</button>", parameterized_button_start)
+            parameterized_button = html[parameterized_button_start:parameterized_button_end]
+            self.assertIn("disabled", parameterized_button)
+            self.assertIn('aria-disabled="true"', parameterized_button)
             self.assertNotIn("GET Result", html)
             self.assertIn("rct-protocol-result-close", html)
             self.assertIn("bi-x-lg", html)
@@ -299,6 +323,14 @@ class PageTemplateResponseTests(unittest.TestCase):
             ]
             self.assertNotIn("Input JSON Schema", get_section)
             self.assertIn("/monitor/WS/latest", html)
+            self.assertIn(
+                'class="rct-protocol-index-child" href="#monitor-ws-latest"',
+                html,
+            )
+            self.assertIn(
+                'class="rct-protocol-index-child" href="#ws-event-status"',
+                html,
+            )
             self.assertIn("Accepts monitor WebSocket clients.", html)
             self.assertIn("Server Event:", html)
             self.assertIn("Message JSON Schema", html)
