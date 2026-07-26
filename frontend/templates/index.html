@@ -93,8 +93,8 @@
                   <div class="rct-settings-subtitle">Decision Pack</div>
                   <div class="d-flex flex-wrap gap-3">
                     <div class="form-check">
-                      <input id="decisionPackVersionV1" class="form-check-input decision-pack-version-radio" type="radio" name="decisionPackVersion" value="v1">
-                      <label class="form-check-label" for="decisionPackVersionV1">Decision Pack v1</label>
+                      <input id="decisionPackVersionV1" class="form-check-input decision-pack-version-radio" type="radio" name="decisionPackVersion" value="v1" disabled>
+                      <label class="form-check-label" for="decisionPackVersionV1">Decision Pack v1 (deprecated)</label>
                     </div>
                     <div class="form-check">
                       <input id="decisionPackVersionV2" class="form-check-input decision-pack-version-radio" type="radio" name="decisionPackVersion" value="v2" checked>
@@ -5300,6 +5300,7 @@
           !state.anyChanged
           || !state.changedSettingsValid
           || (state.backendChanged && !state.wsConnected)
+          || selectedDecisionPackVersion() === "v1"
         );
         settingsResetButton.disabled = !settingsDefaultsChanged();
       }
