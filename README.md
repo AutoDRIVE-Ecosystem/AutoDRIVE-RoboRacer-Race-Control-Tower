@@ -200,4 +200,4 @@ The AutoDRIVE simulator and public RoboRacer DevKit bridge use Socket.IO over We
 
 ## License
 
-This project is licensed under the BSD 3-Clause License. See `LICENSE`.
+This project is licensed under the BSD 2-Clause License. See `LICENSE`.
