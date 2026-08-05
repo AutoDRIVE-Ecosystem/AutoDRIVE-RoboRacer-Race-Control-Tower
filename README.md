@@ -157,12 +157,13 @@ Run the container:
 ```bash
 docker run --rm \
   -p 4567:4567 \
+  --add-host=host.docker.internal:host-gateway \
   -e RCT_DEVKIT_URLS="ws://host.docker.internal:4568,ws://host.docker.internal:4569" \
   -e RCT_DEVKIT_VEHICLE_IDS="1,2" \
   autodrive-rct
 ```
 
-On Linux, add `--add-host=host.docker.internal:host-gateway` if `host.docker.internal` is not available, or place RCT and the DevKit instances on the same Docker network.
+When `RCT_DEVKIT_URLS` uses `host.docker.internal` from inside the container, pass `--add-host=host.docker.internal:host-gateway` to `docker run` so the container can resolve the host gateway. Alternatively, place RCT and the DevKit instances on the same Docker network and use the appropriate container hostnames.
 
 The bundled `./run.sh` script builds `autodrive-rct:dev` from the current workspace before running it. It uses Docker host networking, bind mounts the host `frontend` directory into `/app/frontend`, and defaults DevKit URLs to `ws://127.0.0.1:4568,ws://127.0.0.1:4569`.
 
